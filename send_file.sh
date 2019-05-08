@@ -37,12 +37,12 @@ while [ "$at_end" = false ]; do
 		file_done=true	
 	fi
 
-	change_address=$(bitcoin-cli $3 getrawchangeaddress)
-	unfinishedtx=$(bitcoin-cli $3 -named createrawtransaction inputs='''[]''' outputs='''{ "data": "'$op_return_data'", "'$change_address'": 0.00001 }''')
-	rawtxhex=$(bitcoin-cli $3 fundrawtransaction $unfinishedtx | jq -r '.hex')
-#	bitcoin-cli $3 decoderawtransaction $rawtxhex
-	rawsignedtxhex=$(bitcoin-cli $3 signrawtransactionwithwallet $rawtxhex | jq -r '.hex')
-	tx=$(bitcoin-cli $3 sendrawtransaction $rawsignedtxhex | tr -d '\n')
+	change_address=$(bitcoin-cli $2 getrawchangeaddress)
+	unfinishedtx=$(bitcoin-cli $2 -named createrawtransaction inputs='''[]''' outputs='''{ "data": "'$op_return_data'", "'$change_address'": 0.00001 }''')
+	rawtxhex=$(bitcoin-cli $2 fundrawtransaction $unfinishedtx | jq -r '.hex')
+#	bitcoin-cli $2 decoderawtransaction $rawtxhex
+	rawsignedtxhex=$(bitcoin-cli $2 signrawtransactionwithwallet $rawtxhex | jq -r '.hex')
+	tx=$(bitcoin-cli $2 sendrawtransaction $rawsignedtxhex | tr -d '\n')
 #	echo "$op_return_data" >&2
 #	echo >&2
 	tx_chars=$(echo -n $tx | wc -c)
