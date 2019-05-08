@@ -1,7 +1,7 @@
 #!/bin/bash
 
-if [ "$#" -lt 2 ]; then
-	echo "usage: ./send_file.sh <file-path> <fee-satoshis-per-chunk> [bitcoin-cli flags]"
+if [ "$#" -lt 1 ]; then
+	echo "usage: ./send_file.sh <file-path> [bitcoin-cli flags]"
 	exit 1
 fi
 
@@ -37,51 +37,7 @@ while [ "$at_end" = false ]; do
 		file_done=true	
 	fi
 
-	fee=$(bc -l <<< "$2/100000000")
-	balance=$(bitcoin-cli $3 getbalance)	
-	printed=false
-	while [ "$(bc -l <<< "$fee > $(bitcoin-cli -regtest getbalance)")" = 1 ]; do
-		if [ "$printed" = false ]; then
-			address=$(bitcoin-cli $3 getnewaddress)
-			echo "Insufficient balance; to continue, send to: $address" >&2
-			printed=true
-		fi
-	done
-	utxo_amnt="null"
-	printed1=false
-	printed2=false
-	while [ "$utxo_amnt" = "null" ]; do
-		num_txs=$(bitcoin-cli $3 listunspent | jq -r '. | length')
-		txi=$(($num_txs - 1))
-		while [ "$txi" -ge 0 ]; do
-			utxo_amnt=$(bitcoin-cli $3 listunspent | jq -r ".[$txi] | .amount" | sed -E 's/([+-]?[0-9.]+)[eE]\+?(-?)([0-9]+)/(\1*10^\2\3)/g')
-			if [ "$(bc -l <<< "$utxo_amnt > $fee")" = 1 -a "$(bitcoin-cli $3 listunspent | jq -r ".[$txi] | .safe")" = "true" ]; then
-				break
-			fi
-			txi=$(($txi - 1))
-		done
-		if [ "$utxo_amnt" = "null" ]; then
-			num_txs_all=$(bitcoin-cli $3 listunspent 0 | jq -r '. | length')
-			if [ "$(bc -l <<< "$num_txs < $num_txs_all")" = 1 ]; then
-				if [ "$printed1" = false ]; then
-					echo "Waiting for confirmations..." >&2
-					printed1=true
-				fi
-			elif [ "$printed2" = false ]; then
-				address=$(bitcoin-cli $3 getnewaddress)
-				echo "No single tx has enough funds; to continue, try sending more: $address" >&2
-				printed2=true
-			fi
-		fi
-	done
-	utxo_txid=$(bitcoin-cli $3 listunspent | jq -r ".[$txi] | .txid")
-	utxo_vout=$(bitcoin-cli $3 listunspent | jq -r ".[$txi] | .vout")
 	change_address=$(bitcoin-cli $3 getrawchangeaddress)
-	amount_to_keep=$(bc -l <<< "$utxo_amnt - $fee")
-	if [ "$(echo "${amount_to_keep:0:1}")" = "." ]; then
-		amount_to_keep="0$amount_to_keep" # bc won't prepend decimal with zero,
-						  # for values less than 1
-	fi
 	unfinishedtx=$(bitcoin-cli $3 -named createrawtransaction inputs='''[]''' outputs='''{ "data": "'$op_return_data'", "'$change_address'": 0.00001 }''')
 	rawtxhex=$(bitcoin-cli $3 fundrawtransaction $unfinishedtx | jq -r '.hex')
 #	bitcoin-cli $3 decoderawtransaction $rawtxhex
