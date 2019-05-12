@@ -74,7 +74,6 @@ static char *fetchHexData(char *txid) {
 	// cleanup and return data
 	end:
 		curl_easy_cleanup(curl);
-		if (hexData == NULL) { printf("\n\n%s\n\n", txid); }
 		return hexData;
 }
 
