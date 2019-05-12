@@ -20,8 +20,8 @@ static char *fetchHexData(char *txid) {
 
 	// construct query
 	char query[QUERY_LEN];
-	snprintf(query, sizeof(query), "{\"v\":%d,\"q\":{\"find\":{\"tx.h\":\"%s\"}},\"r\":{\"f\":\"[.[0]|{data:.out[0].h1}]\"}}",
-		BITDB_API_VER, txid);
+	snprintf(query, sizeof(query), "{\"v\":%d,\"q\":{\"find\":{\"tx.h\":\"%s\"}},\"r\":{\"f\":\"[.[0]|{%s:.out[0].h1}]\"}}",
+		BITDB_API_VER, txid, RESPONSE_DATA_TAG);
 	char *queryB64;
 	if ((queryB64 = b64_encode((const unsigned char *)query, strlen(query))) == NULL) { die("b64 encode failed"); }
 
@@ -34,7 +34,7 @@ static char *fetchHexData(char *txid) {
 
 	// send curl request
 	char *response = NULL;
-	if (IS_BITDB_REQUEST_LIMIT) {
+	if (IS_BITDB_REQUEST_LIMIT) { // this bit is to trick a server's request limit, although won't necessarily work with every server
 		struct curl_slist *headers = NULL;
 		char buf[HEADER_BUF_SZ];
 		snprintf(buf, sizeof(buf), "X-Forwarded-For: %d.%d.%d.%d", rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1);
@@ -44,25 +44,16 @@ static char *fetchHexData(char *txid) {
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeResponseToMemory);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-	/* do { */
 	if ((res = curl_easy_perform(curl)) != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
 		goto end;
 	} 
 
 	// parse response for hex data
-	char *responseParsed = response;
-	char *responseHead;
-	if (responseParsed != NULL && strlen(responseParsed) > strlen(EXPECTED_RESPONSE_HEAD_C)) {
-		if (strncmp(responseParsed, EXPECTED_RESPONSE_HEAD_C, strlen(EXPECTED_RESPONSE_HEAD_C)) == 0) {
-			responseHead = EXPECTED_RESPONSE_HEAD_C;
-		} else if (strncmp(responseParsed, EXPECTED_RESPONSE_HEAD_U, strlen(EXPECTED_RESPONSE_HEAD_U)) == 0) {
-			responseHead = EXPECTED_RESPONSE_HEAD_U;
-		} else { fprintf(stderr, "received invalid response: %s\n", responseParsed); goto end; }
-	} else { goto end; }
-	responseParsed += strlen(responseHead);
-	int len = strlen(responseParsed);
-	for (int i=strlen(responseHead); i<len; i++) {
+	char *responseParsed;
+	if ((responseParsed = strstr(response, RESPONSE_DATA_TAG_QUERY)) == NULL) { goto end; }
+	responseParsed += strlen(RESPONSE_DATA_TAG_QUERY);
+	for (int i=0; i<strlen(responseParsed); i++) {
 		if (responseParsed[i] == '"') { responseParsed[i] = 0; break; }
 	}
 
@@ -104,7 +95,7 @@ void fetchFileWrite(char *txidStart, int fd) {
 	int fileEnd=0;
 	strcpy(txid, txidStart);
 	if ((hexData = fetchHexData(txid)) == NULL) { fprintf(stderr, "fetch failed; txid is probably incorrect\n"); return; }
-	do {
+	while (!fileEnd) {
 		if (strlen(hexData) >= TXID_CHARS) {
 			strcpy(txidNext, hexData+(strlen(hexData) - TXID_CHARS));
 			if ((hexDataNext = fetchHexData(txidNext)) == NULL) { fileEnd = 1; }
@@ -114,5 +105,5 @@ void fetchFileWrite(char *txidStart, int fd) {
 		free(fileByteData);
 		strcpy(txid, txidNext); 
 		hexData = hexDataNext;
-	} while (!fileEnd);
+	}
 }

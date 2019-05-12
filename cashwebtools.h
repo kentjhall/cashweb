@@ -17,8 +17,8 @@
 #define TXID_CHARS TXID_BYTES*2
 #define QUERY_LEN 134
 #define HEADER_BUF_SZ 35
-#define EXPECTED_RESPONSE_HEAD_U "{\"u\":[{\"data\":\""
-#define EXPECTED_RESPONSE_HEAD_C "{\"u\":[],\"c\":[{\"data\":\""
+#define RESPONSE_DATA_TAG "data"
+#define RESPONSE_DATA_TAG_QUERY "\""RESPONSE_DATA_TAG"\":\""
 
 #define BITDB_API_VER 3
 #define IS_BITDB_REQUEST_LIMIT 1
