@@ -1,16 +1,16 @@
-#include "cashwebtools.h"
+#include "cashgettools.h"
 
 char *bitdbNode = "https://bitdb.bitcoin.com/q";
 
-static void die(char *e) { perror(e); exit(1); }
-
-static size_t writeResponseToMemory(void *data, size_t size, size_t nmemb, char **responsePtr) {
+// copies curl response to specified address in memory; needs to be freed
+static size_t copyResponseToMemory(void *data, size_t size, size_t nmemb, char **responsePtr) {
 	if ((*responsePtr = malloc(nmemb*size + 1)) == NULL) { die("malloc failed"); }
 	memcpy(*responsePtr, data, nmemb*size);
 	(*responsePtr)[nmemb*size] = 0;
 	return nmemb*size;
 }
 
+// fetches hex data at specified txid and copies to memory; needs to be freed
 static char *fetchHexData(char *txid) {
 	CURL *curl;
 	CURLcode res;
@@ -42,7 +42,7 @@ static char *fetchHexData(char *txid) {
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 	}
 	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeResponseToMemory);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &copyResponseToMemory);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 	if ((res = curl_easy_perform(curl)) != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
@@ -68,6 +68,7 @@ static char *fetchHexData(char *txid) {
 		return hexData;
 }
 
+// converts hex bytes to chars, accounting for possible txid at end, and copies to memory; needs to be freed
 static char *hexStrDataToFileBytes(char *hexData, int fileEnd) {
 	if (!(strlen(hexData) % 2 == 0)) { fprintf(stderr, "invalid hex data"); return NULL; }
 
@@ -85,7 +86,7 @@ static char *hexStrDataToFileBytes(char *hexData, int fileEnd) {
 	return byteData;
 }
 
-void fetchFileWrite(char *txidStart, int fd) {
+void getWriteFile(char *txidStart, int fd) {
 	if (strlen(txidStart) != TXID_CHARS) { fprintf(stderr, "invalid txid"); return; }
 	char *hexData;
 	char *hexDataNext;

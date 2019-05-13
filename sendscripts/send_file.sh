@@ -5,8 +5,8 @@ if [ "$#" -lt 1 ]; then
 	exit 1
 fi
 
-#prefix=$(echo -n "cw" | xxd -p | tr -d '\n')
-prefix=""
+prefix_raw=""
+prefix=$(echo -n $prefix_raw | xxd -p | tr -d '\n')
 prefix_chars=$(echo -n $prefix | wc -c)
 file_body=$(echo -n "$(<$1)" | xxd -p | tr -d '\n')
 file_chars=$(echo -n $file_body | wc -c)
