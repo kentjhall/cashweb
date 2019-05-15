@@ -1,6 +1,7 @@
 #include "cashgettools.h"
 
-char *bitdbNode = "https://bitdb.bitcoin.com/q";
+/* char *bitdbNode = "https://bitdb.bitcoin.com/q"; */
+char *bitdbNode = "https://bitdb.bch.sx/q";
 
 // copies curl response to specified address in memory; needs to be freed
 static size_t copyResponseToMemory(void *data, size_t size, size_t nmemb, char **responsePtr) {
@@ -11,17 +12,17 @@ static size_t copyResponseToMemory(void *data, size_t size, size_t nmemb, char *
 }
 
 // fetches hex data at specified txid and copies to memory; needs to be freed
-static char *fetchHexData(char *txid) {
+static int fetchHexData(char *hexData, const char *txid) {
 	CURL *curl;
 	CURLcode res;
-	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() fails\n"); return NULL; }
+	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() fails\n"); return 0; }
 
-	char *hexData = NULL;
+	int success = 1;
 
 	// construct query
 	char query[QUERY_LEN];
 	snprintf(query, sizeof(query), "{\"v\":%d,\"q\":{\"find\":{\"tx.h\":\"%s\"}},\"r\":{\"f\":\"[.[0]|{%s:.out[0].h1}]\"}}",
-		BITDB_API_VER, txid, RESPONSE_DATA_TAG);
+		BITDB_API_VER, txid, QUERY_DATA_TAG);
 	char *queryB64;
 	if ((queryB64 = b64_encode((const unsigned char *)query, strlen(query))) == NULL) { die("b64 encode failed"); }
 
@@ -46,35 +47,42 @@ static char *fetchHexData(char *txid) {
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 	if ((res = curl_easy_perform(curl)) != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+		success = 0;
 		goto end;
 	} 
 
 	// parse response for hex data
 	char *responseParsed;
-	if ((responseParsed = strstr(response, RESPONSE_DATA_TAG_QUERY)) == NULL) { goto end; }
-	responseParsed += strlen(RESPONSE_DATA_TAG_QUERY);
+	if ((responseParsed = strstr(response, RESPONSE_DATA_TAG)) == NULL) { 
+		success = 0; 
+		goto end; 
+	}
+	responseParsed += strlen(RESPONSE_DATA_TAG);
 	for (int i=0; i<strlen(responseParsed); i++) {
 		if (responseParsed[i] == '"') { responseParsed[i] = 0; break; }
 	}
 
 	// copy hex data to new memory location
-	hexData = malloc(strlen(responseParsed)+1);
+	if (strlen(responseParsed) > TX_DATA_CHARS) { 
+		success=0;
+		fprintf(stderr, "invalid response, too much data: %s\ntxid is probably incorrect\n", responseParsed); 
+		goto end; 
+	}
 	strcpy(hexData, responseParsed);
 	free(response);
 
 	// cleanup and return data
 	end:
 		curl_easy_cleanup(curl);
-		return hexData;
+		return success;
 }
 
-// converts hex bytes to chars, accounting for possible txid at end, and copies to memory; needs to be freed
-static char *hexStrDataToFileBytes(char *hexData, int fileEnd) {
-	if (!(strlen(hexData) % 2 == 0)) { fprintf(stderr, "invalid hex data"); return NULL; }
+// converts hex bytes to chars, accounting for possible txid at end, and copies to specified memory loc
+static int hexStrDataToFileBytes(char *byteData, const char *hexData, int fileEnd) {
+	if (!(strlen(hexData) % 2 == 0)) { fprintf(stderr, "invalid hex data"); return 0; }
 
+	memset(byteData, 0, TX_DATA_BYTES+1);
 	int tailOmit = !fileEnd ? TXID_CHARS : 0;
-	char *byteData;
-	if ((byteData = malloc(((strlen(hexData)-tailOmit)/2)+1)) == NULL) { die("malloc failed"); }
 	char hexByte[2+1];
 	hexByte[2] = 0;
 	for (int i=0; i<strlen(hexData)-tailOmit; i+=2) { 
@@ -82,38 +90,41 @@ static char *hexStrDataToFileBytes(char *hexData, int fileEnd) {
 		byteData[i/2] = (char)strtol(hexByte, NULL, 16);
 	}
 	byteData[(strlen(hexData)-tailOmit)/2] = 0;
-	free(hexData);
-	return byteData;
+	return 1;
 }
 
-static void getWriteFileChain(char *txidStart, int fd) {
-	if (strlen(txidStart) != TXID_CHARS) { fprintf(stderr, "invalid txid\n"); return; }
-	char *hexData;
-	char *hexDataNext;
+static int checkIsFileTree(char *hexDataN, const char *hexDataO) {
 	char txid[TXID_CHARS+1];
+	strncpy(txid, hexDataO, TXID_CHARS);
+	txid[TXID_CHARS] = 0;
+	return fetchHexData(hexDataN, txid);
+}
+
+static void traverseFileChain(const char *hexDataStart, int fd) {
+	char hexData[TX_DATA_CHARS+1];
+	strcpy(hexData, hexDataStart);
+	char hexDataNext[TX_DATA_CHARS+1];
 	char txidNext[TXID_CHARS+1];
-	char *fileByteData;
+	char fileByteData[TX_DATA_BYTES+1];
 	int fileEnd=0;
-	strcpy(txid, txidStart);
-	if ((hexData = fetchHexData(txid)) == NULL) { fprintf(stderr, "fetch failed; txid is probably incorrect\n"); return; }
 	while (!fileEnd) {
 		if (strlen(hexData) >= TXID_CHARS) {
 			strcpy(txidNext, hexData+(strlen(hexData) - TXID_CHARS));
-			if ((hexDataNext = fetchHexData(txidNext)) == NULL) { fileEnd = 1; }
+			if (!fetchHexData(hexDataNext, txidNext)) { fileEnd = 1; }
 		} else { fileEnd = 1; }
-		fileByteData = hexStrDataToFileBytes(hexData, fileEnd);
+		if (!hexStrDataToFileBytes(fileByteData, hexData, fileEnd)) { return; }
 		if (write(fd, fileByteData, strlen(fileByteData)) < strlen(fileByteData)) { die("write() failed"); }
-		free(fileByteData);
-		strcpy(txid, txidNext); 
-		hexData = hexDataNext;
+		strcpy(hexData, hexDataNext);
 	}
 }
 
-static void getWriteFileTree(char *txidRoot, int fd) {
+static void traverseFileTree(char *txidRoot, int fd) {
 	return; // TODO
 }
 
-void getWriteFile(char *txid, int fd) {
+void getFile(const char *txid, int fd) {
 	if (IS_BITDB_REQUEST_LIMIT) { srandom(time(NULL)); }
-	getWriteFileChain(txid, fd);	
+	char hexData[TX_DATA_CHARS+1];
+	if (!fetchHexData(hexData, txid)) { return; }
+	traverseFileChain(hexData, fd);	
 }

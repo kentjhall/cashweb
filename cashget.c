@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	getWriteFile(txid, STDOUT_FILENO);
+	getFile(txid, STDOUT_FILENO);
 
 	curl_global_cleanup();
 	return 0;
