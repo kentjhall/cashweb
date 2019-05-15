@@ -86,8 +86,8 @@ static char *hexStrDataToFileBytes(char *hexData, int fileEnd) {
 	return byteData;
 }
 
-void getWriteFile(char *txidStart, int fd) {
-	if (strlen(txidStart) != TXID_CHARS) { fprintf(stderr, "invalid txid"); return; }
+static void getWriteFileChain(char *txidStart, int fd) {
+	if (strlen(txidStart) != TXID_CHARS) { fprintf(stderr, "invalid txid\n"); return; }
 	char *hexData;
 	char *hexDataNext;
 	char txid[TXID_CHARS+1];
@@ -107,4 +107,13 @@ void getWriteFile(char *txidStart, int fd) {
 		strcpy(txid, txidNext); 
 		hexData = hexDataNext;
 	}
+}
+
+static void getWriteFileTree(char *txidRoot, int fd) {
+	return; // TODO
+}
+
+void getWriteFile(char *txid, int fd) {
+	if (IS_BITDB_REQUEST_LIMIT) { srandom(time(NULL)); }
+	getWriteFileChain(txid, fd);	
 }
