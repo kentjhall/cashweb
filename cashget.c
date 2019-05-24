@@ -13,7 +13,10 @@ int main(int argc, char **argv) {
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	getFile(txid, STDOUT_FILENO);
+	if (!getFile(txid, STDOUT_FILENO)) { 
+		fprintf(stderr, "get failed; maybe txid is incorrect, or stored file is formatted incorrectly\n");
+		return 1;
+	}
 
 	curl_global_cleanup();
 	return 0;
