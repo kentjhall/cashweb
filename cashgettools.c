@@ -46,7 +46,7 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 
 	// initializing this variable-length array before goto; will track when a txid's hex data has already been saved
 	int added[count]; 
-	memset(added, 0, count);
+	memset(added, 0, count*sizeof(added[0]));
 
 	// send curl request
 	struct DynamicMemory responseDm;
@@ -131,9 +131,10 @@ static int hexStrDataToFileBytes(char *byteData, const char *hexData, int fileEn
 static int traverseFileTree(const char *treeHexData, int fd, char ***firstHexDatas, char ***prevTxids, int *prevTxidsCount, int isChained) {
 	// defaults for when not segment in chain (full tree), so these can be set to NULL
 	char **nullPtr = NULL;
+	char **nullPtr2 = NULL;
 	int zeros[2] = {0};
 	if (firstHexDatas == NULL) { firstHexDatas = &nullPtr; }
-	if (prevTxids == NULL) { prevTxids = &nullPtr; }
+	if (prevTxids == NULL) { prevTxids = &nullPtr2; }
 	if (prevTxidsCount == NULL) { prevTxidsCount = zeros; }
 
 	// check for partial txid in last segment of chain; if so, fill it with beginning of this segment
@@ -189,7 +190,6 @@ static int traverseFileTree(const char *treeHexData, int fd, char ***firstHexDat
 			if ((hexDatas[i] = malloc(TX_DATA_CHARS+1)) == NULL) { die("malloc failed"); }
 		}	
 		if (!fetchHexData(hexDatas+firstTxidsCount, (const char **)txids+firstTxidsCount, txidsCount-firstTxidsCount)) {
-			if (prevTxidsCount == zeros) { fprintf(stderr, "%d\n", firstTxidsCount); }	
 			for (int i=0; i<txidsCount; i++) { free(hexDatas[i]); free(txids[i]); }
 			free(hexDatas); free(txids);
 			return 0;
