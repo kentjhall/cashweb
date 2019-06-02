@@ -14,15 +14,25 @@ static int sendTxAttempt(char **txid, const char *hexData) {
 	if ((sfp = popen(cmd, "r")) == NULL) { die("popen() failed"); }
 	while (fgets(*txid, TXID_CHARS+1, sfp)) { if (ferror(sfp)) { die("popen() file error"); } }
 	pclose(sfp);
-	if (strstr(*txid, "error message:")) { return 0; }
+	if (strstr(*txid, " ")) { return 0; }
 	fprintf(stderr, "-");
 	return 1;
+}
+
+static double checkBalance() {
+	FILE *sfp;
+	if ((sfp = popen(CHECK_BALANCE_CMD, "r")) == NULL) { die("popen() failed"); }
+	char balanceStr[CLI_LINE_BUF+1];
+	fgets(balanceStr, sizeof(balanceStr), sfp);
+	if (ferror(sfp)) { die("popen() file error"); }
+	pclose(sfp);
+	return atof(balanceStr);
 }
 
 static int checkUtxos() {
 	FILE *sfp;
 	if ((sfp = popen(CHECK_UTXOS_CMD, "r")) == NULL) { die("popen() failed"); }
-	char utxosStr[10];
+	char utxosStr[CLI_LINE_BUF+1];
 	fgets(utxosStr, sizeof(utxosStr), sfp);
 	if (ferror(sfp)) { die("popen() file error"); }
 	pclose(sfp);
@@ -33,10 +43,19 @@ static void sendTx(char **txid, const char *hexData) {
 	int printed;
 	while (!sendTxAttempt(txid, hexData)) { 
 		printed = 0;
-		if (strstr(*txid, "too-long-mempool-chain")) {
+		if (strstr(*txid, "Insufficient funds")) {
+			double balance = checkBalance();	
+			while (checkBalance() <= balance) {
+				if (!printed) { fprintf(stderr, "\nInsufficient balance, send more funds..."); printed = 1; }
+				sleep(ERR_WAIT_CYCLE);
+				sendTxAttempt(txid, hexData);	
+				fprintf(stderr, ".");
+			}
+		}
+		else if (strstr(*txid, "too-long-mempool-chain")) {
 			while (checkUtxos() < 1) {
 				if (!printed) { fprintf(stderr, "\nWaiting on confirmations..."); printed = 1; }
-				sleep(WAIT_CYCLE);
+				sleep(ERR_WAIT_CYCLE);
 				sendTxAttempt(txid, hexData);
 				fprintf(stderr, ".");
 			}
@@ -113,7 +132,7 @@ static inline char *sendFileChain(FILE *fp, int isHex) {
 }
 
 static char *sendFileTree(FILE *fp, int depth, int maxDepth) {
-	if (depth >= maxDepth) { return sendFileChain(fp, depth); }
+	if (maxDepth >= 0 && depth >= maxDepth) { return sendFileChain(fp, depth); }
 
 	FILE *tfp;
 	if ((tfp = tmpfile()) == NULL) { die("tmpfile() failed"); }
