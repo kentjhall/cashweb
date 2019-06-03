@@ -18,6 +18,8 @@ static size_t copyResponseToMemory(void *data, size_t size, size_t nmemb, struct
 
 // fetches hex data at specified txid and copies to specified location in memory 
 static int fetchHexData(char **hexDatas, const char **txids, int count) {
+	if (count < 1) { return 1; }
+
 	CURL *curl;
 	CURLcode res;
 	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() fails\n"); return 0; }
@@ -72,6 +74,10 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 	} 
 	(responseDm.data)[responseDm.size] = 0;
 	response = responseDm.data;
+	if (strstr(response, "414 Request-URI Too Large")) {
+		int firstCount = count/2;
+		return fetchHexData(hexDatas, txids, firstCount) && fetchHexData(hexDatas+firstCount, txids+firstCount, count-firstCount);
+	}
 
 	char *dataTxidPtr;
 	char dataTxid[TXID_CHARS+1];

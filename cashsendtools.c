@@ -19,16 +19,6 @@ static int sendTxAttempt(char **txid, const char *hexData) {
 	return 1;
 }
 
-static double checkBalance() {
-	FILE *sfp;
-	if ((sfp = popen(CHECK_BALANCE_CMD, "r")) == NULL) { die("popen() failed"); }
-	char balanceStr[CLI_LINE_BUF+1];
-	fgets(balanceStr, sizeof(balanceStr), sfp);
-	if (ferror(sfp)) { die("popen() file error"); }
-	pclose(sfp);
-	return atof(balanceStr);
-}
-
 static int checkUtxos() {
 	FILE *sfp;
 	if ((sfp = popen(CHECK_UTXOS_CMD, "r")) == NULL) { die("popen() failed"); }
@@ -37,6 +27,16 @@ static int checkUtxos() {
 	if (ferror(sfp)) { die("popen() file error"); }
 	pclose(sfp);
 	return atoi(utxosStr);
+}
+
+double checkBalance() {
+	FILE *sfp;
+	if ((sfp = popen(CHECK_BALANCE_CMD, "r")) == NULL) { die("popen() failed"); }
+	char balanceStr[CLI_LINE_BUF+1];
+	fgets(balanceStr, sizeof(balanceStr), sfp);
+	if (ferror(sfp)) { die("popen() file error"); }
+	pclose(sfp);
+	return atof(balanceStr);
 }
 
 static void sendTx(char **txid, const char *hexData) {
@@ -60,6 +60,7 @@ static void sendTx(char **txid, const char *hexData) {
 				fprintf(stderr, ".");
 			}
 		}
+		else if (strstr(*txid, "insufficient priority")) { continue; }
 		if (!printed) { fprintf(stderr, "\nbitcoin-cli error: %s\n", *txid); exit(1); }
 		fprintf(stderr, "\n");
 	}

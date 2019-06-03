@@ -6,7 +6,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 # constants
-dust_amnt_satoshis=600
+dust_amnt_satoshis=545
 max_outputs=2000
 base_size_bytes=158
 out_size_bytes=34
