@@ -74,7 +74,7 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 	} 
 	(responseDm.data)[responseDm.size] = 0;
 	response = responseDm.data;
-	if (strstr(response, "414 Request-URI Too Large")) {
+	if (strstr(response, "414 ")) { // catch for Request-URI Too Large
 		int firstCount = count/2;
 		return fetchHexData(hexDatas, txids, firstCount) && fetchHexData(hexDatas+firstCount, txids+firstCount, count-firstCount);
 	}
