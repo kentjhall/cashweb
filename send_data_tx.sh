@@ -5,6 +5,11 @@ if [ "$#" -lt 1 ]; then
 	exit 1
 fi
 
+strstr() {
+  x="${1%%$2*}"
+  [[ "$x" = "$1" ]] && echo -1 || echo "${#x}"
+}
+
 # constants
 dust_amnt_satoshis=545
 base_size=10
@@ -23,16 +28,19 @@ change_addr=$(bitcoin-cli getrawchangeaddress)
 inputs=""
 num_inputs=0
 
-data=""
-for hex_data in "$@"; do
-	data_size=$(($(echo -n $hex_data | wc -c)/2))
-	if [ $data_size -gt 255 ]; then echo "send_data_tx.sh does not currently support data >255 bytes, may need revision"; exit 1; fi
-	if [ $data_size -gt 75 ]; then data="$data$push_data_1"; fi
-	data_size_hex=$(echo "obase=16; ibase=10; $data_size" | bc | tr '[:upper:]' '[:lower:]')
-	if [ $(echo -n $data_size_hex | wc -c) -lt 2 ]; then data_size_hex="0$data_size_hex"; fi
-	data="$data$data_size_hex$hex_data"
-done
-data_len=$(echo -n $data | wc -c)
+if [ "$#" -gt 1 ]; then
+	data=""
+	for hex_data in "$@"; do
+		hex_data=$(echo -n $hex_data | tr '[:upper:]' '[:lower:]')
+		data_size=$(($(echo -n $hex_data | wc -c)/2))
+		if [ $data_size -gt 255 ]; then echo "send_data_tx.sh does not support data >255 bytes, may need revision"; exit 1; fi
+		if [ $data_size -gt 75 ]; then data="$data$push_data_1"; fi
+		data_size_hex=$(echo "obase=16; ibase=10; $data_size" | bc | tr '[:upper:]' '[:lower:]')
+		if [ $(echo -n $data_size_hex | wc -c) -lt 2 ]; then data_size_hex="0$data_size_hex"; fi
+		data="$data$data_size_hex$hex_data"
+	done
+	data_len=$(echo -n $data | wc -c)
+else data=$1; data_len=$(($(echo -n $data | wc -c)+4)); fi
 data_out_size=$(($data_len/2))
 
 total_amnt=0
@@ -72,19 +80,22 @@ if [ "$(bc -l <<< "$total_amnt >= $fee")" = 1 ]; then
 		rawtx=$(bitcoin-cli -named createrawtransaction inputs='''['$inputs']''' outputs='''{"data": "'$data'"}''')
 	fi
 
-	data_out_size_hex=$(echo "obase=16; ibase=10; $(($data_out_size+1))" | bc | tr '[:upper:]' '[:lower:]')
-	if [ $(echo -n $data_out_size_hex | wc -c) -lt 2 ]; then data_out_size_hex="0$data_out_size_hex"; fi
-	for (( i=0; i<${#rawtx}; i+=2 )) do
-		if [ "${rawtx:$i:1}" = "6" ] && [ "${rawtx:$(($i+1)):1}" = "a" ]; then
-			rawtx="${rawtx:0:$(($i-2))}$data_out_size_hex${rawtx:$i}"
+	if [ "$#" -gt 1 ]; then
+		data_out_size_hex=$(echo "obase=16; ibase=10; $(($data_out_size+1))" | bc | tr '[:upper:]' '[:lower:]')
+		if [ $(echo -n $data_out_size_hex | wc -c) -lt 2 ]; then data_out_size_hex="0$data_out_size_hex"; fi
+		data_i=$(strstr "$rawtx" "$data")
+		for (( i=$data_i; i>0; i-=2 )) do
+			if [ "${rawtx:$i:1}" = "6" ] && [ "${rawtx:$(($i+1)):1}" = "a" ]; then
+				rawtx="${rawtx:0:$(($i-2))}$data_out_size_hex${rawtx:$i}"
 
-			data_pos=$(($i+2))
-			while [ "$(echo -n $rawtx | cut -c $(($data_pos+1))-$(($data_pos+$data_len)))" != "$data" ]; do
-				rawtx="${rawtx:0:$data_pos}${rawtx:$(($data_pos+2))}"
-			done
-			break
-		fi
-	done	
+				data_pos=$(($i+2))
+				while [ "$(echo -n $rawtx | cut -c $(($data_pos+1))-$(($data_pos+$data_len)))" != "$data" ]; do
+					rawtx="${rawtx:0:$data_pos}${rawtx:$(($data_pos+2))}"
+				done
+				break
+			fi
+		done	
+	fi
 	signedtx=$(bitcoin-cli signrawtransactionwithwallet $rawtx | jq -r '.hex')
 	echo -n $(bitcoin-cli sendrawtransaction $signedtx 2>&1 | tr -d '\n')
 else
