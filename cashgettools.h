@@ -16,9 +16,8 @@
 #define BITDB_API_VER 3
 #define IS_BITDB_REQUEST_LIMIT 1
 
-extern char *bitdbNode;
-
 // gets the file at the specified txid and writes to specified file descriptor
-int getFile(const char *txid, int fd);
+// if foundHandler specified, will call to indicate if file is found
+int getFile(const char *txid, const char *bitdbNode, int fd, void (*foundHandler) (int, int));
 
 #endif

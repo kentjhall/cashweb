@@ -1,6 +1,6 @@
 #include "cashgettools.h"
 
-char *bitdbNode = "https://bitdb.bitcoin.com/q";
+static const char *bitdbNode;
 
 struct DynamicMemory {
 	char *data;
@@ -214,7 +214,7 @@ static int traverseFileTree(const char *treeHexData, int fd, char ***firstHexDat
 		int bytesToWrite;
 		if (!traverseFileTree(hexDataAll, fd, NULL, NULL, NULL, 0)) {
 			if ((bytesToWrite = hexStrDataToFileBytes(fileByteData, hexDataAll, 1))) { 
-				if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { die("write() failed"); }
+				if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed"); return 0; }
 			}
 		}
 	}
@@ -245,7 +245,7 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 		} else { fileEnd = 1; }
 		if (!isTree || !traverseFileTree(hexData, fd, &treeHexDatas, &treeTxids, treeTxidsCount, !fileEnd)) {
 			if (!(bytesToWrite = hexStrDataToFileBytes(fileByteData, hexData, fileEnd))) { return 0; }
-			if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { die("write() failed"); }
+			if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed"); return 0; }
 			isTree = 0;	
 		}
 		strcpy(hexData, hexDataNext);
@@ -255,11 +255,16 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 	return 1;
 }
 
-int getFile(const char *txid, int fd) {
+int getFile(const char *txid, const char *bdNode, int fd, void (*foundHandler) (int, int)) {
+	bitdbNode = bdNode;
 	if (IS_BITDB_REQUEST_LIMIT) { srandom(time(NULL)); }
 	char *hexDataStart = malloc(TX_DATA_CHARS+1);
-	if (!fetchHexData(&hexDataStart, (const char **)&txid, 1)) { return 0; }
-	if (!traverseFileChain(hexDataStart, fd)) { return 0; }
-	free(hexDataStart);
-	return 1;
+	int success = fetchHexData(&hexDataStart, (const char **)&txid, 1);
+	if (foundHandler != NULL) { foundHandler(success, fd); }
+	if (!success) { goto end; }
+	success = traverseFileChain(hexDataStart, fd);
+
+	end:
+		free(hexDataStart);
+		return success;
 }

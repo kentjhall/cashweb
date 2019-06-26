@@ -6,18 +6,29 @@ static long fileSize(int fd) {
 	return st.st_size;
 }
 
-static int sendTxAttempt(char **txid, const char *hexData) {
-	FILE *sfp;
-	char cmd[strlen(SEND_DATA_CMD)+1+strlen(hexData)+1];
-	(*txid)[TXID_CHARS] = 0;
-	snprintf(cmd, sizeof(cmd), "%s %s", SEND_DATA_CMD, hexData);
-	if ((sfp = popen(cmd, "r")) == NULL) { die("popen() failed"); }
-	while (fgets(*txid, TXID_CHARS+1, sfp)) { if (ferror(sfp)) { die("popen() file error"); } }
-	pclose(sfp);
-	if (strstr(*txid, " ")) { return 0; }
-	fprintf(stderr, "-");
-	return 1;
+static int txDataSize(const char *hexData) {
+	int dataSize = strlen(hexData)/2;
+	return dataSize > EXTRA_PUSHDATA_BYTE_THRESHOLD ? dataSize+2 : dataSize+1; 
 }
+
+/* static char *hexCompress(const char *hexData) { */
+/* 	struct bn counts[16]; */
+/* 	for (int i=0; i<16; i++) { bignum_from_int(counts+i, 1); } */
+/* 	for (int i=0; i<strlen(hexData); i++) { */
+/* 		char buf[100000]; */
+/* 		bignum_to_string(&(counts[i]), buf, 100000); */
+/* 		printf("%s\n", buf); */
+/* 		char h[] = { hexData[i], 0 }; */
+/* 		int c = (int)strtol(h, NULL, 16); */
+/* 		struct bn prime; */
+/* 		bignum_from_int(&prime, primesieve_nth_prime(i+1, 0)); */
+/* 		bignum_mul(&(counts[c]), &prime, &(counts[c])); */
+/* 	} */
+/* 	for (int i=0; i<16; i++) { */
+/* 	} */
+/* 	exit(1); */
+/* 	return NULL; */
+/* } */
 
 static int checkUtxos() {
 	FILE *sfp;
@@ -37,6 +48,27 @@ double checkBalance() {
 	if (ferror(sfp)) { die("popen() file error"); }
 	pclose(sfp);
 	return atof(balanceStr);
+}
+
+static void fileBytesToHexStr(char *hex, const char *fileBytes, int n) {
+	for (int i=0; i<n; i++) {
+		hex[i*2]   = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) >> 4];
+		hex[i*2+1] = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) & 0x0F];
+	}
+	hex[n*2] = 0;
+}
+
+static int sendTxAttempt(char **txid, const char *hexData) {
+	FILE *sfp;
+	char cmd[strlen(SEND_DATA_CMD)+1+strlen(hexData)+1];
+	(*txid)[TXID_CHARS] = 0;
+	snprintf(cmd, sizeof(cmd), "%s %s", SEND_DATA_CMD, hexData);
+	if ((sfp = popen(cmd, "r")) == NULL) { die("popen() failed"); }
+	while (fgets(*txid, TXID_CHARS+1, sfp)) { if (ferror(sfp)) { die("popen() file error"); } }
+	pclose(sfp);
+	if (strstr(*txid, " ")) { return 0; }
+	fprintf(stderr, "-");
+	return 1;
 }
 
 static void sendTx(char **txid, const char *hexData) {
@@ -61,17 +93,9 @@ static void sendTx(char **txid, const char *hexData) {
 			}
 		}
 		else if (strstr(*txid, "insufficient priority")) { continue; }
-		if (!printed) { fprintf(stderr, "\nbitcoin-cli error: %s\n", *txid); exit(1); }
+		if (!printed) { fprintf(stderr, "\ntx send error: %s\n", *txid); exit(1); }
 		fprintf(stderr, "\n");
 	}
-}
-
-static void fileBytesToHexStr(char *hex, const char *fileBytes, int n) {
-	for (int i=0; i<n; i++) {
-		hex[i*2]   = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) >> 4];
-		hex[i*2+1] = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) & 0x0F];
-	}
-	hex[n*2] = 0;
 }
 
 static char *fileHandleByTxTree(FILE *fp, FILE *tempfp, int depth) {
@@ -88,9 +112,9 @@ static char *fileHandleByTxTree(FILE *fp, FILE *tempfp, int depth) {
 			hexChunk[n] = 0; 
 		} else { die("fread() error"); }
 		sendTx(&txid, hexChunk);
-		if (fputs(txid, tempfp) < 0) { die("fputs() failed"); }
+		if (fputs(txid, tempfp) == EOF) { die("fputs() failed"); }
 	}
-	if (fputs(TREE_SUFFIX, tempfp) < 0) { die("fputs() failed"); }
+	if (fputs(TREE_SUFFIX, tempfp) == EOF) { die("fputs() failed"); }
 	if (ferror(fp)) { die("file error on fread()"); }
 	return txid;
 }
@@ -149,6 +173,46 @@ static char *sendFileTree(FILE *fp, int depth, int maxDepth) {
 	return txid;
 }
 
-char *sendFile(FILE *fp, int maxTreeDepth) {
+static char *sendFp(FILE *fp, int maxTreeDepth) {
 	return sendFileTree(fp, 0, maxTreeDepth);
+}
+
+char *sendFile(const char *filePath, int maxTreeDepth) {
+	FILE *fp;
+	if ((fp = fopen(filePath, "rb")) == NULL) { die("fopen() failed"); }	
+
+	char *txid = sendFp(fp, maxTreeDepth);
+
+	fclose(fp);
+	return txid;
+}
+
+char *sendDir(const char *dirPath, int maxTreeDepth) {
+	FTS *ftsp;
+	int fts_options = FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR;
+	char const *paths[] = { dirPath, NULL };
+	if ((ftsp = fts_open((char * const *)paths, fts_options, NULL)) == NULL) { die("fts_open() failed"); }
+	if (fts_children(ftsp, 0) == NULL) { fprintf(stderr, "Directory is empty, nothing to send.\n"); return NULL; }
+	int dirPathLen = strlen(dirPath);
+
+	FILE *tmpDirFp;
+	if ((tmpDirFp = tmpfile()) == NULL) { die("tmpfile() failed"); }
+
+	char *txid;
+	FTSENT *p;
+	while ((p = fts_read(ftsp)) != NULL) {
+		if (p->fts_info == FTS_F && strncmp(p->fts_path, dirPath, dirPathLen) == 0) {
+			fprintf(stderr, "Sending %s", p->fts_path+dirPathLen);
+			txid = sendFile(p->fts_path, maxTreeDepth);
+			fprintf(tmpDirFp, "%s\n%s\n", p->fts_path+dirPathLen, txid);
+			free(txid);
+		}
+	}
+	fprintf(stderr, "Sending root directory file");
+	rewind(tmpDirFp);
+	txid = sendFp(tmpDirFp, maxTreeDepth);
+
+	fclose(tmpDirFp);
+	fts_close(ftsp);
+	return txid;	
 }

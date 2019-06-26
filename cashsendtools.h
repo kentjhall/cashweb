@@ -2,7 +2,11 @@
 #define __CASHSENDTOOLS_H__
 
 #include <sys/stat.h>
+#include <fts.h>
+#include <primesieve.h>
 #include "cashwebuni.h"
+
+#define EXTRA_PUSHDATA_BYTE_THRESHOLD 75
 
 #define SEND_DATA_CMD "./send_data_tx.sh"
 #define CLI_LINE_BUF 10
@@ -11,7 +15,12 @@
 #define ERR_WAIT_CYCLE 5
 
 // send file to blockchain
-char *sendFile(FILE *fp, int maxTreeDepth);
+// specify maxTreeDepth, will be chained at top level
+char *sendFile(const char *filePath, int maxTreeDepth);
+
+// send directory to blockchain
+// specify maxTreeDepth for all files
+char *sendDir(const char *dirPath, int maxTreeDepth);
 
 // check client balance via CHECK_BALANCE_CMD shell command
 double checkBalance();
