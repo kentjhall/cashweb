@@ -3,6 +3,7 @@
 #include <microhttpd.h>
 
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
+/* #define BITDB_DEFAULT "https://localhost:3000/q" */
 #define DIR_LINE_BUF 1000
 
 static char *bitdbNode;

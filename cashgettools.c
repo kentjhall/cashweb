@@ -76,7 +76,7 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 	response = responseDm.data;
 	if (strstr(response, "414 ")) { // catch for Request-URI Too Large
 		int firstCount = count/2;
-		return fetchHexData(hexDatas, txids, firstCount) && fetchHexData(hexDatas+firstCount, txids+firstCount, count-firstCount);
+		return fetchHexData(hexDatas, txids, firstCount) && fetchHexData(hexDatas, txids+firstCount, count-firstCount);
 	}
 
 	char *dataTxidPtr;
@@ -102,8 +102,7 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 		int matched = 0;
 		for (int j=0; j<count; j++) { 
 			if (!added[j] && strcmp(dataTxid, txids[j]) == 0) {
-				strncpy(hexDatas[j], responsesParsed[i], TX_DATA_CHARS);
-				hexDatas[j][TX_DATA_CHARS] = 0;
+				strncat(*hexDatas, responsesParsed[i], TX_DATA_CHARS);
 				added[j] = 1;
 				matched = 1;
 				break;
@@ -134,7 +133,27 @@ static int hexStrDataToFileBytes(char *byteData, const char *hexData, int fileEn
 	return (int)(strlen(hexData)-tailOmit)/2;
 }
 
-static int traverseFileTree(const char *treeHexData, int fd, char ***firstHexDatas, char ***prevTxids, int *prevTxidsCount, int isChained) {
+static int traverseFileTree(const char *treeHexData, int fd, char **partialTxid, int suffixLen) {
+	int partialTxidFill = *partialTxid != NULL ? TXID_CHARS-strlen(*partialTxid) : 0;	
+	
+	int numChars = strlen(treeHexData+partialTxidFill)-suffixLen;
+	int txidsCount = numChars/TXID_CHARS + (partialTxidFill ? 1 : 0);
+
+	char txids[txidsCount][TXID_CHARS+1];
+	if (partialTxidFill) { strcpy(txids[0], *partialTxid); strncat(txids[0], treeHexData, partialTxidFill); }
+	char *txidPtr = treeHexData+partialTxidFill;
+	for (int i=(partialTxidFill ? 1 : 0); i<txidsCount; i++) {
+		strncpy(txids[i], txidPtr, TXID_CHARS);
+		txids[i][TXID_CHARS] = 0;
+		txidPtr += TXID_CHARS;
+	}
+	*partialTxid[0] = 0; strncat(*partialTxid, txidPtr, numChars-(txidPtr-treeHexData));
+
+	char hexDatas[txidsCount*TX_DATA_CHARS + 1];
+	if (!fetchHexDatas(&hexDatas, txids, txidsCount)) { return 0; }
+}
+
+static int traverseFileTreeO(const char *treeHexData, int fd, char ***firstHexDatas, char ***prevTxids, int *prevTxidsCount, int isChained) {
 	// defaults for when not segment in chain (full tree), so these can be set to NULL
 	char **nullPtr = NULL;
 	char **nullPtr2 = NULL;
