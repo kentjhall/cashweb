@@ -1,7 +1,6 @@
 CC = gcc
 AM_CFLAGS = -g -Wall
 AM_LDFLAGS = -g 
-LIBS = -lcurl -lmicrohttpd
 
 noinst_LIBRARIES = libmylist.a libb64encode.a
 libmylist_a_SOURCES = mylist/mylist.c mylist/mylist.h
