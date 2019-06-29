@@ -29,14 +29,6 @@ struct Node *findNode(struct List *list, const void *dataSought, int (*compar)(c
         return t;
 }
 
-void flipSignDouble(void *data) {
-	*(double *)data *= -1;
-}
-
-int compareDouble(const void *data1, const void *data2) {
-	return *(double *)data1 != *(double *)data2;
-}
-
 void *popFront(struct List *list) {
 	if (isEmptyList(list)) {
 		return NULL;

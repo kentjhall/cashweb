@@ -136,114 +136,58 @@ static int hexStrDataToFileBytes(char *byteData, const char *hexData, int fileEn
 	return (int)(strlen(hexData)-tailOmit)/2;
 }
 
-static int traverseFileTreeN(const char *treeHexData, int fd, char **partialTxid, int suffixLen) {
-	int partialTxidFill = *partialTxid != NULL ? TXID_CHARS-strlen(*partialTxid) : 0;	
+static int traverseFileTree(const char *treeHexData, struct List *partialTxids[], int suffixLen, int fd) {
+	char *partialTxid;
+	int partialTxidFill = (partialTxid = popFront(partialTxids[0])) != NULL ? TXID_CHARS-strlen(partialTxid) : 0;	
 	
 	int numChars = strlen(treeHexData+partialTxidFill)-suffixLen;
 	int txidsCount = numChars/TXID_CHARS + (partialTxidFill ? 1 : 0);
 
-	char txids[txidsCount][TXID_CHARS+1];
-	if (partialTxidFill) { strcpy(txids[0], *partialTxid); strncat(txids[0], treeHexData, partialTxidFill); }
-	char *txidPtr = treeHexData+partialTxidFill;
+	char *txids[txidsCount];
+	char *hexDatas[txidsCount];
+	for (int i=0; i<txidsCount; i++) { if ((txids[i] = malloc(TXID_CHARS+1)) == NULL || 
+					       (hexDatas[i] = malloc(TX_DATA_CHARS+1)) == NULL) { die("malloc failed"); } }
+	if (partialTxidFill) { strcpy(txids[0], partialTxid); strncat(txids[0], treeHexData, partialTxidFill); free(partialTxid); }
+	const char *txidPtr = treeHexData+partialTxidFill;
 	for (int i=(partialTxidFill ? 1 : 0); i<txidsCount; i++) {
 		strncpy(txids[i], txidPtr, TXID_CHARS);
 		txids[i][TXID_CHARS] = 0;
 		txidPtr += TXID_CHARS;
 	}
-	*partialTxid[0] = 0; strncat(*partialTxid, txidPtr, numChars-(txidPtr-treeHexData));
 
-	char hexDatas[txidsCount][TX_DATA_CHARS];
-	if (!fetchHexDatas(hexDatas, txids, txidsCount)) { return 0; }
-
-	
-}
-
-static int traverseFileTree(const char *treeHexData, int fd, char ***firstHexDatas, char ***prevTxids, int *prevTxidsCount, int isChained) {
-	// defaults for when not segment in chain (full tree), so these can be set to NULL
-	char **nullPtr = NULL;
-	char **nullPtr2 = NULL;
-	int zeros[2] = {0};
-	if (firstHexDatas == NULL) { firstHexDatas = &nullPtr; }
-	if (prevTxids == NULL) { prevTxids = &nullPtr2; }
-	if (prevTxidsCount == NULL) { prevTxidsCount = zeros; }
-
-	// check for partial txid in last segment of chain; if so, fill it with beginning of this segment
-	int partialTxidFill = 0;
-	if (*prevTxids != NULL && *prevTxidsCount > 0 && (partialTxidFill = TXID_CHARS-strlen((*prevTxids)[*prevTxidsCount-1])) > 0) {
-		strncat((*prevTxids)[*prevTxidsCount-1], treeHexData, partialTxidFill);
-	}
-
-	// calculate number of txids, excluding last bytes dependent on whether this is segment in chain
-	int numChars = strlen(treeHexData+partialTxidFill)-(isChained ? TXID_CHARS : TREE_SUFFIX_LEN);
-	int txidsCount = *prevTxidsCount + (int)ceil((double)numChars/TXID_CHARS);
-
-	// if this is not a segment in a chain (alleged full tree), check that it is a tree by proper number of characters
-	if (!isChained && *prevTxids == NULL && numChars%TXID_CHARS != 0) { return 0; } 
-
-	// allocate space for txids, and then copy from tree data
-	char **txids = *prevTxids = realloc(*prevTxids, txidsCount*sizeof(char *));
-	if (txids == NULL) { die("malloc failed"); }
-	char treeHexDataTxids[numChars];
-	strncpy(treeHexDataTxids, treeHexData+partialTxidFill, numChars);
-	treeHexDataTxids[numChars] = 0;
-	for (int i=*prevTxidsCount; i<txidsCount; i++) {
-		if ((txids[i] = malloc(TXID_CHARS+1)) == NULL) { die("malloc failed"); }
-		strncpy(txids[i], treeHexDataTxids+((i-*prevTxidsCount)*TXID_CHARS), TXID_CHARS);
-		txids[i][TXID_CHARS] = 0;
-	}
-	*prevTxidsCount = txidsCount;
-
-	// fetch/save first hex datas to check that this is a file tree
-	if (*firstHexDatas == NULL && isChained) { 
-		int firstTxidsCount = txidsCount-(strlen(txids[txidsCount-1]) < TXID_CHARS ? 1 : 0);
-		if ((*firstHexDatas = malloc(firstTxidsCount*sizeof(char *))) == NULL) { die("malloc failed"); }
-		for (int i=0; i<firstTxidsCount; i++) {
-			if (((*firstHexDatas)[i] = malloc(TX_DATA_CHARS+1)) == NULL) { die("malloc failed"); }
-		}
-		if (!fetchHexData(*firstHexDatas, (const char **)txids, firstTxidsCount)) {
-			for (int i=0; i<txidsCount; i++) {
-				free(txids[i]);
-				if (i<firstTxidsCount) { free((*firstHexDatas)[i]); }
-			}
-			free(txids); free(*firstHexDatas);
-			return 0;
-		}
-		prevTxidsCount[1] = firstTxidsCount; // second value in prevTxidsCount is for storing number of txids already fetched in firstHexDatas
-	}
-
-	// if there is no next chain segment, fetch remaining hex datas (since first) and write to fd
-	if (!isChained) {
-		char **hexDatas = realloc(*firstHexDatas, txidsCount*sizeof(char *));
-		if (hexDatas == NULL) { die("malloc failed"); }
-		int firstTxidsCount = prevTxidsCount[1];
-		for (int i=firstTxidsCount; i<txidsCount; i++) {
-			if ((hexDatas[i] = malloc(TX_DATA_CHARS+1)) == NULL) { die("malloc failed"); }
-		}	
-		if (!fetchHexData(hexDatas+firstTxidsCount, (const char **)txids+firstTxidsCount, txidsCount-firstTxidsCount)) {
-			for (int i=0; i<txidsCount; i++) { free(hexDatas[i]); free(txids[i]); }
-			free(hexDatas); free(txids);
-			return 0;
-		}
+	int fetched = 0;
+	if (fetchHexData(hexDatas, (const char **)txids, txidsCount)) { 
+		fetched = 1;
 
 		char hexDataAll[TX_DATA_CHARS*txidsCount + 1];
 		hexDataAll[0] = 0;
 		for (int i=0; i<txidsCount; i++) { 
 			strcat(hexDataAll, hexDatas[i]);
-			free(hexDatas[i]); free(txids[i]);
 		}
-		free(hexDatas);
-		free(txids);
+
+		if (suffixLen != TREE_SUFFIX_CHARS) {
+			char *partialTxidN = malloc(TXID_CHARS+1);
+			if (partialTxidN == NULL) { die("malloc failed"); }
+			partialTxidN[0] = 0; strncat(partialTxidN, txidPtr, numChars-(txidPtr-(treeHexData+partialTxidFill)));
+			addFront(partialTxids[1], partialTxidN);
+		}
 
 		char fileByteData[strlen(hexDataAll)/2];
 		int bytesToWrite;
-		if (!traverseFileTree(hexDataAll, fd, NULL, NULL, NULL, 0)) {
+		if (!traverseFileTree(hexDataAll, partialTxids, suffixLen == TREE_SUFFIX_CHARS ? suffixLen : 0, fd)) {
 			if ((bytesToWrite = hexStrDataToFileBytes(fileByteData, hexDataAll, 1))) { 
-				if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed"); return 0; }
+				if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed"); }
 			}
+
+			reverseList(partialTxids[1]);
+			struct List *temp = partialTxids[0];
+			partialTxids[0] = partialTxids[1];
+			partialTxids[1] = temp;
 		}
 	}
 
-	return 1;
+	for (int i=0; i<txidsCount; i++) { free(txids[i]); free(hexDatas[i]); }
+	return fetched;
 }
 
 static int traverseFileChain(const char *hexDataStart, int fd) {
@@ -254,9 +198,13 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 	char *txidNext = malloc(TXID_CHARS+1);
 	if (txidNext == NULL) { die("malloc failed"); }
 
-	char **treeTxids = NULL;
-	char **treeHexDatas = NULL;
-	int treeTxidsCount[2] = {0};
+	struct List partialTxidsO; struct List partialTxidsN;
+	struct List *partialTxids[2] = { &partialTxidsO, &partialTxidsN };
+	initList(partialTxids[0]); initList(partialTxids[1]);
+	
+	/* char **treeTxids = NULL; */
+	/* char **treeHexDatas = NULL; */
+	/* int treeTxidsCount[2] = {0}; */
 	int isTree = 1;
 
 	char fileByteData[TX_DATA_BYTES];
@@ -267,7 +215,7 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 			strcpy(txidNext, hexData+(strlen(hexData) - TXID_CHARS));
 			if (!fetchHexData(&hexDataNext, (const char **)&txidNext, 1)) { fileEnd = 1; }	
 		} else { fileEnd = 1; }
-		if (!isTree || !traverseFileTree(hexData, fd, &treeHexDatas, &treeTxids, treeTxidsCount, !fileEnd)) {
+		if (!isTree || !traverseFileTree(hexData, partialTxids, fileEnd ? TREE_SUFFIX_CHARS : TXID_CHARS, fd)) {
 			if (!(bytesToWrite = hexStrDataToFileBytes(fileByteData, hexData, fileEnd))) { return 0; }
 			if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed"); return 0; }
 			isTree = 0;	

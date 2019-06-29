@@ -11,5 +11,5 @@ cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h
 cashget_SOURCES = cashget.c cashgettools.c cashgettools.h
 cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h
 
-cashserver_LDADD = libb64encode.a
-cashget_LDADD = libb64encode.a
+cashserver_LDADD = libmylist.a libb64encode.a
+cashget_LDADD = libmylist.a libb64encode.a

@@ -15,7 +15,7 @@
 
 #define TX_DATA_CHARS (TX_DATA_BYTES*2)
 #define TXID_CHARS (TXID_BYTES*2)
-#define TREE_SUFFIX_LEN strlen(TREE_SUFFIX)
+#define TREE_SUFFIX_CHARS strlen(TREE_SUFFIX)
 
 static inline void die(char *e) { perror(e); exit(1); }
 

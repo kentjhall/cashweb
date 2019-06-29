@@ -3,6 +3,11 @@
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
 
 int main(int argc, char **argv) {
+	if (argc < 2) {
+		fprintf(stderr, "usage: %s <txid> [OPTIONS]\n", argv[0]);
+		exit(1);
+	}
+
 	char *bitdbNode = BITDB_DEFAULT;
 
 	int opc=0;

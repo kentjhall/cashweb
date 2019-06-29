@@ -22,11 +22,11 @@ AC_SEARCH_LIBS([MHD_start_daemon], [microhttpd], [], [
 
 # Checks for header files.
 AC_CHECK_HEADERS([arpa/inet.h stdlib.h string.h unistd.h])
-AC_CHECK_HEADERS([curl/curl.h], [], [
-  AC_MSG_ERROR([unable to find header curl/curl.h])
+AC_CHECK_HEADER([curl/curl.h], [], [
+  AC_MSG_ERROR([unable to find header curl/curl.h, please make sure it's installed])
 ])
-AC_CHECK_HEADERS([microhttpd.h], [], [
-  AC_MSG_ERROR([unable to find header microhttpd.h])
+AC_CHECK_HEADER([microhttpd.h], [], [
+  AC_MSG_ERROR([unable to find header microhttpd.h, please make sure it's installed])
 ])
 
 # Checks for typedefs, structures, and compiler characteristics.

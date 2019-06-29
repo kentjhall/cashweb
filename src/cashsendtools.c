@@ -6,10 +6,10 @@ static long fileSize(int fd) {
 	return st.st_size;
 }
 
-static int txDataSize(const char *hexData) {
-	int dataSize = strlen(hexData)/2;
-	return dataSize > EXTRA_PUSHDATA_BYTE_THRESHOLD ? dataSize+2 : dataSize+1; 
-}
+/* static int txDataSize(const char *hexData) { */
+/* 	int dataSize = strlen(hexData)/2; */
+/* 	return dataSize > EXTRA_PUSHDATA_BYTE_THRESHOLD ? dataSize+2 : dataSize+1; */ 
+/* } */
 
 static int checkUtxos() {
 	FILE *sfp;
