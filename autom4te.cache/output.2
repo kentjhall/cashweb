@@ -623,6 +623,10 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIB@&t@OBJS
+WITH_CASHSEND_FALSE
+WITH_CASHSEND_TRUE
+WITH_CASHSERVER_FALSE
+WITH_CASHSERVER_TRUE
 EGREP
 GREP
 CPP
@@ -713,6 +717,8 @@ ac_subst_files=''
 ac_user_opts='
 enable_option_checking
 enable_silent_rules
+with_cashserver
+with_cashsend
 enable_dependency_tracking
 '
       ac_precious_vars='build_alias
@@ -1344,6 +1350,14 @@ Optional Features:
                           do not reject slow dependency extractors
   --disable-dependency-tracking 
                           speeds up one-time build
+
+Optional Packages:
+  --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
+  --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
+  --with-cashserver       specify whether or not to build cashserver binary,
+                          default=yes @@
+  --with-cashsend         specify whether or not to build cashsend binary,
+                          default=yes @@
 
 Some influential environment variables:
   CC          C compiler command
@@ -2855,6 +2869,23 @@ ac_config_headers="$ac_config_headers config.h"
 
 
 
+
+@%:@ Check whether --with-cashserver was given.
+if test "${with_cashserver+set}" = set; then :
+  withval=$with_cashserver; 
+else
+  with_cashserver=yes
+fi
+
+
+@%:@ Check whether --with-cashsend was given.
+if test "${with_cashsend+set}" = set; then :
+  withval=$with_cashsend; 
+else
+  with_cashsend=yes
+fi
+
+
 # Checks for programs.
 ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
@@ -3988,7 +4019,7 @@ else
 fi
 
 
-# Checks for libraries.
+# Checks for libraries/corresponding header files.
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing curl_easy_init" >&5
 $as_echo_n "checking for library containing curl_easy_init... " >&6; }
@@ -4046,72 +4077,10 @@ if test "$ac_res" != no; then :
   
 else
   
-  as_fn_error $? "unable to find libcurl, please install and try again" "$LINENO" 5
+  as_fn_error $? "unable to find curl, please install library and try again" "$LINENO" 5
 
 fi
 
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing MHD_start_daemon" >&5
-$as_echo_n "checking for library containing MHD_start_daemon... " >&6; }
-if ${ac_cv_search_MHD_start_daemon+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char MHD_start_daemon ();
-int
-main ()
-{
-return MHD_start_daemon ();
-  ;
-  return 0;
-}
-_ACEOF
-for ac_lib in '' microhttpd; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_MHD_start_daemon=$ac_res
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if ${ac_cv_search_MHD_start_daemon+:} false; then :
-  break
-fi
-done
-if ${ac_cv_search_MHD_start_daemon+:} false; then :
-  
-else
-  ac_cv_search_MHD_start_daemon=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_MHD_start_daemon" >&5
-$as_echo "$ac_cv_search_MHD_start_daemon" >&6; }
-ac_res=$ac_cv_search_MHD_start_daemon
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-  
-else
-  
-  as_fn_error $? "unable to find libmicrohttpd, please install and try again" "$LINENO" 5
-
-fi
-
-
-# Checks for header files.
 ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
 ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
@@ -4509,6 +4478,204 @@ fi
 done
 
 
+ac_fn_c_check_header_mongrel "$LINENO" "curl/curl.h" "ac_cv_header_curl_curl_h" "$ac_includes_default"
+if test "x$ac_cv_header_curl_curl_h" = xyes; then :
+  
+else
+  
+  as_fn_error $? "unable to find header curl/curl.h, please verify curl library installation and try again" "$LINENO" 5
+
+fi
+
+
+if test "x$with_cashserver" != xno; then :
+  
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing MHD_start_daemon" >&5
+$as_echo_n "checking for library containing MHD_start_daemon... " >&6; }
+if ${ac_cv_search_MHD_start_daemon+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char MHD_start_daemon ();
+int
+main ()
+{
+return MHD_start_daemon ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' microhttpd; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_MHD_start_daemon=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_MHD_start_daemon+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_MHD_start_daemon+:} false; then :
+  
+else
+  ac_cv_search_MHD_start_daemon=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_MHD_start_daemon" >&5
+$as_echo "$ac_cv_search_MHD_start_daemon" >&6; }
+ac_res=$ac_cv_search_MHD_start_daemon
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+  
+else
+  
+	  as_fn_error $? "unable to find libmicrohttpd, which is necessary for cashserver; please install library and try again, or if not needed, try again with flag --without-cashserver" "$LINENO" 5
+	
+fi
+
+	ac_fn_c_check_header_mongrel "$LINENO" "microhttpd.h" "ac_cv_header_microhttpd_h" "$ac_includes_default"
+if test "x$ac_cv_header_microhttpd_h" = xyes; then :
+  
+else
+  
+	  as_fn_error $? "unable to find header microhttpd.h; please verify libmicrohttpd library installation and try again" "$LINENO" 5
+	
+fi
+
+
+	 if true; then
+  WITH_CASHSERVER_TRUE=
+  WITH_CASHSERVER_FALSE='#'
+else
+  WITH_CASHSERVER_TRUE='#'
+  WITH_CASHSERVER_FALSE=
+fi
+
+	
+else
+  
+	 if false; then
+  WITH_CASHSERVER_TRUE=
+  WITH_CASHSERVER_FALSE='#'
+else
+  WITH_CASHSERVER_TRUE='#'
+  WITH_CASHSERVER_FALSE=
+fi
+
+	
+fi
+if test "x$with_cashsend" != xno; then :
+  
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing json_object" >&5
+$as_echo_n "checking for library containing json_object... " >&6; }
+if ${ac_cv_search_json_object+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char json_object ();
+int
+main ()
+{
+return json_object ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' jansson; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_json_object=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_json_object+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_json_object+:} false; then :
+  
+else
+  ac_cv_search_json_object=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_json_object" >&5
+$as_echo "$ac_cv_search_json_object" >&6; }
+ac_res=$ac_cv_search_json_object
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+  
+else
+  
+	  as_fn_error $? "unable to find jansson, which is necessary for cashsend; please install library and try again, or if not needed, try again with flag --without-cashsend" "$LINENO" 5
+	
+fi
+
+	ac_fn_c_check_header_mongrel "$LINENO" "jansson.h" "ac_cv_header_jansson_h" "$ac_includes_default"
+if test "x$ac_cv_header_jansson_h" = xyes; then :
+  
+else
+  
+	  as_fn_error $? "unable to find header jansson.h; please verify jansson library installation and try again" "$LINENO" 5
+	
+fi
+
+
+	 if true; then
+  WITH_CASHSEND_TRUE=
+  WITH_CASHSEND_FALSE='#'
+else
+  WITH_CASHSEND_TRUE='#'
+  WITH_CASHSEND_FALSE=
+fi
+
+	
+else
+  
+	 if false; then
+  WITH_CASHSEND_TRUE=
+  WITH_CASHSEND_FALSE='#'
+else
+  WITH_CASHSEND_TRUE='#'
+  WITH_CASHSEND_FALSE=
+fi
+
+	
+fi
+
+# Checks for header files.
 for ac_header in arpa/inet.h stdlib.h string.h unistd.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
@@ -4521,26 +4688,6 @@ _ACEOF
 fi
 
 done
-
-ac_fn_c_check_header_mongrel "$LINENO" "curl/curl.h" "ac_cv_header_curl_curl_h" "$ac_includes_default"
-if test "x$ac_cv_header_curl_curl_h" = xyes; then :
-  
-else
-  
-  as_fn_error $? "unable to find header curl/curl.h, please make sure it's installed" "$LINENO" 5
-
-fi
-
-
-ac_fn_c_check_header_mongrel "$LINENO" "microhttpd.h" "ac_cv_header_microhttpd_h" "$ac_includes_default"
-if test "x$ac_cv_header_microhttpd_h" = xyes; then :
-  
-else
-  
-  as_fn_error $? "unable to find header microhttpd.h, please make sure it's installed" "$LINENO" 5
-
-fi
-
 
 
 # Checks for typedefs, structures, and compiler characteristics.
@@ -4980,6 +5127,22 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${am__fastdepCC_TRUE}" && test -z "${am__fastdepCC_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCC\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_CASHSERVER_TRUE}" && test -z "${WITH_CASHSERVER_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_CASHSERVER\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_CASHSERVER_TRUE}" && test -z "${WITH_CASHSERVER_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_CASHSERVER\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_CASHSEND_TRUE}" && test -z "${WITH_CASHSEND_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_CASHSEND\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_CASHSEND_TRUE}" && test -z "${WITH_CASHSEND_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_CASHSEND\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

@@ -3,6 +3,7 @@
 
 #include <sys/stat.h>
 #include <fts.h>
+#include <jansson.h>
 #include "cashwebuni.h"
 
 #define EXTRA_PUSHDATA_BYTE_THRESHOLD 75
