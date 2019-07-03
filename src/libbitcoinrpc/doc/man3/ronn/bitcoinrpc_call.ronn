@@ -1,0 +1,111 @@
+bitcoinrpc_call(3) --  Call the server
+======================================
+
+## SYNOPSIS
+
+`#include <bitcoinrpc.h>`
+
+`BITCOINRPCEcode bitcoinrpc_call (bitcoinrpc_cl_t * cl, bitcoinrpc_method_t * method, bitcoinrpc_resp_t *resp, bitcoinrpc_err_t *e)`
+
+
+## DESCRIPTION
+
+Use client `cl` to call the server with `method`. Save response in `resp`
+and report errors. If `e == NULL`, it is ignored. <br>
+
+### Return value:
+  `BITCOINRPCE_OK` in case of success, or other error code.
+
+
+## NOTES
+
+It is important to say that the purpose of bitcoinrpc_call() is to serve as
+a proxy between the user and Bitcoin server, allowing him to sent almost any
+request (i.e. to specify any parameters for a valid RPC method) and report
+errors relevant only to this process of communication and not to check,
+if the request would be interpreted by the Bitcoin node as meaningful.
+
+
+## EXAMPLE
+
+/* Set tx fee to 0.001 bitcoin */
+
+    #include <jansson.h>
+    #include <bitcoinrpc.h>
+
+    int main(void)
+    {
+
+      bitcoinrpc_cl_t *cl;
+      bitcoinrpc_method_t *m  = NULL;
+      bitcoinrpc_resp_t   *r  = NULL;
+      bitcoinrpc_err_t e;
+
+      json_t *params = NULL;
+      json_t *j      = NULL;
+
+      bitcoinrpc_global_init();
+
+      cl = bitcoinrpc_cl_init_params ("user", "password", "127.0.0.1", 18332);
+      m = bitcoinrpc_method_init (BITCOINRPC_METHOD_SETTXFEE);
+      if (NULL == m)
+      {
+        fprintf (stderr, "error: cannot initialise a new method.\n");
+        exit(EXIT_FAILURE);
+      }
+
+      params = json_array();
+      json_array_append_new (params, json_real(0.0001));
+      if ( bitcoinrpc_method_set_params (m, params) != BITCOINRPCE_OK)
+      {
+        fprintf (stderr, "error: cannot set params\n");
+      }
+      json_decref (params);  /* we no longer need it, the value is copied */
+
+      r = bitcoinrpc_resp_init();
+      if (NULL == r)
+      {
+        fprintf (stderr, "error: cannot initialise a new resp object.\n");
+        exit(EXIT_FAILURE);
+      }
+
+      bitcoinrpc_call (cl, m, r, &e);
+      if (e.code != BITCOINRPCE_OK)
+      {
+        fprintf (stderr, "error: %s\n", e.msg);
+        return 1;
+      }
+
+      j = bitcoinrpc_resp_get (r);
+      fprintf (stderr, "%s\n", json_dumps (j, JSON_INDENT(2)));
+      /* which should look like this:
+            {
+              "error": null,
+              "result": true,
+              "id": "ef661224-e620-4919-9fec-f1606d4f6545"
+            }
+      */
+
+
+      bitcoinrpc_cl_free (cl);
+      bitcoinrpc_global_cleanup();
+
+      return 0;
+    }
+
+
+
+## BUGS
+Please report bugs to Marek Miller <marek.l.miller@gmail.com>
+
+## HISTORY
+
+## AUTHOR
+Written by Marek Miller and others, see CREDITS source file.
+
+## COPYRIGHT
+License: MIT (see https://opensource.org/licenses/MIT).
+The software is provided "as is", without warranty of any kind
+
+## SEE ALSO
+bitcoinrpc(3)

@@ -1,0 +1,148 @@
+bitcoinrpc(3) -- C language library for Bitcoin JSON-RPC API
+=============================================================
+
+## SYNOPSIS
+## DESCRIPTION
+
+A C language library for JSON-RPC Bitcoin API.
+The library provides basic routines to send RPC queries to a listening Bitcoin
+node, fetch responses and analyse errors. Its main features include:
+
+  * Reusable components, allowing to perform many queries through one open
+    connection, as well as to query many listening servers with the same method
+    without reallocating resources.
+  * Proper error handling.
+
+
+## DATA STRUCTURES
+The following data structures are defined as typedefs:
+
+  * `bitcoinrpc_cl_t`      -- RPC client, handling connection to a node
+  * `bircoinrpc_method_t`  -- a method to be sent
+  * `bitcoinrpc_resp_t`    -- a JSON response from the server
+  * `bitcoinrpc_err_t`     -- error handling
+
+The is also enum type `BITCOINRPCEcode` of error codes returned by most of
+the functions in the library.
+
+Also, the enum type `BITCOINRPC_METHOD` contains symbols of Bitcoin RPC
+method accepted by the server.  The naming convention is:
+`BITCOINRPC_METHOD_GETNEWADDRESS`, `BITCOINRPC_METHOD_SETTXFEE` etc.
+
+
+
+## HEADER FILES
+To use the library, it is enough to include the header file:
+
+    #include <bitcoinrpc.h>
+
+in your source code and provide the following linker flag during compilation:
+
+    -lbitcoinrpc
+
+
+## API FUNCTIONS
+
+`BITCOINRPCEcode bitcoinrpc_global_init (void)`
+
+`BITCOINRPCEcode bitcoinrpc_global_cleanup (void)`
+
+`BITCOINRPCEcode bitcoinrpc_global_set_allocfunc ( void* (* const f) (size_t size) )`
+
+`BITCOINRPCEcode bitcoinrpc_global_set_freefunc ( void (* const f) (void *ptr) )`
+
+`bitcoinrpc_cl_t* bitcoinrpc_cl_init (void)`
+
+`bitcoinrpc_cl_t* bitcoinrpc_cl_init_params (const char *user, const char *pass, const char *addr, const unsigned int port )`
+
+`BITCOINRPCEcode bitcoinrpc_cl_free (bitcoinrpc_cl_t *cl)`
+
+`BITCOINRPCEcode bitcoinrpc_cl_get_user (bitcoinrpc_cl_t *cl, char *buf)`
+
+`BITCOINRPCEcode bitcoinrpc_cl_get_pass (bitcoinrpc_cl_t *cl, char *buf)`
+
+`BITCOINRPCEcode bitcoinrpc_cl_get_addr (bitcoinrpc_cl_t *cl, char *buf)`
+
+`BITCOINRPCEcode bitcoinrpc_cl_get_port (bitcoinrpc_cl_t *cl, unsigned int *bufi)`
+
+`BITCOINRPCEcode bitcoinrpc_cl_get_url (bitcoinrpc_cl_t \*cl, char \*buf)`
+
+`bitcoinrpc_method_t * bitcoinrpc_method_init (const BITCOINRPC_METHOD m)`
+
+`bitcoinrpc_method_t * bitcoinrpc_method_init_params (const BITCOINRPC_METHOD m, json_t * const params)`
+
+`BITCOINRPCEcode bitcoinrpc_method_free (bitcoinrpc_method_t *method)`
+
+`BITCOINRPCEcode bitcoinrpc_method_set_params (bitcoinrpc_method_t *method, json_t *params)`
+
+`BITCOINRPCEcode bitcoinrpc_method_get_params (bitcoinrpc_method_t *method, json_t **params)`
+
+`bitcoinrpc_resp_t * bitcoinrpc_resp_init (void)`
+
+`BITCOINRPCEcode bitcoinrpc_resp_free (bitcoinrpc_resp_t *resp)`
+
+`json_t * bitcoinrpc_resp_get (bitcoinrpc_resp_t *resp)`
+
+`BITCOINRPCEcode bitcoinrpc_resp_check (bitcoinrpc_resp_t *resp, bitcoinrpc_method_t *method)`
+
+`BITCOINRPCEcode bitcoinrpc_call (bitcoinrpc_cl_t * cl, bitcoinrpc_method_t * method, bitcoinrpc_resp_t *resp, bitcoinrpc_err_t *e)`
+
+
+## ABI
+
+The code is currently in beta stage and some updates could break ABI. You are
+advised to follow the development and upgrade your code from time to time until
+the project goes into a stable phase.
+
+The version numbers of the library follow Semantic_versioning scheme, i.e. each
+version consists of three numbers: MAJOR.MINOR.PATCH. The major version 0
+denotes beta stage. Except for major version 0, only major version updates
+could (and usually do) break backwards compatibility. In the beta stage also
+minor version updates could break ABI, whereas in the usual case they are
+reserved for extensions and major bug fixes.
+See Changelog.md in your `/usr/share/doc` for the detailed history and changes
+introduced by each version.
+
+Whenever there are changes done to the library that will cause an ABI breakage,
+a soname major number of the library is bumped to a higher one. Again, except
+for beta. In fact, the soname number and the major version number should stay
+the same in the future. The history of soname bumps looks as follows:
+
+* libbitcoinrpc.so.0, January 2016
+
+## BUGS
+Please report bugs to Marek Miller <marek.l.miller@gmail.com>
+
+## HISTORY
+
+## AUTHOR
+Written by Marek Miller and others, see CREDITS source file.
+
+## COPYRIGHT
+License: MIT (see https://opensource.org/licenses/MIT).
+The software is provided "as is", without warranty of any kind
+
+## SEE ALSO
+
+bitcoinrpc_global_init(3),
+bitcoinrpc_global_cleanup(3),
+bitcoinrpc_global_set_allocfunc(3),
+bitcoinrpc_global_set_freefunc(3),
+bitcoinrpc_cl_init(3),
+bitcoinrpc_cl_init_params(3),
+bitcoinrpc_cl_free(3),
+bitcoinrpc_cl_get_user(3),
+bitcoinrpc_cl_get_pass(3),
+bitcoinrpc_cl_get_addr(3),
+bitcoinrpc_cl_get_port(3),
+bitcoinrpc_cl_get_url(3),
+bitcoinrpc_method_init(3),
+bitcoinrpc_method_init_params(3),
+bitcoinrpc_method_free(3),
+bitcoinrpc_method_set_params(3),
+bitcoinrpc_method_get_params(3),
+bitcoinrpc_resp_init(3),
+bitcoinrpc_resp_free(3),
+bitcoinrpc_resp_get(3),
+bitcoinrpc_resp_check(3),
+bitcoinrpc_call(3),

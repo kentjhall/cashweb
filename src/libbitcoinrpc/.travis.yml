@@ -1,0 +1,56 @@
+language: c
+cache:
+  ccache: true
+  directories:
+    - $HOME/.ccache
+compiler:
+  - gcc
+branches:
+  except:
+    - /^.*doc-.*$/
+env:
+  matrix:
+    - BITCOIN_VERSION=v0.10.4  BITCOIN_VERSION_HEX=0x001004
+    - BITCOIN_VERSION=v0.11.2  BITCOIN_VERSION_HEX=0x001102
+    - BITCOIN_VERSION=v0.12.0  BITCOIN_VERSION_HEX=0x001200
+sudo: false
+addons:
+  apt:
+    sources:
+    - boost-latest
+    packages:
+    # Bitcoin Core dependencies
+    - build-essential
+    - libtool
+    - autotools-dev
+    - automake
+    - pkg-config
+    - libssl-dev
+    - libevent-dev
+    - bsdmainutils
+    - libboost1.55-all-dev
+    - libdb-dev
+    - libdb++-dev
+    # libbitcoinrpc dependencies
+    - libcurl4-openssl-dev
+    - libjansson-dev
+    - uuid-dev
+before_install:
+  - dpkg -s libcurl4-openssl-dev libjansson-dev uuid-dev
+before_script:
+  # Compile Bitcoin Core
+  - ccache -F 0 && ccache -M 0
+  - ccache -s
+  - git clone https://github.com/bitcoin/bitcoin.git
+  - cd bitcoin
+  - git checkout ${BITCOIN_VERSION}
+  - ./autogen.sh
+  - ./configure --without-gui --with-incompatible-bdb
+  - make
+  - ccache -s
+  - cd ..
+script:
+  - make
+  - make test BITCOINBINPATH=./bitcoin/src BITCOIN_VERSION_HEX=${BITCOIN_VERSION_HEX}
+  - make install INSTALL_PREFIX=./build
+  - make uninstall INSTALL_PREFIX=./build

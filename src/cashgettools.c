@@ -1,11 +1,61 @@
 #include "cashgettools.h"
 
+#define QUERY_LEN (71+strlen(QUERY_DATA_TAG)+strlen(QUERY_TXID_TAG))
+#define TXID_QUERY_LEN (12+TXID_CHARS)
+#define HEADER_BUF_SZ 35
+#define QUERY_DATA_TAG "data"
+#define RESPONSE_DATA_TAG "\""QUERY_DATA_TAG"\":\""
+#define QUERY_TXID_TAG "txid"
+#define RESPONSE_TXID_TAG "\""QUERY_TXID_TAG"\":\""
+
+#define DIR_LINE_BUF 500
+
+#define BITDB_API_VER 3
+#define IS_BITDB_REQUEST_LIMIT 1
+
 static const char *bitdbNode;
 
 struct DynamicMemory {
 	char *data;
 	size_t size;
 };
+
+char *errNoToMsg(int errNo) {
+	switch (errNo) {
+		case CWG_DIR_NO:
+			return "Requested file doesn't exist in that directory.";
+			break;
+		case CWG_FETCH_NO:
+			return "Requested file/directory doesn't exist, check identifier.";
+			break;
+		case CWG_FETCH_ERR:
+			return "There was an unexpected error in querying the blockchain.";
+			break;
+		case CWG_WRITE_ERR:
+			return "There was an unexpected error in writing the file.";
+			break;
+		case CWG_FILE_ERR:
+			return "There was an unexpected error in interpreting the file; this is probably an issue with cashgettools.";
+			break;
+		default:
+			return "Unexpected error code; this is probably an issue with cashgettools.";
+	}
+}
+
+// converts hex bytes to chars, accounting for possible txid at end, and copies to specified memory loc
+// returns number of bytes to write
+static int hexStrDataToFileBytes(char *byteData, const char *hexData, int fileEnd) {
+	if (strlen(hexData) % 2 != 0) { fprintf(stderr, "invalid hex data\n"); return 0; }
+
+	int tailOmit = !fileEnd ? TXID_CHARS : 0;
+	char hexByte[2+1];
+	hexByte[2] = 0;
+	for (int i=0; i<strlen(hexData)-tailOmit; i+=2) { 
+		strncpy(hexByte, hexData+i, 2);
+		byteData[i/2] = (char)strtoul(hexByte, NULL, 16);
+	}
+	return (int)(strlen(hexData)-tailOmit)/2;
+}
 
 // copies curl response to specified address in memory; needs to be freed
 static size_t copyResponseToMemory(void *data, size_t size, size_t nmemb, struct DynamicMemory *dm) {
@@ -22,9 +72,9 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 
 	CURL *curl;
 	CURLcode res;
-	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() fails\n"); return 0; }
+	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() failed\n"); return CWG_FETCH_ERR; }
 
-	int success = 1;
+	int status = CWG_OK;
 
 	// construct query
 	char txidQuery[(TXID_QUERY_LEN*count)+1];
@@ -69,14 +119,16 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseDm);
 	if ((res = curl_easy_perform(curl)) != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-		success = 0;
-		goto end;
+		status = CWG_FETCH_ERR; goto cleanup;
 	} 
 	(responseDm.data)[responseDm.size] = 0;
 	response = responseDm.data;
 	if (strstr(response, "414 ")) { // catch for Request-URI Too Large
 		int firstCount = count/2;
-		return fetchHexData(hexDatas, txids, firstCount) && fetchHexData(hexDatas, txids+firstCount, count-firstCount);
+		int status1; int status2;
+		if ((status1 = fetchHexData(hexDatas, txids, firstCount)) == 
+		    (status2 = fetchHexData(hexDatas, txids+firstCount, count-firstCount))) { return status1; }
+		else { return status1 > status2 ? status1 : status2; }
 	}
 
 	char *dataTxidPtr;
@@ -84,10 +136,7 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 	int pos = 0;
 	for (int i=0; i<count; i++) {
 		// parse each response for hex data
-		if ((responsesParsed[i] = strstr(response+pos, RESPONSE_DATA_TAG)) == NULL) { 
-			success = 0; 
-			goto end;
-		}
+		if ((responsesParsed[i] = strstr(response+pos, RESPONSE_DATA_TAG)) == NULL) { status = CWG_FETCH_NO; goto cleanup; }
 		responsesParsed[i] += strlen(RESPONSE_DATA_TAG);
 		pos = (responsesParsed[i] - response);
 		for (int j=0; j<strlen(responsesParsed[i]); j++) {
@@ -95,7 +144,7 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 		}
 
 		// copy each hex data to memory location by corresponding txid
-		if ((dataTxidPtr = strstr(response+pos, RESPONSE_TXID_TAG)) == NULL) { success = 0; goto end; }
+		if ((dataTxidPtr = strstr(response+pos, RESPONSE_TXID_TAG)) == NULL) { status = CWG_FETCH_NO; goto cleanup; }
 		dataTxidPtr += strlen(RESPONSE_TXID_TAG);
 		strncpy(dataTxid, dataTxidPtr, TXID_CHARS);
 		dataTxid[TXID_CHARS] = 0;
@@ -111,29 +160,13 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
                         }
                 }
 
-		if (!matched) { success = 0; goto end; }
+		if (!matched) { status = CWG_FETCH_NO; goto cleanup; }
 	}
 
-	// cleanup and return true/false 
-	end:
+	cleanup:
 		if (response != NULL) { free(response); }
 		curl_easy_cleanup(curl);
-		return success;
-}
-
-// converts hex bytes to chars, accounting for possible txid at end, and copies to specified memory loc
-// returns number of bytes to write
-static int hexStrDataToFileBytes(char *byteData, const char *hexData, int fileEnd) {
-	if (!(strlen(hexData) % 2 == 0)) { fprintf(stderr, "invalid hex data\n"); return 0; }
-
-	int tailOmit = !fileEnd ? TXID_CHARS : 0;
-	char hexByte[2+1];
-	hexByte[2] = 0;
-	for (int i=0; i<strlen(hexData)-tailOmit; i+=2) { 
-		strncpy(hexByte, hexData+i, 2);
-		byteData[i/2] = (char)strtoul(hexByte, NULL, 16);
-	}
-	return (int)(strlen(hexData)-tailOmit)/2;
+		return status;
 }
 
 static int traverseFileTree(const char *treeHexData, struct List *partialTxids[], int suffixLen, int fd) {
@@ -155,10 +188,8 @@ static int traverseFileTree(const char *treeHexData, struct List *partialTxids[]
 		txidPtr += TXID_CHARS;
 	}
 
-	int fetched = 0;
-	if (fetchHexData(hexDatas, (const char **)txids, txidsCount)) { 
-		fetched = 1;
-
+	int status;
+	if ((status = fetchHexData(hexDatas, (const char **)txids, txidsCount)) == CWG_OK) { 
 		char hexDataAll[TX_DATA_CHARS*txidsCount + 1];
 		hexDataAll[0] = 0;
 		for (int i=0; i<txidsCount; i++) { 
@@ -172,22 +203,27 @@ static int traverseFileTree(const char *treeHexData, struct List *partialTxids[]
 			addFront(partialTxids[1], partialTxidN);
 		}
 
+		int subStatus;
 		char fileByteData[strlen(hexDataAll)/2];
 		int bytesToWrite;
-		if (!traverseFileTree(hexDataAll, partialTxids, suffixLen == TREE_SUFFIX_CHARS ? suffixLen : 0, fd)) {
+		if ((subStatus = traverseFileTree(hexDataAll, partialTxids, suffixLen == TREE_SUFFIX_CHARS ? suffixLen : 0, fd))
+		     == CWG_FETCH_NO) {
 			if ((bytesToWrite = hexStrDataToFileBytes(fileByteData, hexDataAll, 1))) { 
-				if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed"); }
-			}
+				if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed");
+											    status = CWG_WRITE_ERR;
+											    goto cleanup; }
+			} else { status = CWG_FILE_ERR; goto cleanup; }
 
 			reverseList(partialTxids[1]);
 			struct List *temp = partialTxids[0];
 			partialTxids[0] = partialTxids[1];
 			partialTxids[1] = temp;
-		}
+		} else { status = subStatus; }
 	}
 
-	for (int i=0; i<txidsCount; i++) { free(txids[i]); free(hexDatas[i]); }
-	return fetched;
+	cleanup:
+		for (int i=0; i<txidsCount; i++) { free(txids[i]); free(hexDatas[i]); }
+		return status;
 }
 
 static int traverseFileChain(const char *hexDataStart, int fd) {
@@ -201,42 +237,104 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 	struct List partialTxidsO; struct List partialTxidsN;
 	struct List *partialTxids[2] = { &partialTxidsO, &partialTxidsN };
 	initList(partialTxids[0]); initList(partialTxids[1]);
-	
-	/* char **treeTxids = NULL; */
-	/* char **treeHexDatas = NULL; */
-	/* int treeTxidsCount[2] = {0}; */
 	int isTree = 1;
 
+	int status;
 	char fileByteData[TX_DATA_BYTES];
 	int bytesToWrite;
 	int fileEnd=0;
 	while (!fileEnd) {
 		if (strlen(hexData) >= TXID_CHARS) {
 			strcpy(txidNext, hexData+(strlen(hexData) - TXID_CHARS));
-			if (!fetchHexData(&hexDataNext, (const char **)&txidNext, 1)) { fileEnd = 1; }	
+			if (fetchHexData(&hexDataNext, (const char **)&txidNext, 1) != CWG_OK) { fileEnd = 1; }	
 		} else { fileEnd = 1; }
-		if (!isTree || !traverseFileTree(hexData, partialTxids, fileEnd ? TREE_SUFFIX_CHARS : TXID_CHARS, fd)) {
-			if (!(bytesToWrite = hexStrDataToFileBytes(fileByteData, hexData, fileEnd))) { return 0; }
-			if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) { perror("write() failed"); return 0; }
+		if (!isTree ||
+		   (status = traverseFileTree(hexData, partialTxids, fileEnd ? TREE_SUFFIX_CHARS : TXID_CHARS, fd)) == CWG_FETCH_NO) {
+			if (!(bytesToWrite = hexStrDataToFileBytes(fileByteData, hexData, fileEnd))) { status = CWG_FILE_ERR;
+												       goto cleanup; }
+			if (write(fd, fileByteData, bytesToWrite) < bytesToWrite) {
+				perror("write() failed"); 
+				status = CWG_WRITE_ERR; goto cleanup;
+			}
+			status = CWG_OK;
 			isTree = 0;	
-		}
+		} else if (status != CWG_OK) { goto cleanup; }
 		strcpy(hexData, hexDataNext);
 	}
-	free(txidNext);
-	free(hexDataNext);
-	return 1;
+	
+	cleanup:
+		free(txidNext);
+		free(hexDataNext);
+		return status;
 }
 
-int getFile(const char *txid, const char *bdNode, int fd, void (*foundHandler) (int, int)) {
+int getFile(const char *txid, const char *bdNode, void (*foundHandler) (int, int), int fd) {
 	bitdbNode = bdNode;
 	if (IS_BITDB_REQUEST_LIMIT) { srandom(time(NULL)); }
-	char *hexDataStart = malloc(TX_DATA_CHARS+1);
-	int success = fetchHexData(&hexDataStart, (const char **)&txid, 1);
-	if (foundHandler != NULL) { foundHandler(success, fd); }
-	if (!success) { goto end; }
-	success = traverseFileChain(hexDataStart, fd);
 
-	end:
+	char *hexDataStart = malloc(TX_DATA_CHARS+1);
+	int status = fetchHexData(&hexDataStart, (const char **)&txid, 1);
+	if (foundHandler != NULL) { foundHandler(status, fd); }
+
+	if (status != CWG_OK) { goto cleanup; }
+	status = traverseFileChain(hexDataStart, fd);
+	
+	cleanup:
 		free(hexDataStart);
-		return success;
+		return status;
 }
+
+int dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
+	int status = CWG_DIR_NO;
+
+	struct DynamicMemory line;
+	line.size = DIR_LINE_BUF;
+	line.data = malloc(line.size);
+	bzero(line.data, line.size);
+
+	int lineLen;
+	int offset = 0;
+	int matched = 0;
+	while (fgets(line.data+offset, line.size-1-offset, dirFp) != NULL) {
+		lineLen = strlen(line.data);
+		if (line.data[lineLen-1] != '\n' && !feof(dirFp)) {
+			offset = lineLen;
+			line.data = realloc(line.data, (line.size*=2));
+			bzero(line.data+offset, line.size-offset);
+			continue;
+		}
+		else if (offset > 0) { offset = 0; line.data[lineLen] = 0; }
+
+		if (strncmp(line.data, dirPath, strlen(dirPath)) == 0) {
+			matched = 1;
+			fgets(pathTxid, TXID_CHARS+1, dirFp);
+			pathTxid[TXID_CHARS] = 0;
+			status = CWG_OK;
+			break;
+		}
+	}
+
+	free(line.data);
+	return status;
+}
+
+int getDirFile(const char *dirTxid, const char *dirPath, const char *bdNode, FILE *writeDirFp, void (*foundHandler) (int, int), int fd) {
+	FILE *dirFp;
+	if ((dirFp = writeDirFp) == NULL && (dirFp = tmpfile()) == NULL) { die("tmpfile() failed"); }
+
+	char txid[TXID_CHARS+1]; txid[TXID_CHARS] = 0;
+
+	int status;
+	if ((status = getFile(dirTxid, bdNode, NULL, fileno(dirFp))) == CWG_OK) {
+		rewind(dirFp);
+		if ((status = dirPathToTxid(dirFp, dirPath, txid)) == CWG_OK) {
+			status = getFile(txid, bdNode, foundHandler, fd);
+			foundHandler = NULL;
+		}
+	} 
+
+	if (foundHandler != NULL) { foundHandler(status, fd); }
+	if (writeDirFp == NULL) { fclose(dirFp); } else { rewind(dirFp); }
+	return status;
+}
+

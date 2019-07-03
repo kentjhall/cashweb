@@ -116,6 +116,15 @@ libb64encode_a_LIBADD =
 am__dirstamp = $(am__leading_dot)dirstamp
 am_libb64encode_a_OBJECTS = b64/encode.$(OBJEXT)
 libb64encode_a_OBJECTS = $(am_libb64encode_a_OBJECTS)
+libbitcoinrpc_a_AR = $(AR) $(ARFLAGS)
+libbitcoinrpc_a_LIBADD =
+am_libbitcoinrpc_a_OBJECTS = libbitcoinrpc/bitcoinrpc_err.$(OBJEXT) \
+	libbitcoinrpc/bitcoinrpc_cl.$(OBJEXT) \
+	libbitcoinrpc/bitcoinrpc.$(OBJEXT) \
+	libbitcoinrpc/bitcoinrpc_method.$(OBJEXT) \
+	libbitcoinrpc/bitcoinrpc_global.$(OBJEXT) \
+	libbitcoinrpc/bitcoinrpc_resp.$(OBJEXT)
+libbitcoinrpc_a_OBJECTS = $(am_libbitcoinrpc_a_OBJECTS)
 libmylist_a_AR = $(AR) $(ARFLAGS)
 libmylist_a_LIBADD =
 am_libmylist_a_OBJECTS = mylist/mylist.$(OBJEXT)
@@ -126,7 +135,7 @@ cashget_LDADD = $(LDADD)
 cashget_DEPENDENCIES = libmylist.a libb64encode.a
 am_cashsend_OBJECTS = cashsend.$(OBJEXT) cashsendtools.$(OBJEXT)
 cashsend_OBJECTS = $(am_cashsend_OBJECTS)
-cashsend_DEPENDENCIES =
+cashsend_DEPENDENCIES = libbitcoinrpc.a
 am_cashserver_OBJECTS = cashserver.$(OBJEXT) cashgettools.$(OBJEXT)
 cashserver_OBJECTS = $(am_cashserver_OBJECTS)
 cashserver_LDADD = $(LDADD)
@@ -149,7 +158,13 @@ am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = ./$(DEPDIR)/cashget.Po \
 	./$(DEPDIR)/cashgettools.Po ./$(DEPDIR)/cashsend.Po \
 	./$(DEPDIR)/cashsendtools.Po ./$(DEPDIR)/cashserver.Po \
-	b64/$(DEPDIR)/encode.Po mylist/$(DEPDIR)/mylist.Po
+	b64/$(DEPDIR)/encode.Po libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po \
+	libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po \
+	libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po \
+	libbitcoinrpc/$(DEPDIR)/bitcoinrpc_global.Po \
+	libbitcoinrpc/$(DEPDIR)/bitcoinrpc_method.Po \
+	libbitcoinrpc/$(DEPDIR)/bitcoinrpc_resp.Po \
+	mylist/$(DEPDIR)/mylist.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -163,10 +178,12 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(libb64encode_a_SOURCES) $(libmylist_a_SOURCES) \
-	$(cashget_SOURCES) $(cashsend_SOURCES) $(cashserver_SOURCES)
-DIST_SOURCES = $(libb64encode_a_SOURCES) $(libmylist_a_SOURCES) \
-	$(cashget_SOURCES) $(cashsend_SOURCES) $(cashserver_SOURCES)
+SOURCES = $(libb64encode_a_SOURCES) $(libbitcoinrpc_a_SOURCES) \
+	$(libmylist_a_SOURCES) $(cashget_SOURCES) $(cashsend_SOURCES) \
+	$(cashserver_SOURCES)
+DIST_SOURCES = $(libb64encode_a_SOURCES) $(libbitcoinrpc_a_SOURCES) \
+	$(libmylist_a_SOURCES) $(cashget_SOURCES) $(cashsend_SOURCES) \
+	$(cashserver_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -283,14 +300,15 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AM_CFLAGS = -g -Wall
 AM_LDFLAGS = -g 
-noinst_LIBRARIES = libmylist.a libb64encode.a
+noinst_LIBRARIES = libmylist.a libb64encode.a libbitcoinrpc.a
 libmylist_a_SOURCES = mylist/mylist.c mylist/mylist.h
 libb64encode_a_SOURCES = b64/encode.c b64/b64.h
+libbitcoinrpc_a_SOURCES = libbitcoinrpc/bitcoinrpc_err.c libbitcoinrpc/bitcoinrpc_cl.c libbitcoinrpc/bitcoinrpc.c libbitcoinrpc/bitcoinrpc_method.c libbitcoinrpc/bitcoinrpc_global.c libbitcoinrpc/bitcoinrpc_resp.c libbitcoinrpc/bitcoinrpc.h
 cashget_SOURCES = cashget.c cashgettools.c cashgettools.h
 cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h
 cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h
 LDADD = libmylist.a libb64encode.a
-cashsend_LDADD = 
+cashsend_LDADD = libbitcoinrpc.a
 all: all-am
 
 .SUFFIXES:
@@ -382,6 +400,32 @@ libb64encode.a: $(libb64encode_a_OBJECTS) $(libb64encode_a_DEPENDENCIES) $(EXTRA
 	$(AM_V_at)-rm -f libb64encode.a
 	$(AM_V_AR)$(libb64encode_a_AR) libb64encode.a $(libb64encode_a_OBJECTS) $(libb64encode_a_LIBADD)
 	$(AM_V_at)$(RANLIB) libb64encode.a
+libbitcoinrpc/$(am__dirstamp):
+	@$(MKDIR_P) libbitcoinrpc
+	@: > libbitcoinrpc/$(am__dirstamp)
+libbitcoinrpc/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) libbitcoinrpc/$(DEPDIR)
+	@: > libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+libbitcoinrpc/bitcoinrpc_err.$(OBJEXT): libbitcoinrpc/$(am__dirstamp) \
+	libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+libbitcoinrpc/bitcoinrpc_cl.$(OBJEXT): libbitcoinrpc/$(am__dirstamp) \
+	libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+libbitcoinrpc/bitcoinrpc.$(OBJEXT): libbitcoinrpc/$(am__dirstamp) \
+	libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+libbitcoinrpc/bitcoinrpc_method.$(OBJEXT):  \
+	libbitcoinrpc/$(am__dirstamp) \
+	libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+libbitcoinrpc/bitcoinrpc_global.$(OBJEXT):  \
+	libbitcoinrpc/$(am__dirstamp) \
+	libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+libbitcoinrpc/bitcoinrpc_resp.$(OBJEXT):  \
+	libbitcoinrpc/$(am__dirstamp) \
+	libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+
+libbitcoinrpc.a: $(libbitcoinrpc_a_OBJECTS) $(libbitcoinrpc_a_DEPENDENCIES) $(EXTRA_libbitcoinrpc_a_DEPENDENCIES) 
+	$(AM_V_at)-rm -f libbitcoinrpc.a
+	$(AM_V_AR)$(libbitcoinrpc_a_AR) libbitcoinrpc.a $(libbitcoinrpc_a_OBJECTS) $(libbitcoinrpc_a_LIBADD)
+	$(AM_V_at)$(RANLIB) libbitcoinrpc.a
 mylist/$(am__dirstamp):
 	@$(MKDIR_P) mylist
 	@: > mylist/$(am__dirstamp)
@@ -411,6 +455,7 @@ cashserver$(EXEEXT): $(cashserver_OBJECTS) $(cashserver_DEPENDENCIES) $(EXTRA_ca
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 	-rm -f b64/*.$(OBJEXT)
+	-rm -f libbitcoinrpc/*.$(OBJEXT)
 	-rm -f mylist/*.$(OBJEXT)
 
 distclean-compile:
@@ -422,6 +467,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashsendtools.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashserver.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@b64/$(DEPDIR)/encode.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc_global.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc_method.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc_resp.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@mylist/$(DEPDIR)/mylist.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
@@ -566,6 +617,8 @@ distclean-generic:
 	-test . = "$(srcdir)" || test -z "$(CONFIG_CLEAN_VPATH_FILES)" || rm -f $(CONFIG_CLEAN_VPATH_FILES)
 	-rm -f b64/$(DEPDIR)/$(am__dirstamp)
 	-rm -f b64/$(am__dirstamp)
+	-rm -f libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
+	-rm -f libbitcoinrpc/$(am__dirstamp)
 	-rm -f mylist/$(DEPDIR)/$(am__dirstamp)
 	-rm -f mylist/$(am__dirstamp)
 
@@ -584,6 +637,12 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/cashsendtools.Po
 	-rm -f ./$(DEPDIR)/cashserver.Po
 	-rm -f b64/$(DEPDIR)/encode.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_global.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_method.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_resp.Po
 	-rm -f mylist/$(DEPDIR)/mylist.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
@@ -636,6 +695,12 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/cashsendtools.Po
 	-rm -f ./$(DEPDIR)/cashserver.Po
 	-rm -f b64/$(DEPDIR)/encode.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_global.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_method.Po
+	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_resp.Po
 	-rm -f mylist/$(DEPDIR)/mylist.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic

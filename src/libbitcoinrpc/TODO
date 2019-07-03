@@ -1,0 +1,13 @@
+TODO
+====
+
+To be done before the next release (0.3.0):
+
+1. Never enough unit tests! (The tests of settxfee are rather primitive.)
+2. Improve and expand documentation.
+
+
+Do something about the following:
+
+3. SSL support has been dropped in Core 0.12.0
+4. Random cookie support has been introduced in Core 0.12.0

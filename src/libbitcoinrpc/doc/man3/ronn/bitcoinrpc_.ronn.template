@@ -1,0 +1,47 @@
+bitcoinrpc(3) -- C language intreface to Bitcoin JSON-RPC API 
+=============================================================
+
+## SYNOPSIS
+## DESCRIPTION
+
+A normal paragraph. This can span multiple lines and is terminated with two
+or more line endings -- just like Markdown.
+
+Inline markup for `code`, `user input`, and **strong** are displayed
+boldface; <variable>, _emphasis_, *emphasis*, are displayed in italics
+(HTML) or underline (roff).
+
+Manual references like sh(1), markdown(7), roff(7), etc. are hyperlinked in
+HTML output.
+
+Link to sections like [STANDARDS][], [SEE ALSO][], or [WITH A DIFFERENT LINK TEXT][#SEE-ALSO].
+
+Definition lists:
+
+  * `-a`, `--argument`=[<value>]:
+    One or more paragraphs describing the argument.
+
+  * You can put whatever you *want* here, really:
+    Nesting and paragraph spacing are respected.
+
+Frequently used sections:
+
+## DATA STRUCTURES
+## HEADER FILES
+## API FUNCTIONS
+## ABI
+## SECURITY CONSIDERATIONS
+
+## BUGS
+Please report bugs to Marek Miller <marek.l.miller@gmail.com>
+
+## HISTORY
+
+## AUTHOR
+Written by Marek Miller and others, see CREDITS source file.
+
+## COPYRIGHT
+License: MIT (see https://opensource.org/licenses/MIT).
+The software is provided "as is", without warranty of any kind
+
+## SEE ALSO

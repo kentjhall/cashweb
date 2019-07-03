@@ -30,8 +30,8 @@ Kernel configured for up to 4 processors.
 Processor type: x86_64h (Intel x86-64h Haswell)
 Processors active: 0 1 2 3
 Primary memory available: 8.00 gigabytes
-Default processor set: 445 tasks, 2257 threads, 4 processors
-Load average: 1.42, Mach factor: 2.56
+Default processor set: 379 tasks, 2040 threads, 4 processors
+Load average: 1.30, Mach factor: 2.82
 /bin/machine           = unknown
 /usr/bin/oslevel       = unknown
 /bin/universe          = unknown
@@ -52,576 +52,31 @@ PATH: /Library/Frameworks/Mono.framework/Versions/Current/Commands
 ## Core tests. ##
 ## ----------- ##
 
-configure:2291: checking for a BSD-compatible install
-configure:2359: result: /usr/local/bin/ginstall -c
-configure:2370: checking whether build environment is sane
-configure:2425: result: yes
-configure:2576: checking for a thread-safe mkdir -p
-configure:2615: result: /usr/local/bin/gmkdir -p
-configure:2622: checking for gawk
-configure:2652: result: no
-configure:2622: checking for mawk
-configure:2652: result: no
-configure:2622: checking for nawk
-configure:2652: result: no
-configure:2622: checking for awk
-configure:2638: found /usr/bin/awk
-configure:2649: result: awk
-configure:2660: checking whether make sets $(MAKE)
-configure:2682: result: yes
-configure:2711: checking whether make supports nested variables
-configure:2728: result: yes
-configure:2907: checking for gcc
-configure:2923: found /usr/bin/gcc
-configure:2934: result: gcc
-configure:3163: checking for C compiler version
-configure:3172: gcc --version >&5
-Apple LLVM version 10.0.0 (clang-1000.11.45.5)
-Target: x86_64-apple-darwin18.2.0
-Thread model: posix
-InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
-Configured with: --prefix=/Applications/Xcode.app/Contents/Developer/usr --with-gxx-include-dir=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.14.sdk/usr/include/c++/4.2.1
-configure:3183: $? = 0
-configure:3172: gcc -v >&5
-Configured with: --prefix=/Applications/Xcode.app/Contents/Developer/usr --with-gxx-include-dir=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.14.sdk/usr/include/c++/4.2.1
-Apple LLVM version 10.0.0 (clang-1000.11.45.5)
-Target: x86_64-apple-darwin18.2.0
-Thread model: posix
-InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
-configure:3183: $? = 0
-configure:3172: gcc -V >&5
-clang: error: argument to '-V' is missing (expected 1 value)
-clang: error: no input files
-configure:3183: $? = 1
-configure:3172: gcc -qversion >&5
-clang: error: unknown argument: '-qversion'
-clang: error: no input files
-configure:3183: $? = 1
-configure:3203: checking whether the C compiler works
-configure:3225: gcc    conftest.c  >&5
-configure:3229: $? = 0
-configure:3277: result: yes
-configure:3280: checking for C compiler default output file name
-configure:3282: result: a.out
-configure:3288: checking for suffix of executables
-configure:3295: gcc -o conftest    conftest.c  >&5
-configure:3299: $? = 0
-configure:3321: result: 
-configure:3343: checking whether we are cross compiling
-configure:3351: gcc -o conftest    conftest.c  >&5
-configure:3355: $? = 0
-configure:3362: ./conftest
-configure:3366: $? = 0
-configure:3381: result: no
-configure:3386: checking for suffix of object files
-configure:3408: gcc -c   conftest.c >&5
-configure:3412: $? = 0
-configure:3433: result: o
-configure:3437: checking whether we are using the GNU C compiler
-configure:3456: gcc -c   conftest.c >&5
-configure:3456: $? = 0
-configure:3465: result: yes
-configure:3474: checking whether gcc accepts -g
-configure:3494: gcc -c -g  conftest.c >&5
-configure:3494: $? = 0
-configure:3535: result: yes
-configure:3552: checking for gcc option to accept ISO C89
-configure:3615: gcc  -c -g -O2  conftest.c >&5
-configure:3615: $? = 0
-configure:3628: result: none needed
-configure:3653: checking whether gcc understands -c and -o together
-configure:3675: gcc -c conftest.c -o conftest2.o
-configure:3678: $? = 0
-configure:3675: gcc -c conftest.c -o conftest2.o
-configure:3678: $? = 0
-configure:3690: result: yes
-configure:3710: checking whether make supports the include directive
-configure:3725: make -f confmf.GNU && cat confinc.out
-this is the am__doit target
-configure:3728: $? = 0
-configure:3747: result: yes (GNU style)
-configure:3772: checking dependency style of gcc
-configure:3883: result: gcc3
-configure:3941: checking for ranlib
-configure:3957: found /usr/bin/ranlib
-configure:3968: result: ranlib
-configure:3993: checking for library containing curl_easy_init
-configure:4024: gcc -o conftest -g -O2   conftest.c  >&5
-Undefined symbols for architecture x86_64:
-  "_curl_easy_init", referenced from:
-      _main in conftest-fbc571.o
-ld: symbol(s) not found for architecture x86_64
-clang: error: linker command failed with exit code 1 (use -v to see invocation)
-configure:4024: $? = 1
-configure: failed program was:
-| /* confdefs.h */
-| #define PACKAGE_NAME "cashwebtools"
-| #define PACKAGE_TARNAME "cashwebtools"
-| #define PACKAGE_VERSION "0"
-| #define PACKAGE_STRING "cashwebtools 0"
-| #define PACKAGE_BUGREPORT ""
-| #define PACKAGE_URL ""
-| #define PACKAGE "cashwebtools"
-| #define VERSION "0"
-| /* end confdefs.h.  */
-| 
-| /* Override any GCC internal prototype to avoid an error.
-|    Use char because int might match the return type of a GCC
-|    builtin and then its argument prototype would still apply.  */
-| #ifdef __cplusplus
-| extern "C"
-| #endif
-| char curl_easy_init ();
-| int
-| main ()
-| {
-| return curl_easy_init ();
-|   ;
-|   return 0;
-| }
-configure:4024: gcc -o conftest -g -O2   conftest.c -lcurl   >&5
-configure:4024: $? = 0
-configure:4041: result: -lcurl
-configure:4053: checking for library containing MHD_start_daemon
-configure:4084: gcc -o conftest -g -O2   conftest.c -lcurl  >&5
-Undefined symbols for architecture x86_64:
-  "_MHD_start_daemon", referenced from:
-      _main in conftest-35741d.o
-ld: symbol(s) not found for architecture x86_64
-clang: error: linker command failed with exit code 1 (use -v to see invocation)
-configure:4084: $? = 1
-configure: failed program was:
-| /* confdefs.h */
-| #define PACKAGE_NAME "cashwebtools"
-| #define PACKAGE_TARNAME "cashwebtools"
-| #define PACKAGE_VERSION "0"
-| #define PACKAGE_STRING "cashwebtools 0"
-| #define PACKAGE_BUGREPORT ""
-| #define PACKAGE_URL ""
-| #define PACKAGE "cashwebtools"
-| #define VERSION "0"
-| /* end confdefs.h.  */
-| 
-| /* Override any GCC internal prototype to avoid an error.
-|    Use char because int might match the return type of a GCC
-|    builtin and then its argument prototype would still apply.  */
-| #ifdef __cplusplus
-| extern "C"
-| #endif
-| char MHD_start_daemon ();
-| int
-| main ()
-| {
-| return MHD_start_daemon ();
-|   ;
-|   return 0;
-| }
-configure:4084: gcc -o conftest -g -O2   conftest.c -lmicrohttpd  -lcurl  >&5
-configure:4084: $? = 0
-configure:4101: result: -lmicrohttpd
-configure:4120: checking how to run the C preprocessor
-configure:4151: gcc -E  conftest.c
-configure:4151: $? = 0
-configure:4165: gcc -E  conftest.c
-conftest.c:11:10: fatal error: 'ac_nonexistent.h' file not found
-#include <ac_nonexistent.h>
-         ^~~~~~~~~~~~~~~~~~
-1 error generated.
-configure:4165: $? = 1
-configure: failed program was:
-| /* confdefs.h */
-| #define PACKAGE_NAME "cashwebtools"
-| #define PACKAGE_TARNAME "cashwebtools"
-| #define PACKAGE_VERSION "0"
-| #define PACKAGE_STRING "cashwebtools 0"
-| #define PACKAGE_BUGREPORT ""
-| #define PACKAGE_URL ""
-| #define PACKAGE "cashwebtools"
-| #define VERSION "0"
-| /* end confdefs.h.  */
-| #include <ac_nonexistent.h>
-configure:4190: result: gcc -E
-configure:4210: gcc -E  conftest.c
-configure:4210: $? = 0
-configure:4224: gcc -E  conftest.c
-conftest.c:11:10: fatal error: 'ac_nonexistent.h' file not found
-#include <ac_nonexistent.h>
-         ^~~~~~~~~~~~~~~~~~
-1 error generated.
-configure:4224: $? = 1
-configure: failed program was:
-| /* confdefs.h */
-| #define PACKAGE_NAME "cashwebtools"
-| #define PACKAGE_TARNAME "cashwebtools"
-| #define PACKAGE_VERSION "0"
-| #define PACKAGE_STRING "cashwebtools 0"
-| #define PACKAGE_BUGREPORT ""
-| #define PACKAGE_URL ""
-| #define PACKAGE "cashwebtools"
-| #define VERSION "0"
-| /* end confdefs.h.  */
-| #include <ac_nonexistent.h>
-configure:4253: checking for grep that handles long lines and -e
-configure:4311: result: /usr/bin/grep
-configure:4316: checking for egrep
-configure:4378: result: /usr/bin/grep -E
-configure:4383: checking for ANSI C header files
-configure:4403: gcc -c -g -O2  conftest.c >&5
-configure:4403: $? = 0
-configure:4476: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
-configure:4476: $? = 0
-configure:4476: ./conftest
-configure:4476: $? = 0
-configure:4487: result: yes
-configure:4500: checking for sys/types.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for sys/stat.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for stdlib.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for string.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for memory.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for strings.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for inttypes.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for stdint.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4500: checking for unistd.h
-configure:4500: gcc -c -g -O2  conftest.c >&5
-configure:4500: $? = 0
-configure:4500: result: yes
-configure:4515: checking arpa/inet.h usability
-configure:4515: gcc -c -g -O2  conftest.c >&5
-configure:4515: $? = 0
-configure:4515: result: yes
-configure:4515: checking arpa/inet.h presence
-configure:4515: gcc -E  conftest.c
-configure:4515: $? = 0
-configure:4515: result: yes
-configure:4515: checking for arpa/inet.h
-configure:4515: result: yes
-configure:4515: checking for stdlib.h
-configure:4515: result: yes
-configure:4515: checking for string.h
-configure:4515: result: yes
-configure:4515: checking for unistd.h
-configure:4515: result: yes
-configure:4525: checking curl/curl.h usability
-configure:4525: gcc -c -g -O2  conftest.c >&5
-configure:4525: $? = 0
-configure:4525: result: yes
-configure:4525: checking curl/curl.h presence
-configure:4525: gcc -E  conftest.c
-configure:4525: $? = 0
-configure:4525: result: yes
-configure:4525: checking for curl/curl.h
-configure:4525: result: yes
-configure:4535: checking microhttpd.h usability
-configure:4535: gcc -c -g -O2  conftest.c >&5
-configure:4535: $? = 0
-configure:4535: result: yes
-configure:4535: checking microhttpd.h presence
-configure:4535: gcc -E  conftest.c
-configure:4535: $? = 0
-configure:4535: result: yes
-configure:4535: checking for microhttpd.h
-configure:4535: result: yes
-configure:4547: checking for stdbool.h that conforms to C99
-configure:4614: gcc -c -g -O2  conftest.c >&5
-conftest.c:74:24: warning: address of 's' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             bool e = &s;
-                  ~    ^
-conftest.c:78:23: warning: address of array 'a' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                     ~^
-conftest.c:78:28: warning: address of array 'b' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                          ~^
-conftest.c:78:33: warning: address of array 'c' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                               ~^
-conftest.c:78:38: warning: address of array 'd' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                                    ~^
-conftest.c:78:48: warning: address of array 'f' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                                              ~^
-conftest.c:78:53: warning: address of array 'g' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                                                   ~^
-conftest.c:78:58: warning: address of array 'h' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                                                        ~^
-conftest.c:78:63: warning: address of array 'i' will always evaluate to 'true' [-Wpointer-bool-conversion]
-             return (!a + !b + !c + !d + !e + !f + !g + !h + !i + !!j + !k + !!l
-                                                             ~^
-conftest.c:79:30: warning: address of array 'n' will always evaluate to 'true' [-Wpointer-bool-conversion]
-                            ~^
-conftest.c:79:35: warning: address of array 'o' will always evaluate to 'true' [-Wpointer-bool-conversion]
-                                 ~^
-conftest.c:79:40: warning: address of array 'p' will always evaluate to 'true' [-Wpointer-bool-conversion]
-                                      ~^
-12 warnings generated.
-configure:4614: $? = 0
-configure:4621: result: yes
-configure:4623: checking for _Bool
-configure:4623: gcc -c -g -O2  conftest.c >&5
-configure:4623: $? = 0
-configure:4623: gcc -c -g -O2  conftest.c >&5
-conftest.c:61:20: error: expected expression
-if (sizeof ((_Bool)))
-                   ^
-1 error generated.
-configure:4623: $? = 1
-configure: failed program was:
-| /* confdefs.h */
-| #define PACKAGE_NAME "cashwebtools"
-| #define PACKAGE_TARNAME "cashwebtools"
-| #define PACKAGE_VERSION "0"
-| #define PACKAGE_STRING "cashwebtools 0"
-| #define PACKAGE_BUGREPORT ""
-| #define PACKAGE_URL ""
-| #define PACKAGE "cashwebtools"
-| #define VERSION "0"
-| #define STDC_HEADERS 1
-| #define HAVE_SYS_TYPES_H 1
-| #define HAVE_SYS_STAT_H 1
-| #define HAVE_STDLIB_H 1
-| #define HAVE_STRING_H 1
-| #define HAVE_MEMORY_H 1
-| #define HAVE_STRINGS_H 1
-| #define HAVE_INTTYPES_H 1
-| #define HAVE_STDINT_H 1
-| #define HAVE_UNISTD_H 1
-| #define HAVE_ARPA_INET_H 1
-| #define HAVE_STDLIB_H 1
-| #define HAVE_STRING_H 1
-| #define HAVE_UNISTD_H 1
-| /* end confdefs.h.  */
-| #include <stdio.h>
-| #ifdef HAVE_SYS_TYPES_H
-| # include <sys/types.h>
-| #endif
-| #ifdef HAVE_SYS_STAT_H
-| # include <sys/stat.h>
-| #endif
-| #ifdef STDC_HEADERS
-| # include <stdlib.h>
-| # include <stddef.h>
-| #else
-| # ifdef HAVE_STDLIB_H
-| #  include <stdlib.h>
-| # endif
-| #endif
-| #ifdef HAVE_STRING_H
-| # if !defined STDC_HEADERS && defined HAVE_MEMORY_H
-| #  include <memory.h>
-| # endif
-| # include <string.h>
-| #endif
-| #ifdef HAVE_STRINGS_H
-| # include <strings.h>
-| #endif
-| #ifdef HAVE_INTTYPES_H
-| # include <inttypes.h>
-| #endif
-| #ifdef HAVE_STDINT_H
-| # include <stdint.h>
-| #endif
-| #ifdef HAVE_UNISTD_H
-| # include <unistd.h>
-| #endif
-| int
-| main ()
-| {
-| if (sizeof ((_Bool)))
-| 	    return 0;
-|   ;
-|   return 0;
-| }
-configure:4623: result: yes
-configure:4634: checking for inline
-configure:4650: gcc -c -g -O2  conftest.c >&5
-configure:4650: $? = 0
-configure:4658: result: inline
-configure:4676: checking for size_t
-configure:4676: gcc -c -g -O2  conftest.c >&5
-configure:4676: $? = 0
-configure:4676: gcc -c -g -O2  conftest.c >&5
-conftest.c:62:21: error: expected expression
-if (sizeof ((size_t)))
-                    ^
-1 error generated.
-configure:4676: $? = 1
-configure: failed program was:
-| /* confdefs.h */
-| #define PACKAGE_NAME "cashwebtools"
-| #define PACKAGE_TARNAME "cashwebtools"
-| #define PACKAGE_VERSION "0"
-| #define PACKAGE_STRING "cashwebtools 0"
-| #define PACKAGE_BUGREPORT ""
-| #define PACKAGE_URL ""
-| #define PACKAGE "cashwebtools"
-| #define VERSION "0"
-| #define STDC_HEADERS 1
-| #define HAVE_SYS_TYPES_H 1
-| #define HAVE_SYS_STAT_H 1
-| #define HAVE_STDLIB_H 1
-| #define HAVE_STRING_H 1
-| #define HAVE_MEMORY_H 1
-| #define HAVE_STRINGS_H 1
-| #define HAVE_INTTYPES_H 1
-| #define HAVE_STDINT_H 1
-| #define HAVE_UNISTD_H 1
-| #define HAVE_ARPA_INET_H 1
-| #define HAVE_STDLIB_H 1
-| #define HAVE_STRING_H 1
-| #define HAVE_UNISTD_H 1
-| #define HAVE__BOOL 1
-| /* end confdefs.h.  */
-| #include <stdio.h>
-| #ifdef HAVE_SYS_TYPES_H
-| # include <sys/types.h>
-| #endif
-| #ifdef HAVE_SYS_STAT_H
-| # include <sys/stat.h>
-| #endif
-| #ifdef STDC_HEADERS
-| # include <stdlib.h>
-| # include <stddef.h>
-| #else
-| # ifdef HAVE_STDLIB_H
-| #  include <stdlib.h>
-| # endif
-| #endif
-| #ifdef HAVE_STRING_H
-| # if !defined STDC_HEADERS && defined HAVE_MEMORY_H
-| #  include <memory.h>
-| # endif
-| # include <string.h>
-| #endif
-| #ifdef HAVE_STRINGS_H
-| # include <strings.h>
-| #endif
-| #ifdef HAVE_INTTYPES_H
-| # include <inttypes.h>
-| #endif
-| #ifdef HAVE_STDINT_H
-| # include <stdint.h>
-| #endif
-| #ifdef HAVE_UNISTD_H
-| # include <unistd.h>
-| #endif
-| int
-| main ()
-| {
-| if (sizeof ((size_t)))
-| 	    return 0;
-|   ;
-|   return 0;
-| }
-configure:4676: result: yes
-configure:4687: checking for uint8_t
-configure:4687: gcc -c -g -O2  conftest.c >&5
-configure:4687: $? = 0
-configure:4687: result: yes
-configure:4705: checking for stdlib.h
-configure:4705: result: yes
-configure:4715: checking for GNU libc compatible malloc
-configure:4739: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
-configure:4739: $? = 0
-configure:4739: ./conftest
-configure:4739: $? = 0
-configure:4749: result: yes
-configure:4772: checking for stdlib.h
-configure:4772: result: yes
-configure:4782: checking for GNU libc compatible realloc
-configure:4806: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
-configure:4806: $? = 0
-configure:4806: ./conftest
-configure:4806: $? = 0
-configure:4816: result: yes
-configure:4840: checking for inet_ntoa
-configure:4840: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
-configure:4840: $? = 0
-configure:4840: result: yes
-configure:4840: checking for memset
-configure:4840: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
-conftest.c:54:6: warning: incompatible redeclaration of library function 'memset' [-Wincompatible-library-redeclaration]
-char memset ();
-     ^
-conftest.c:54:6: note: 'memset' is a builtin with type 'void *(void *, int, unsigned long)'
-1 warning generated.
-configure:4840: $? = 0
-configure:4840: result: yes
-configure:4840: checking for strstr
-configure:4840: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
-conftest.c:55:6: warning: incompatible redeclaration of library function 'strstr' [-Wincompatible-library-redeclaration]
-char strstr ();
-     ^
-conftest.c:55:6: note: 'strstr' is a builtin with type 'char *(const char *, const char *)'
-1 warning generated.
-configure:4840: $? = 0
-configure:4840: result: yes
-configure:4840: checking for strtoul
-configure:4840: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
-configure:4840: $? = 0
-configure:4840: result: yes
-configure:4961: checking that generated files are newer than configure
-configure:4967: result: done
-configure:4990: creating ./config.status
-
-## ---------------------- ##
-## Running config.status. ##
-## ---------------------- ##
-
-This file was extended by cashwebtools config.status 0, which was
-generated by GNU Autoconf 2.69.  Invocation command line was
-
-  CONFIG_FILES    = 
-  CONFIG_HEADERS  = 
-  CONFIG_LINKS    = 
-  CONFIG_COMMANDS = 
-  $ ./config.status 
-
-on Kents-MBP-3.fios-router.home
-
-config.status:867: creating Makefile
-config.status:867: creating src/Makefile
-config.status:867: creating config.h
-config.status:1081: executing depfiles commands
-config.status:1158: cd .       && sed -e '/# am--include-marker/d' Makefile         | make -f - am--depfiles
-config.status:1163: $? = 0
-config.status:1158: cd src       && sed -e '/# am--include-marker/d' Makefile         | make -f - am--depfiles
-make: Nothing to be done for `am--depfiles'.
-config.status:1163: $? = 0
+configure:2305: checking for a BSD-compatible install
+configure:2373: result: /usr/local/bin/ginstall -c
+configure:2384: checking whether build environment is sane
+configure:2439: result: yes
+configure:2590: checking for a thread-safe mkdir -p
+configure:2629: result: /usr/local/bin/gmkdir -p
+configure:2636: checking for gawk
+configure:2666: result: no
+configure:2636: checking for mawk
+configure:2666: result: no
+configure:2636: checking for nawk
+configure:2666: result: no
+configure:2636: checking for awk
+configure:2652: found /usr/bin/awk
+configure:2663: result: awk
+configure:2674: checking whether make sets $(MAKE)
+configure:2696: result: yes
+configure:2725: checking whether make supports nested variables
+configure:2742: result: yes
+configure:2759: error: source directory already configured; run "make distclean" there first
 
 ## ---------------- ##
 ## Cache variables. ##
 ## ---------------- ##
 
-ac_cv_c_compiler_gnu=yes
-ac_cv_c_inline=inline
-ac_cv_c_uint8_t=yes
 ac_cv_env_CC_set=
 ac_cv_env_CC_value=
 ac_cv_env_CFLAGS_set=
@@ -640,89 +95,55 @@ ac_cv_env_host_alias_set=
 ac_cv_env_host_alias_value=
 ac_cv_env_target_alias_set=
 ac_cv_env_target_alias_value=
-ac_cv_func_inet_ntoa=yes
-ac_cv_func_malloc_0_nonnull=yes
-ac_cv_func_memset=yes
-ac_cv_func_realloc_0_nonnull=yes
-ac_cv_func_strstr=yes
-ac_cv_func_strtoul=yes
-ac_cv_header_arpa_inet_h=yes
-ac_cv_header_curl_curl_h=yes
-ac_cv_header_inttypes_h=yes
-ac_cv_header_memory_h=yes
-ac_cv_header_microhttpd_h=yes
-ac_cv_header_stdbool_h=yes
-ac_cv_header_stdc=yes
-ac_cv_header_stdint_h=yes
-ac_cv_header_stdlib_h=yes
-ac_cv_header_string_h=yes
-ac_cv_header_strings_h=yes
-ac_cv_header_sys_stat_h=yes
-ac_cv_header_sys_types_h=yes
-ac_cv_header_unistd_h=yes
-ac_cv_objext=o
-ac_cv_path_EGREP='/usr/bin/grep -E'
-ac_cv_path_GREP=/usr/bin/grep
 ac_cv_path_install='/usr/local/bin/ginstall -c'
 ac_cv_path_mkdir=/usr/local/bin/gmkdir
 ac_cv_prog_AWK=awk
-ac_cv_prog_CPP='gcc -E'
-ac_cv_prog_ac_ct_CC=gcc
-ac_cv_prog_ac_ct_RANLIB=ranlib
-ac_cv_prog_cc_c89=
-ac_cv_prog_cc_g=yes
 ac_cv_prog_make_make_set=yes
-ac_cv_search_MHD_start_daemon=-lmicrohttpd
-ac_cv_search_curl_easy_init=-lcurl
-ac_cv_type__Bool=yes
-ac_cv_type_size_t=yes
-am_cv_CC_dependencies_compiler_type=gcc3
 am_cv_make_support_nested_variables=yes
-am_cv_prog_cc_c_o=yes
 
 ## ----------------- ##
 ## Output variables. ##
 ## ----------------- ##
 
-ACLOCAL='${SHELL} /Users/kenthall/documents/cashweb/missing aclocal-1.16'
-AMDEPBACKSLASH='\'
-AMDEP_FALSE='#'
+ACLOCAL=''
+AMDEPBACKSLASH=''
+AMDEP_FALSE=''
 AMDEP_TRUE=''
-AMTAR='$${TAR-tar}'
+AMTAR=''
 AM_BACKSLASH='\'
 AM_DEFAULT_V='$(AM_DEFAULT_VERBOSITY)'
 AM_DEFAULT_VERBOSITY='1'
 AM_V='$(V)'
-AUTOCONF='${SHELL} /Users/kenthall/documents/cashweb/missing autoconf'
-AUTOHEADER='${SHELL} /Users/kenthall/documents/cashweb/missing autoheader'
-AUTOMAKE='${SHELL} /Users/kenthall/documents/cashweb/missing automake-1.16'
+AUTOCONF=''
+AUTOHEADER=''
+AUTOMAKE=''
 AWK='awk'
-CC='gcc'
-CCDEPMODE='depmode=gcc3'
-CFLAGS='-g -O2'
-CPP='gcc -E'
+CC=''
+CCDEPMODE=''
+CFLAGS=''
+CPP=''
 CPPFLAGS=''
-CYGPATH_W='echo'
-DEFS='-DHAVE_CONFIG_H'
-DEPDIR='.deps'
+CYGPATH_W=''
+DEFS=''
+DEPDIR=''
 ECHO_C='\c'
 ECHO_N=''
 ECHO_T=''
-EGREP='/usr/bin/grep -E'
+EGREP=''
 EXEEXT=''
-GREP='/usr/bin/grep'
+GREP=''
 INSTALL_DATA='${INSTALL} -m 644'
 INSTALL_PROGRAM='${INSTALL}'
 INSTALL_SCRIPT='${INSTALL}'
 INSTALL_STRIP_PROGRAM='$(install_sh) -c -s'
 LDFLAGS=''
 LIBOBJS=''
-LIBS='-lmicrohttpd -lcurl '
+LIBS=''
 LTLIBOBJS=''
-MAKEINFO='${SHELL} /Users/kenthall/documents/cashweb/missing makeinfo'
+MAKEINFO=''
 MKDIR_P='/usr/local/bin/gmkdir -p'
-OBJEXT='o'
-PACKAGE='cashwebtools'
+OBJEXT=''
+PACKAGE=''
 PACKAGE_BUGREPORT=''
 PACKAGE_NAME='cashwebtools'
 PACKAGE_STRING='cashwebtools 0'
@@ -730,30 +151,34 @@ PACKAGE_TARNAME='cashwebtools'
 PACKAGE_URL=''
 PACKAGE_VERSION='0'
 PATH_SEPARATOR=':'
-RANLIB='ranlib'
+RANLIB=''
 SET_MAKE=''
 SHELL='/bin/sh'
 STRIP=''
-VERSION='0'
-ac_ct_CC='gcc'
+VERSION=''
+WITH_CASHSEND_FALSE=''
+WITH_CASHSEND_TRUE=''
+WITH_CASHSERVER_FALSE=''
+WITH_CASHSERVER_TRUE=''
+ac_ct_CC=''
 am__EXEEXT_FALSE=''
-am__EXEEXT_TRUE='#'
-am__fastdepCC_FALSE='#'
+am__EXEEXT_TRUE=''
+am__fastdepCC_FALSE=''
 am__fastdepCC_TRUE=''
-am__include='include'
+am__include=''
 am__isrc=' -I$(srcdir)'
 am__leading_dot='.'
-am__nodep='_no'
+am__nodep=''
 am__quote=''
-am__tar='$${TAR-tar} chof - "$$tardir"'
-am__untar='$${TAR-tar} xf -'
+am__tar=''
+am__untar=''
 bindir='${exec_prefix}/bin'
 build_alias=''
 datadir='${datarootdir}'
 datarootdir='${prefix}/share'
 docdir='${datarootdir}/doc/${PACKAGE_TARNAME}'
 dvidir='${docdir}'
-exec_prefix='${prefix}'
+exec_prefix='NONE'
 host_alias=''
 htmldir='${docdir}'
 includedir='${prefix}/include'
@@ -764,10 +189,10 @@ libexecdir='${exec_prefix}/libexec'
 localedir='${datarootdir}/locale'
 localstatedir='${prefix}/var'
 mandir='${datarootdir}/man'
-mkdir_p='$(MKDIR_P)'
+mkdir_p=''
 oldincludedir='/usr/include'
 pdfdir='${docdir}'
-prefix='/usr/local'
+prefix='NONE'
 program_transform_name='s,x,x,'
 psdir='${docdir}'
 sbindir='${exec_prefix}/sbin'
@@ -786,30 +211,5 @@ target_alias=''
 #define PACKAGE_STRING "cashwebtools 0"
 #define PACKAGE_BUGREPORT ""
 #define PACKAGE_URL ""
-#define PACKAGE "cashwebtools"
-#define VERSION "0"
-#define STDC_HEADERS 1
-#define HAVE_SYS_TYPES_H 1
-#define HAVE_SYS_STAT_H 1
-#define HAVE_STDLIB_H 1
-#define HAVE_STRING_H 1
-#define HAVE_MEMORY_H 1
-#define HAVE_STRINGS_H 1
-#define HAVE_INTTYPES_H 1
-#define HAVE_STDINT_H 1
-#define HAVE_UNISTD_H 1
-#define HAVE_ARPA_INET_H 1
-#define HAVE_STDLIB_H 1
-#define HAVE_STRING_H 1
-#define HAVE_UNISTD_H 1
-#define HAVE__BOOL 1
-#define HAVE_STDLIB_H 1
-#define HAVE_MALLOC 1
-#define HAVE_STDLIB_H 1
-#define HAVE_REALLOC 1
-#define HAVE_INET_NTOA 1
-#define HAVE_MEMSET 1
-#define HAVE_STRSTR 1
-#define HAVE_STRTOUL 1
 
-configure: exit 0
+configure: exit 1

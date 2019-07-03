@@ -1,0 +1,40 @@
+bitcoinrpc_resp_check(3) --  Check the response.
+================================================
+
+## SYNOPSIS
+
+`#include <bitcoinrpc.h>`
+
+`BITCOINRPCEcode bitcoinrpc_resp_check (bitcoinrpc_resp_t *resp, bitcoinrpc_method_t *method)`
+
+
+## DESCRIPTION
+
+Check, if the `resp` comes as a result of calling `method`.
+This check is already performed by `bitcoinrpc_call()`.
+
+### Return value:
+  `BITCOINRPCE_OK` or `BITCOINRPCE_CHECK`, if check fails.
+
+
+## NOTES
+## EXAMPLE
+
+## BUGS
+Please report bugs to Marek Miller <marek.l.miller@gmail.com>
+
+## HISTORY
+
+## AUTHOR
+Written by Marek Miller and others, see CREDITS source file.
+
+## COPYRIGHT
+License: MIT (see https://opensource.org/licenses/MIT).
+The software is provided "as is", without warranty of any kind
+
+## SEE ALSO
+bitcoinrpc(3),
+bitcoinrpc_resp_init(3),
+bitcoinrpc_resp_free(3),
+bitcoinrpc_resp_get(3),
+bitcoinrpc_call(3)

@@ -2,9 +2,11 @@ CC = gcc
 AM_CFLAGS = -g -Wall
 AM_LDFLAGS = -g 
 
-noinst_LIBRARIES = libmylist.a libb64encode.a
+noinst_LIBRARIES = libmylist.a libb64encode.a libbitcoinrpc.a
+
 libmylist_a_SOURCES = mylist/mylist.c mylist/mylist.h
 libb64encode_a_SOURCES = b64/encode.c b64/b64.h
+libbitcoinrpc_a_SOURCES = libbitcoinrpc/bitcoinrpc_err.c libbitcoinrpc/bitcoinrpc_cl.c libbitcoinrpc/bitcoinrpc.c libbitcoinrpc/bitcoinrpc_method.c libbitcoinrpc/bitcoinrpc_global.c libbitcoinrpc/bitcoinrpc_resp.c libbitcoinrpc/bitcoinrpc.h
 
 bin_PROGRAMS = cashget
 if WITH_CASHSERVER
@@ -19,4 +21,4 @@ cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h
 cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h
 
 LDADD = libmylist.a libb64encode.a
-cashsend_LDADD = 
+cashsend_LDADD = libbitcoinrpc.a

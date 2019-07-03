@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
 
 	int opc=0;
 	for (int i=1; i<argc; i++) {
-		if (strncmp("-bitdb=", argv[i], 7) == 0) { bitdbNode = argv[i]+7; ++opc; }
+		if (strncmp("--bitdb=", argv[i], 8) == 0) { bitdbNode = argv[i]+7; ++opc; }
 	}
 
 	char txid[TXID_CHARS+1];
@@ -20,11 +20,11 @@ int main(int argc, char **argv) {
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	if (!getFile(txid, bitdbNode, STDOUT_FILENO, NULL)) { 
-		fprintf(stderr, "get failed; txid is incorrect, stored file is formatted incorrectly, or BitDB hasn't crawled it yet\n");
-		return 1;
+	int status = CWG_OK;
+	if ((status = getFile(txid, bitdbNode, NULL, STDOUT_FILENO)) != CWG_OK) { 
+		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, errNoToMsg(status));
 	}
 
 	curl_global_cleanup();
-	return 0;
+	return status;
 }

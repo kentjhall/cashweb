@@ -1,0 +1,48 @@
+bitcoinrpc_global_cleanup(3) -- The global cleanup function
+================================================================
+
+## SYNOPSIS
+
+`#include <bitcoinrpc.h>`
+
+`BITCOINRPCEcode bitcoinrpc_global_cleanup (void);`
+
+## DESCRIPTION
+
+The global cleanup function. Please call this function at the end of your
+program to collect library's internal garbage.
+
+### Return value:
+  `BITCOINRPCE_OK`.
+
+## NOTES
+
+## EXAMPLE
+
+    #include <stdlib.h>
+    #include <bitcoinrpc.h>
+
+    int main(void)
+    {
+      bitcoinrpc_global_init();
+
+      / * use the library */
+      bitcoinrpc_global_cleanup();
+
+      return EXIT_SUCCESS;
+    }
+
+## BUGS
+Please report bugs to Marek Miller <marek.l.miller@gmail.com>
+
+## HISTORY
+
+## AUTHOR
+Written by Marek Miller and others, see CREDITS source file.
+
+## COPYRIGHT
+License: MIT (see https://opensource.org/licenses/MIT).
+The software is provided "as is", without warranty of any kind
+
+## SEE ALSO
+bitcoinrpc(3), bitcoinrpc_global_init(3)

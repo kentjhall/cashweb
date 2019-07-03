@@ -3,13 +3,17 @@
 #include <microhttpd.h>
 
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
-/* #define BITDB_DEFAULT "https://localhost:3000/q" */
-#define DIR_LINE_BUF 1000
+
+#define RESP_BUF 80
 
 static char *bitdbNode;
 
-static void cashFoundHandler(int found, int sockfd) {
-	const char *respStatus = found ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n<html><body><h1>Error 404</h1></body></html>\r\n";
+static void cashFoundHandler(int status, int sockfd) {
+	char *errMsg = status != CWG_OK ? errNoToMsg(status) : "";
+	int buf = RESP_BUF + strlen(errMsg);
+	char respStatus[buf];
+	snprintf(respStatus, buf, status == CWG_OK ? "HTTP/1.1 200 OK\r\n\r\n" :
+		 "HTTP/1.1 404 Not Found\r\n\r\n<html><body><h1>Error 404</h1><h2>%s</h2></body></html>\r\n", errMsg);
 	if (send(sockfd, respStatus, strlen(respStatus), 0) != strlen(respStatus)) { fprintf(stderr, "send() failed on response\n"); }
 }
 
@@ -31,40 +35,24 @@ static int requestHandler(void *cls,
 	char *clntip = inet_ntoa(((struct sockaddr_in *) info_addr->client_addr)->sin_addr);
 	fprintf(stderr, "%s: requested %s\n", clntip, url);
 
+	int status;
 	char *realUrl;
 	if ((realUrl = strstr(url+1, "/")) != NULL) {
 		if (strcmp(realUrl, "/") == 0) { realUrl = "/index.html"; }
+
 		char txid[TXID_CHARS+1];
 		strncpy(txid, url+1, TXID_CHARS);
 		txid[TXID_CHARS] = 0;
-		fprintf(stderr, "%s: fetching directory at %s\n", clntip, txid);
-		FILE *tmpDirFp;
-		if ((tmpDirFp = tmpfile()) == NULL) { die("tmpfile() failed"); }
-		if (getFile(txid, bitdbNode, fileno(tmpDirFp), NULL)) {
-			fprintf(stderr, "%s: directory fetched at %s\n", clntip, txid);
-			rewind(tmpDirFp);
-			char lineBuf[DIR_LINE_BUF];
-			int matched = 0;
-			while (fgets(lineBuf, DIR_LINE_BUF, tmpDirFp) != NULL) {
-				if (strncmp(lineBuf, realUrl, strlen(realUrl)) == 0) {
-					matched = 1;
-					fgets(txid, TXID_CHARS+1, tmpDirFp);
-					txid[TXID_CHARS] = 0;
-					fprintf(stderr, "%s: fetching/serving file at %s\n", clntip, txid);
-					getFile(txid, bitdbNode, info_fd->connect_fd, &cashFoundHandler);
-					break;
-				}
-			}
-			if (!matched) {
-				fprintf(stderr, "%s: requested file absent in directory at %s\n", clntip, txid);
-				cashFoundHandler(0, info_fd->connect_fd);
-			}
-		} else { fprintf(stderr, "%s: nothing found at %s\n", clntip, txid); cashFoundHandler(0, info_fd->connect_fd); }
-		fclose(tmpDirFp);
+
+		fprintf(stderr, "%s: fetching directory at %s for file at path %s\n", clntip, txid, realUrl);
+		status = getDirFile(txid, realUrl, bitdbNode, NULL, &cashFoundHandler, info_fd->connect_fd);
 	} else { 
-		fprintf(stderr, "%s: fetching/serving file at %s\n", clntip, url+1);
-		getFile(url+1, bitdbNode, info_fd->connect_fd, &cashFoundHandler);
+		fprintf(stderr, "%s: fetching and serving file at %s\n", clntip, url+1);
+		status = getFile(url+1, bitdbNode, &cashFoundHandler, info_fd->connect_fd);
 	}
+
+	if (status == CWG_OK) { fprintf(stderr, "%s: requested file fetched and served\n", clntip); }
+	else { fprintf(stderr, "%s: request %s resulted in error code %d: %s\n", clntip, url, status, errNoToMsg(status)); }
 
 	return MHD_NO;
 }

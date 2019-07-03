@@ -1,0 +1,44 @@
+bitcoinrpc_cl_init_params(3) -- Initialise a new RPC client and set parameters
+==============================================================================
+
+## SYNOPSIS
+
+`#include <bitcoinrpc.h>`
+
+`bitcoinrpc_cl_t* bitcoinrpc_cl_init_params (const char *user, const char *pass, const char *addr, const unsigned int port)`
+
+## DESCRIPTION
+
+Initialise a new RPC client and set some parameters
+(may not be `NULL`; in that case the function returns `NULL` as well).
+The parameter values are copied, so the original pointers are no longer
+needed. At most `BITCOINRPC_PARAM_MAXLEN` chars are copied to store
+a parameter.
+
+### Return value:
+  A newly allocated handle or NULL in case of error.
+
+## NOTES
+## EXAMPLE
+
+## BUGS
+Please report bugs to Marek Miller <marek.l.miller@gmail.com>
+
+## HISTORY
+
+## AUTHOR
+Written by Marek Miller and others, see CREDITS source file.
+
+## COPYRIGHT
+License: MIT (see https://opensource.org/licenses/MIT).
+The software is provided "as is", without warranty of any kind
+
+## SEE ALSO
+bitcoinrpc(3),
+bitcoinrpc_cl_init(3),
+bitcoinrpc_cl_free(3),
+bitcoinrpc_cl_get_user(3),
+bitcoinrpc_cl_get_pass(3),
+bitcoinrpc_cl_get_addr(3),
+bitcoinrpc_cl_get_port(3),
+bitcoinrpc_cl_get_url(3)
