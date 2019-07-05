@@ -30,7 +30,7 @@ int getFile(const char *txid, const char *bdNode, void (*foundHandler) (int, int
  * reads from specified file stream to ascertain the desired txid from given directory/path
  * returns appropriate status code
  */
-int dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid)
+int dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid);
 
 /*
  * gets the file at the given path of the directory at specified txid and writes to given file descriptor

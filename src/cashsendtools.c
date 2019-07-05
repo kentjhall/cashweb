@@ -1,5 +1,20 @@
 #include "cashsendtools.h"
 
+#define SEND_DATA_CMD "./send_data_tx.sh"
+#define CLI_LINE_BUF 10
+#define CHECK_UTXOS_CMD "bitcoin-cli listunspent | jq \'. | length\'"
+#define CHECK_BALANCE_CMD "echo $(bc -l <<< \"$(bitcoin-cli getbalance) + $(bitcoin-cli getunconfirmedbalance)\")"
+#define ERR_WAIT_CYCLE 5
+
+#define RPC_M_GETBALANCE 0
+#define RPC_M_GETUNCONFIRMEDBALANCE 1
+#define RPC_METHODS_COUNT 2
+
+#define EXTRA_PUSHDATA_BYTE_THRESHOLD 75
+
+static bitcoinrpc_cl_t *rpcClient = NULL;
+static struct bitcoinrpc_method *rpcMethods[RPC_METHODS_COUNT] = { NULL };
+
 static long fileSize(int fd) {
 	struct stat st;
 	if (fstat(fd, &st) != 0) { return -1; }
@@ -11,6 +26,49 @@ static long fileSize(int fd) {
 /* 	return dataSize > EXTRA_PUSHDATA_BYTE_THRESHOLD ? dataSize+2 : dataSize+1; */ 
 /* } */
 
+static void initRpcMethods() {
+	for (int i=0; i<RPC_METHODS_COUNT; i++) {
+		BITCOINRPC_METHOD method;
+		switch (i) {
+			case RPC_M_GETBALANCE:
+				method = BITCOINRPC_METHOD_GETBALANCE;
+				break;
+			case RPC_M_GETUNCONFIRMEDBALANCE:
+				method = BITCOINRPC_METHOD_GETUNCONFIRMEDBALANCE;
+				break;
+			default:
+				return;
+		}
+
+		if (rpcMethods[i] == NULL) { rpcMethods[i] = bitcoinrpc_method_init(method); }
+		if (!rpcMethods[i]) { fprintf(stderr, "bitcoinrpc_method_init() failed for rpc method %d\n", i); die(NULL); }
+	}
+}
+
+static void freeRpcMethods() {
+	for (int i=0; i<RPC_METHODS_COUNT; i++) { if (rpcMethods[i]) { bitcoinrpc_method_free(rpcMethods[i]); } }
+}
+
+static void rpcCall(int rpcMethodI, json_t **jsonResult) {
+	bitcoinrpc_resp_t *bResponse = bitcoinrpc_resp_init();
+	if (!bResponse) { die("bitcoinrpc_resp_init() failed"); }
+	bitcoinrpc_err_t bError;
+
+	struct bitcoinrpc_method *rpcMethod = rpcMethods[rpcMethodI];
+	if (!rpcMethod) { fprintf(stderr, "rpc method (identifier %d) not initialized; probably an issue with cashsendtools", rpcMethodI);
+			  die(NULL); }
+	bitcoinrpc_call(rpcClient, rpcMethod, bResponse, &bError);	
+
+	if (bError.code != BITCOINRPCE_OK) { fprintf(stderr, "rpc error %d [%s]\n", bError.code, bError.msg); die("rpc fail"); }
+
+	json_t *jsonResponse = bitcoinrpc_resp_get(bResponse);
+	*jsonResult = json_object_get(jsonResponse, "result");
+	json_incref(*jsonResult);
+	json_decref(jsonResponse);
+
+	bitcoinrpc_resp_free(bResponse);
+}
+
 static int checkUtxos() {
 	FILE *sfp;
 	if ((sfp = popen(CHECK_UTXOS_CMD, "r")) == NULL) { die("popen() failed"); }
@@ -21,14 +79,18 @@ static int checkUtxos() {
 	return atoi(utxosStr);
 }
 
-double checkBalance() {
-	FILE *sfp;
-	if ((sfp = popen(CHECK_BALANCE_CMD, "r")) == NULL) { die("popen() failed"); }
-	char balanceStr[CLI_LINE_BUF+1];
-	fgets(balanceStr, sizeof(balanceStr), sfp);
-	if (ferror(sfp)) { die("popen() file error"); }
-	pclose(sfp);
-	return atof(balanceStr);
+static double checkBalance() {
+	json_t *jsonResult;
+
+	rpcCall(RPC_M_GETBALANCE, &jsonResult);
+	double balance = json_number_value(jsonResult);
+	json_decref(jsonResult);
+
+	rpcCall(RPC_M_GETUNCONFIRMEDBALANCE, &jsonResult);
+	balance += json_number_value(jsonResult);
+	json_decref(jsonResult);
+	
+	return balance;
 }
 
 static void fileBytesToHexStr(char *hex, const char *fileBytes, int n) {
@@ -57,13 +119,13 @@ static void sendTx(char **txid, const char *hexData) {
 	while (!sendTxAttempt(txid, hexData)) { 
 		printed = 0;
 		if (strstr(*txid, "Insufficient funds")) {
-			double balance = checkBalance();	
-			while (checkBalance() <= balance) {
-				if (!printed) { fprintf(stderr, "\nInsufficient balance, send more funds..."); printed = 1; }
-				sleep(ERR_WAIT_CYCLE);
-				sendTxAttempt(txid, hexData);	
-				fprintf(stderr, ".");
-			}
+			/* double balance = checkBalance(); */	
+			/* while (checkBalance() <= balance) { */
+			/* 	if (!printed) { fprintf(stderr, "\nInsufficient balance, send more funds..."); printed = 1; } */
+			/* 	sleep(ERR_WAIT_CYCLE); */
+			/* 	sendTxAttempt(txid, hexData); */	
+			/* 	fprintf(stderr, "."); */
+			/* } */
 		}
 		else if (strstr(*txid, "too-long-mempool-chain")) {
 			while (checkUtxos() < 1) {
@@ -154,37 +216,50 @@ static char *sendFileTree(FILE *fp, int depth, int maxDepth) {
 	return txid;
 }
 
-static char *sendFp(FILE *fp, int maxTreeDepth) {
+static inline char *sendFp(FILE *fp, int maxTreeDepth) {
 	return sendFileTree(fp, 0, maxTreeDepth);
 }
 
-char *sendFile(const char *filePath, int maxTreeDepth) {
+char *sendFile(const char *filePath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff) {
+	if (rpcClient == NULL) { rpcClient = rpcCli; }
+	initRpcMethods();
+
+	double bal;
+	if (balanceDiff) { bal = checkBalance(); }
+
 	FILE *fp;
 	if ((fp = fopen(filePath, "rb")) == NULL) { die("fopen() failed"); }	
-
 	char *txid = sendFp(fp, maxTreeDepth);
 
+	if (balanceDiff) { *balanceDiff = bal - checkBalance(); }
+
 	fclose(fp);
+	freeRpcMethods();
 	return txid;
 }
 
-char *sendDir(const char *dirPath, int maxTreeDepth) {
+char *sendDir(const char *dirPath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff) {
+	if (rpcClient == NULL) { rpcClient = rpcCli; }
+	initRpcMethods();
+
 	FTS *ftsp;
 	int fts_options = FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR;
 	char const *paths[] = { dirPath, NULL };
 	if ((ftsp = fts_open((char * const *)paths, fts_options, NULL)) == NULL) { die("fts_open() failed"); }
-	if (fts_children(ftsp, 0) == NULL) { fprintf(stderr, "Directory is empty, nothing to send.\n"); return NULL; }
 	int dirPathLen = strlen(dirPath);
 
 	FILE *tmpDirFp;
 	if ((tmpDirFp = tmpfile()) == NULL) { die("tmpfile() failed"); }
+
+	double bal;
+	if (balanceDiff) { bal = checkBalance(); }
 
 	char *txid;
 	FTSENT *p;
 	while ((p = fts_read(ftsp)) != NULL) {
 		if (p->fts_info == FTS_F && strncmp(p->fts_path, dirPath, dirPathLen) == 0) {
 			fprintf(stderr, "Sending %s", p->fts_path+dirPathLen);
-			txid = sendFile(p->fts_path, maxTreeDepth);
+			txid = sendFile(p->fts_path, maxTreeDepth, NULL, NULL);
 			fprintf(tmpDirFp, "%s\n%s\n", p->fts_path+dirPathLen, txid);
 			free(txid);
 		}
@@ -193,7 +268,10 @@ char *sendDir(const char *dirPath, int maxTreeDepth) {
 	rewind(tmpDirFp);
 	txid = sendFp(tmpDirFp, maxTreeDepth);
 
+	if (balanceDiff) { *balanceDiff = bal - checkBalance(); }
+
 	fclose(tmpDirFp);
 	fts_close(ftsp);
+	freeRpcMethods();
 	return txid;	
 }

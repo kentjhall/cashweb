@@ -13,7 +13,7 @@
 #define BITDB_API_VER 3
 #define IS_BITDB_REQUEST_LIMIT 1
 
-static const char *bitdbNode;
+static const char *bitdbNode = NULL;
 
 struct DynamicMemory {
 	char *data;
@@ -68,6 +68,7 @@ static size_t copyResponseToMemory(void *data, size_t size, size_t nmemb, struct
 
 // fetches hex data at specified txid and copies to specified location in memory 
 static int fetchHexData(char **hexDatas, const char **txids, int count) {
+	if (bitdbNode == NULL) { die("bitdbNode not set; problem with cashgettools"); }
 	if (count < 1) { return 1; }
 
 	CURL *curl;
@@ -269,7 +270,7 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 }
 
 int getFile(const char *txid, const char *bdNode, void (*foundHandler) (int, int), int fd) {
-	bitdbNode = bdNode;
+	if (bitdbNode == NULL) { bitdbNode = bdNode; }
 	if (IS_BITDB_REQUEST_LIMIT) { srandom(time(NULL)); }
 
 	char *hexDataStart = malloc(TX_DATA_CHARS+1);
@@ -319,16 +320,18 @@ int dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
 }
 
 int getDirFile(const char *dirTxid, const char *dirPath, const char *bdNode, FILE *writeDirFp, void (*foundHandler) (int, int), int fd) {
+	if (bitdbNode == NULL) { bitdbNode = bdNode; }
+
 	FILE *dirFp;
 	if ((dirFp = writeDirFp) == NULL && (dirFp = tmpfile()) == NULL) { die("tmpfile() failed"); }
 
 	char txid[TXID_CHARS+1]; txid[TXID_CHARS] = 0;
 
 	int status;
-	if ((status = getFile(dirTxid, bdNode, NULL, fileno(dirFp))) == CWG_OK) {
+	if ((status = getFile(dirTxid, NULL, NULL, fileno(dirFp))) == CWG_OK) {
 		rewind(dirFp);
 		if ((status = dirPathToTxid(dirFp, dirPath, txid)) == CWG_OK) {
-			status = getFile(txid, bdNode, foundHandler, fd);
+			status = getFile(txid, NULL, foundHandler, fd);
 			foundHandler = NULL;
 		}
 	} 
