@@ -9,10 +9,10 @@
 static char *bitdbNode;
 
 static void cashFoundHandler(int status, int sockfd) {
-	char *errMsg = status != CWG_OK ? errNoToMsg(status) : "";
+	char *errMsg = status != CW_OK ? errNoToMsg(status) : "";
 	int buf = RESP_BUF + strlen(errMsg);
 	char respStatus[buf];
-	snprintf(respStatus, buf, status == CWG_OK ? "HTTP/1.1 200 OK\r\n\r\n" :
+	snprintf(respStatus, buf, status == CW_OK ? "HTTP/1.1 200 OK\r\n\r\n" :
 		 "HTTP/1.1 404 Not Found\r\n\r\n<html><body><h1>Error 404</h1><h2>%s</h2></body></html>\r\n", errMsg);
 	if (send(sockfd, respStatus, strlen(respStatus), 0) != strlen(respStatus)) { fprintf(stderr, "send() failed on response\n"); }
 }
@@ -51,7 +51,7 @@ static int requestHandler(void *cls,
 		status = getFile(url+1, bitdbNode, &cashFoundHandler, info_fd->connect_fd);
 	}
 
-	if (status == CWG_OK) { fprintf(stderr, "%s: requested file fetched and served\n", clntip); }
+	if (status == CW_OK) { fprintf(stderr, "%s: requested file fetched and served\n", clntip); }
 	else { fprintf(stderr, "%s: request %s resulted in error code %d: %s\n", clntip, url, status, errNoToMsg(status)); }
 
 	return MHD_NO;

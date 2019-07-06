@@ -6,7 +6,6 @@
 #include <mylist/mylist.h>
 #include "cashwebuni.h"
 
-#define CWG_OK 0
 #define CWG_DIR_NO 1
 #define CWG_FETCH_NO 2
 #define CWG_FETCH_ERR 3

@@ -39,8 +39,7 @@ int main(int argc, char **argv) {
 	txid = S_ISDIR(st.st_mode) ? sendDir(filePath, maxTreeDepth, rpcClient, &balanceDiff) : sendFile(filePath, maxTreeDepth, rpcClient, &balanceDiff);
 
 	printf("%s", txid);
-	fprintf(stderr, "\n");
-	fprintf(stderr, "Send cost: %.8f\n", balanceDiff);
+	fprintf(stderr, "\nSend cost: %.8f\n", balanceDiff);
 
 	free(txid);
 	bitcoinrpc_cl_free(rpcClient);

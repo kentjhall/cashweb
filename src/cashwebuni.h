@@ -3,11 +3,14 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#define CW_OK 0
 
 #define TX_DATA_BYTES 220
 #define TXID_BYTES 32

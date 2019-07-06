@@ -20,8 +20,8 @@ int main(int argc, char **argv) {
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	int status = CWG_OK;
-	if ((status = getFile(txid, bitdbNode, NULL, STDOUT_FILENO)) != CWG_OK) { 
+	int status = CW_OK;
+	if ((status = getFile(txid, bitdbNode, NULL, STDOUT_FILENO)) != CW_OK) { 
 		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, errNoToMsg(status));
 	}
 

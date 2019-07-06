@@ -16,9 +16,9 @@ if WITH_CASHSEND
 bin_PROGRAMS += cashsend
 endif
 
-cashget_SOURCES = cashget.c cashgettools.c cashgettools.h
-cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h
-cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h
+cashget_SOURCES = cashget.c cashgettools.c cashgettools.h cashwebuni.h
+cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h cashwebuni.h
+cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h cashwebuni.h
 
 LDADD = libmylist.a libb64encode.a
 cashsend_LDADD = libbitcoinrpc.a

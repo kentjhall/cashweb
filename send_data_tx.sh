@@ -58,7 +58,6 @@ while [ "$(bc -l <<< "$total_amnt < $fee")" = 1 ] || [ "$(bc -l <<< "$change_amn
 	utxo_txid=$(echo -n $cur_utxo | jq -r '.txid')
 	utxo_vout=$(echo -n $cur_utxo | jq -r '.vout')
 	utxo_amnt=$(echo -n $cur_utxo | jq -r '.amount' | sed -E 's/([+-]?[0-9.]+)[eE]\+?(-?)([0-9]+)/(\1*10^\2\3)/g')
-	echo $(echo -n $cur_utxo | jq -r '.address')
 	
 	if [ "$inputs" != "" ]; then inputs="$inputs,"; fi
 	inputs="$inputs{\"txid\":\"$utxo_txid\",\"vout\":$utxo_vout}"

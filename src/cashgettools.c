@@ -75,7 +75,7 @@ static int fetchHexData(char **hexDatas, const char **txids, int count) {
 	CURLcode res;
 	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() failed\n"); return CWG_FETCH_ERR; }
 
-	int status = CWG_OK;
+	int status = CW_OK;
 
 	// construct query
 	char txidQuery[(TXID_QUERY_LEN*count)+1];
@@ -190,7 +190,7 @@ static int traverseFileTree(const char *treeHexData, struct List *partialTxids[]
 	}
 
 	int status;
-	if ((status = fetchHexData(hexDatas, (const char **)txids, txidsCount)) == CWG_OK) { 
+	if ((status = fetchHexData(hexDatas, (const char **)txids, txidsCount)) == CW_OK) { 
 		char hexDataAll[TX_DATA_CHARS*txidsCount + 1];
 		hexDataAll[0] = 0;
 		for (int i=0; i<txidsCount; i++) { 
@@ -247,7 +247,7 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 	while (!fileEnd) {
 		if (strlen(hexData) >= TXID_CHARS) {
 			strcpy(txidNext, hexData+(strlen(hexData) - TXID_CHARS));
-			if (fetchHexData(&hexDataNext, (const char **)&txidNext, 1) != CWG_OK) { fileEnd = 1; }	
+			if (fetchHexData(&hexDataNext, (const char **)&txidNext, 1) != CW_OK) { fileEnd = 1; }	
 		} else { fileEnd = 1; }
 		if (!isTree ||
 		   (status = traverseFileTree(hexData, partialTxids, fileEnd ? TREE_SUFFIX_CHARS : TXID_CHARS, fd)) == CWG_FETCH_NO) {
@@ -257,9 +257,9 @@ static int traverseFileChain(const char *hexDataStart, int fd) {
 				perror("write() failed"); 
 				status = CWG_WRITE_ERR; goto cleanup;
 			}
-			status = CWG_OK;
+			status = CW_OK;
 			isTree = 0;	
-		} else if (status != CWG_OK) { goto cleanup; }
+		} else if (status != CW_OK) { goto cleanup; }
 		strcpy(hexData, hexDataNext);
 	}
 	
@@ -277,7 +277,7 @@ int getFile(const char *txid, const char *bdNode, void (*foundHandler) (int, int
 	int status = fetchHexData(&hexDataStart, (const char **)&txid, 1);
 	if (foundHandler != NULL) { foundHandler(status, fd); }
 
-	if (status != CWG_OK) { goto cleanup; }
+	if (status != CW_OK) { goto cleanup; }
 	status = traverseFileChain(hexDataStart, fd);
 	
 	cleanup:
@@ -310,7 +310,7 @@ int dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
 			matched = 1;
 			fgets(pathTxid, TXID_CHARS+1, dirFp);
 			pathTxid[TXID_CHARS] = 0;
-			status = CWG_OK;
+			status = CW_OK;
 			break;
 		}
 	}
@@ -328,9 +328,9 @@ int getDirFile(const char *dirTxid, const char *dirPath, const char *bdNode, FIL
 	char txid[TXID_CHARS+1]; txid[TXID_CHARS] = 0;
 
 	int status;
-	if ((status = getFile(dirTxid, NULL, NULL, fileno(dirFp))) == CWG_OK) {
+	if ((status = getFile(dirTxid, NULL, NULL, fileno(dirFp))) == CW_OK) {
 		rewind(dirFp);
-		if ((status = dirPathToTxid(dirFp, dirPath, txid)) == CWG_OK) {
+		if ((status = dirPathToTxid(dirFp, dirPath, txid)) == CW_OK) {
 			status = getFile(txid, NULL, foundHandler, fd);
 			foundHandler = NULL;
 		}
