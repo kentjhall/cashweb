@@ -60,7 +60,7 @@ AS_IF([test "x$with_cashsend" != xno],
 	])
 
 # Checks for header files.
-AC_CHECK_HEADERS([arpa/inet.h stdlib.h string.h unistd.h])
+AC_CHECK_HEADERS([arpa/inet.h stdlib.h stdint.h string.h unistd.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_CHECK_HEADER_STDBOOL
