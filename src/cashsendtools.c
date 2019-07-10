@@ -276,9 +276,10 @@ static int sendTxAttempt(const char **hexDatas, int hexDatasC, bool useUnconfirm
 	if (totalAmnt < fee) { json_decref(inputParams); return CWS_FUNDS_NO; }
 
 	// get change address and copy to memory
-	char changeAddr[B_ADDRESS_BUF];
+	char changeAddr[B_ADDRESS_BUF]; changeAddr[0] = 0;
 	rpcCall(RPC_M_GETRAWCHANGEADDRESS, NULL, &jsonResult);
-	if (strlcpy(changeAddr, json_string_value(jsonResult), B_ADDRESS_BUF) > B_ADDRESS_BUF-1) { fprintf(stderr, "B_ADDRESS_BUF not set high enough, probably needs to be updated for a new standard; problem with cashsendtools"); exit(1); }
+	strncat(changeAddr, json_string_value(jsonResult), B_ADDRESS_BUF-1);
+	if (strlen(changeAddr) == B_ADDRESS_BUF-1) { fprintf(stderr, "B_ADDRESS_BUF may not set high enough, probably needs to be updated for a new standard; problem with cashsendtools"); exit(1); }
 	json_decref(jsonResult);
 
 	// construct output for data 
