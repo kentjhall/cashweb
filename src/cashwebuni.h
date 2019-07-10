@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <arpa/inet.h>
 #include <sys/types.h>
 #include <unistd.h>
 
