@@ -8,9 +8,12 @@
 
 #define CWG_DIR_NO 1
 #define CWG_FETCH_NO 2
-#define CWG_FETCH_ERR 3
-#define CWG_WRITE_ERR 4
-#define CWG_FILE_ERR 5
+#define CWG_METADATA_NO 3
+#define CWG_FETCH_ERR 4
+#define CWG_WRITE_ERR 5
+#define CWG_FILE_ERR 6
+#define CWG_FILE_LEN_ERR 7
+#define CWG_FILE_DEPTH_ERR 8
 
 /*
  * returns generic error message by error code

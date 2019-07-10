@@ -6,9 +6,9 @@ struct Node {
     struct Node *next;
 };
 
-struct List {
+typedef struct List {
     struct Node *head;
-};
+} List;
 
 // initialize empty list
 static inline void initList(struct List *list)
@@ -38,7 +38,8 @@ static inline int isEmptyList(struct List *list)
 // returns the data pointer that was stored in the node, or NULL on empty list
 void *popFront(struct List *list);
 
-// removes all nodes from list, deallocating memory
+// removes all nodes from list, deallocating memory for nodes and data
+// this should only be used if all data is heap-allocated
 void removeAllNodes(struct List *list);
 
 // creates a node holding the given data pointer, adds it right after prevNode

@@ -1,7 +1,6 @@
 #include "cashsendtools.h"
 
 #define ERR_WAIT_CYCLE 5
-#define EXTRA_PUSHDATA_BYTE_THRESHOLD 75
 
 // rpc method #defines
 #define RPC_M_GETBALANCE 0
@@ -19,6 +18,9 @@
 #define B_ERR_MSG_BUF 50
 #define B_ADDRESS_BUF 75
 #define B_AMNT_STR_BUF 32
+#define TX_OP_RETURN "6a"
+#define TX_OP_PUSHDATA1 "4c"
+#define TX_OP_PUSHDATA1_THRESHOLD 75
 #define TX_DUST_AMNT 0.00000545
 #define TX_BASE_SZ 10
 #define TX_INPUT_SZ 148
@@ -34,7 +36,7 @@ static long fileSize(int fd) {
 	return st.st_size;
 }
 
-static void fileBytesToHexStr(char *hex, const char *fileBytes, int n) {
+static void fileBytesToHexStr(const char *fileBytes, int n, char *hex) {
 	for (int i=0; i<n; i++) {
 		hex[i*2]   = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) >> 4];
 		hex[i*2+1] = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) & 0x0F];
@@ -42,13 +44,35 @@ static void fileBytesToHexStr(char *hex, const char *fileBytes, int n) {
 	hex[n*2] = 0;
 }
 
-static int txDataSize(const char *hexData) {
-	int dataSize = strlen(hexData)/2;
-	return dataSize > EXTRA_PUSHDATA_BYTE_THRESHOLD ? dataSize+2 : dataSize+1; 
+// puts int to network byte order (big-endian) and converts to hex string
+// supports 2 and 4 byte integers
+static void intToNetHexStr(void *uintPtr, int numBytes, char *hex) {
+	unsigned char bytes[numBytes];
+	
+	uint16_t uint16; uint32_t uint32;
+	bool isShort = false;
+	switch (numBytes) {
+		case sizeof(uint16_t):
+			isShort = true;
+			uint16 = htons(*(uint16_t *)uintPtr);
+			break;
+		case sizeof(uint32_t):
+			uint32 = htonl(*(uint32_t *)uintPtr);
+			break;
+		default:
+			fprintf(stderr, "invalid numBytes specified for nIntToHexStr, int must be 2, 4, or 8 bytes; problem with cashsendtools\n");
+			exit(1);
+	}
+
+	for (int i=0; i<numBytes; i++) {
+		bytes[i] = ((isShort ? uint16 : uint32) >> i*8) & 0xFF;
+	}
+
+	fileBytesToHexStr((const char *)bytes, numBytes, hex);
 }
 
-static void initRpc(bitcoinrpc_cl_t *rpcCli) {
-	if (rpcClient != NULL) { return; }
+static bool initRpc(bitcoinrpc_cl_t *rpcCli) {
+	if (rpcClient != NULL) { return false; }
 	rpcClient = rpcCli;
 
 	BITCOINRPC_METHOD method;
@@ -89,7 +113,8 @@ static void initRpc(bitcoinrpc_cl_t *rpcCli) {
 				method = BITCOINRPC_METHOD_SENDRAWTRANSACTION;
 				break;
 			default:
-				fprintf(stderr, "initRpcMethods() reached unexpected identifier; RPC_METHODS_COUNT probably incorrect in cashsendtools\n"); return;
+				fprintf(stderr, "initRpcMethods() reached unexpected identifier; rpc method #defines probably incorrect in cashsendtools\n");
+				continue;
 		}
 
 		if (rpcMethods[i] == NULL) { rpcMethods[i] = bitcoinrpc_method_init_params(method, params); }
@@ -97,6 +122,7 @@ static void initRpc(bitcoinrpc_cl_t *rpcCli) {
 		if (nonStdName != NULL) { bitcoinrpc_method_set_nonstandard(rpcMethods[i], nonStdName); }
 		if (!rpcMethods[i]) { fprintf(stderr, "bitcoinrpc_method_init() failed for rpc method %d\n", i); die(NULL); }
 	}
+	return true;
 }
 
 static void freeRpcMethods() {
@@ -160,7 +186,14 @@ static double checkBalance() {
 	return balance;
 }
 
-static int sendTxAttempt(const char *hexData, bool useUnconfirmed, char **resultTxid) {
+static int txDataSize(int hexDataLen, bool *extraByte) {
+	int dataSize = hexDataLen/2;
+	int added = dataSize > TX_OP_PUSHDATA1_THRESHOLD ? 2 : 1;
+	if (extraByte != NULL) { *extraByte = added > 1; }
+	return dataSize + added; 
+}
+
+static int sendTxAttempt(const char **hexDatas, int hexDatasC, bool useUnconfirmed, char **resultTxid) {
 	json_t *jsonResult;
 	json_t *params;
 	
@@ -180,9 +213,24 @@ static int sendTxAttempt(const char *hexData, bool useUnconfirmed, char **result
 	json_t *inputParams;
 	json_t *outputParams;
 
-	int txDataSz = txDataSize(hexData);
-	int size;
+	// calculate tx data size and prepare datas if more than one pushdata
+	int txDataSz = 0;
+	char txHexData[TX_RAW_DATA_CHARS+1]; txHexData[0] = 0;
+	int hexLen; int dataSz; bool extraByte; uint8_t szByte[1]; char szHex[2];
+	for (int i=0; i<hexDatasC; i++) {
+		txDataSz += txDataSize((hexLen = strlen(hexDatas[i])), &extraByte);
+		if (hexDatasC > 1) {
+			if ((dataSz = hexLen/2) > 255) { fprintf(stderr, "sendTxAttempt() doesn't support data >255 bytes; cashsendtools may need revision if this standard has changed\n"); exit(1); }
+			else if (extraByte) { strcat(txHexData, TX_OP_PUSHDATA1); }
+			*szByte = (uint8_t)dataSz;
+			fileBytesToHexStr((const char *)szByte, 1, szHex);
+			strcat(txHexData, szHex);
+			strcat(txHexData, hexDatas[i]);
+		}
+	}
+
 	int numInputs = 0;
+	int size;
 	double totalAmnt = 0;
 	double fee = 0.00000001; // arbitrary
 	double changeAmnt = 0;	
@@ -215,6 +263,7 @@ static int sendTxAttempt(const char *hexData, bool useUnconfirmed, char **result
 		// add amount from utxo data to total amount
 		totalAmnt += json_real_value(json_object_get(utxo, "amount"));
 
+		// calculate size, fee, and change amount
 		size = TX_BASE_SZ + (TX_INPUT_SZ*numInputs) + TX_OUTPUT_SZ + TX_DATA_BASE_SZ + txDataSz;
 		fee = feePerByte * size;
 		changeAmnt = totalAmnt - fee;
@@ -229,15 +278,17 @@ static int sendTxAttempt(const char *hexData, bool useUnconfirmed, char **result
 	// get change address and copy to memory
 	char changeAddr[B_ADDRESS_BUF];
 	rpcCall(RPC_M_GETRAWCHANGEADDRESS, NULL, &jsonResult);
-	if (strlcpy(changeAddr, json_string_value(jsonResult), B_ADDRESS_BUF) > B_ADDRESS_BUF-1) { die("B_ADDRESS_BUF not set high enough, probably needs to be updated for a new standard; problem with cashsendtools"); }
+	if (strlcpy(changeAddr, json_string_value(jsonResult), B_ADDRESS_BUF) > B_ADDRESS_BUF-1) { fprintf(stderr, "B_ADDRESS_BUF not set high enough, probably needs to be updated for a new standard; problem with cashsendtools"); exit(1); }
 	json_decref(jsonResult);
 
-	// construct outputs for data and change (if it is more than dust)
+	// construct output for data 
 	if ((outputParams = json_object()) == NULL) { die("json_object() failed"); }	
-	json_object_set_new(outputParams, "data", json_string(hexData));
+	json_object_set_new(outputParams, "data", json_string(hexDatasC > 1 ? txHexData : *hexDatas));
+
+	// construct output for change (if more than dust)	
 	if (changeAmnt > TX_DUST_AMNT) {
 		char changeAmntStr[B_AMNT_STR_BUF];
-		if (snprintf(changeAmntStr, B_AMNT_STR_BUF, "%.8f", changeAmnt) > B_AMNT_STR_BUF-1) { die("B_AMNT_STR_BUF not set high enough; problem with cashsendtools"); }
+		if (snprintf(changeAmntStr, B_AMNT_STR_BUF, "%.8f", changeAmnt) > B_AMNT_STR_BUF-1) { fprintf(stderr, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools"); exit(1); }
 		json_object_set_new(outputParams, changeAddr, json_string(changeAmntStr));
 	}
 
@@ -255,15 +306,39 @@ static int sendTxAttempt(const char *hexData, bool useUnconfirmed, char **result
 	if ((rawTx = strdup(json_string_value(jsonResult))) == NULL) { die("strdup() failed"); }
 	json_decref(jsonResult);
 
+	// edit raw transaction for extra hex datas if present
+	if (hexDatasC > 1) {
+		if (++txDataSz > 255) { fprintf(stderr, "collective hex datas too big; sendTxAttempt() may need update in cashsendtools if the standard has changed\n"); exit(1); }
+		uint8_t txDataSzByte[1] = { (uint8_t)txDataSz };
+		char txDataSzHex[2];
+		fileBytesToHexStr((const char *)txDataSzByte, 1, txDataSzHex);
+		char *rtEditPtr; char *rtEditPtrS;
+		if ((rtEditPtr = rtEditPtrS = strstr(rawTx, txHexData)) == NULL) { fprintf(stderr, "rawTx parsing error in sendTxAttempt(), attached hex data not found; problem with cashsendtools\n"); exit(1); }
+		bool opRetFound = false;
+		for (; !(opRetFound = !strncmp(rtEditPtr, TX_OP_RETURN, 2)) && rtEditPtr-rawTx > 0; rtEditPtr -= 2);
+		if (!opRetFound) { fprintf(stderr, "rawTx parsing error in sendTxAttempt(), op return code not found; problem with cashsendtools\n"); exit(1); }
+		if ((rtEditPtr -= 2)-rawTx <= 0) { fprintf(stderr, "rawTx parsing error in sendTxAttempt(), parsing rawTx arrived at invalid location; problem with cashsendtools\n"); exit(1); }
+		rtEditPtr[0] = txDataSzHex[0]; rtEditPtr[1] = txDataSzHex[1];
+
+		int removed = rtEditPtrS - rtEditPtr;
+		if (removed < 0) { fprintf(stderr, "rawTx parsing error in sendTxAttempt(), editing pointer locations wrong; problem with cashsendtools\n"); exit(1); }
+		strcpy(rtEditPtr, rtEditPtrS); rawTx[strlen(rawTx)-removed] = 0;
+	}
+
 	// construct params for signed tx from raw tx
 	if ((params = json_array()) == NULL) { die("json_array() failed"); }
 	json_array_append_new(params, json_string(rawTx));
-	free(rawTx);
 
 	// sign the raw transaction
 	char *signedTx;
-	rpcCall(RPC_M_SIGNRAWTRANSACTIONWITHWALLET, params, &jsonResult);
+	int status = rpcCall(RPC_M_SIGNRAWTRANSACTIONWITHWALLET, params, &jsonResult);
 	json_decref(params);
+	if (status == CWS_RPC_NO) {
+		fprintf(stderr, "error occurred in signing raw transaction; problem with cashsendtools\n\nraw tx:\n%s\n\nerror:\n%s",
+			rawTx, json_dumps(jsonResult, 0));
+		die(NULL);
+	} else if (status != CW_OK) { fprintf(stderr, "unhandled error (identifier %d) returned on rpcCall(); problem with cashsendtools\n", status); die(NULL); }
+	free(rawTx);
 	if ((signedTx = strdup(json_string_value(json_object_get(jsonResult, "hex")))) == NULL) { die("strdup() failed"); }
 	json_decref(jsonResult);
 
@@ -273,7 +348,7 @@ static int sendTxAttempt(const char *hexData, bool useUnconfirmed, char **result
 	free(signedTx);
 
 	// send transaction and handle potential errors
-	int status = rpcCall(RPC_M_SENDRAWTRANSACTION, params, &jsonResult);
+	status = rpcCall(RPC_M_SENDRAWTRANSACTION, params, &jsonResult);
 	json_decref(params);
 	if (status == CWS_RPC_NO) {
 		const char *msg = json_string_value(json_object_get(jsonResult, "message"));
@@ -290,12 +365,12 @@ static int sendTxAttempt(const char *hexData, bool useUnconfirmed, char **result
 	return status;
 }
 
-static void sendTx(const char *hexData, char **txid) {
+static void sendTx(const char **hexDatas, int hexDatasC, char **resultTxid) {
 	bool printed = false;
 	double balance;
 	int status;
 	do { 
-		status = sendTxAttempt(hexData, true, txid);
+		status = sendTxAttempt(hexDatas, hexDatasC, true, resultTxid);
 		switch (status) {
 			case CW_OK:
 				break;
@@ -308,14 +383,14 @@ static void sendTx(const char *hexData, char **txid) {
 				}
 				break;
 			case CWS_CONFIRMS_NO:
-				while ((status = sendTxAttempt(hexData, false, txid)) == CWS_CONFIRMS_NO) {
+				while ((status = sendTxAttempt(hexDatas, hexDatasC, false, resultTxid)) == CWS_CONFIRMS_NO) {
 					if (!printed) { fprintf(stderr, "Waiting on confirmations..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
 					fprintf(stderr, ".");
 				}
 				break;
 			case CWS_FEE_NO:
-				while ((status = sendTxAttempt(hexData, true, txid)) == CWS_FEE_NO) {
+				while ((status = sendTxAttempt(hexDatas, hexDatasC, true, resultTxid)) == CWS_FEE_NO) {
 					if (!printed) { fprintf(stderr, "Fee problem, attempting to resolve..."); printed = true; }
 					fprintf(stderr, ".");
 				}
@@ -327,104 +402,145 @@ static void sendTx(const char *hexData, char **txid) {
 	} while (status != CW_OK);
 }
 
-static char *fileHandleByTxTree(FILE *fp, FILE *tempfp, int depth) {
-	char hexChunk[TX_DATA_CHARS + 1];
+static void hexAppendMetadata(char *hexData, struct cwFileMetadata *md) {	
+	char chainLenHex[CW_MD_CHARS(length)+1]; char treeDepthHex[CW_MD_CHARS(depth)+1];
+	char fTypeHex[CW_MD_CHARS(type)+1]; char pVerHex[CW_MD_CHARS(pVer)+1];
+
+	intToNetHexStr(&md->length, CW_MD_BYTES(length), chainLenHex);
+	intToNetHexStr(&md->depth, CW_MD_BYTES(depth), treeDepthHex);
+	intToNetHexStr(&md->type, CW_MD_BYTES(type), fTypeHex);
+	intToNetHexStr(&md->pVer, CW_MD_BYTES(pVer), pVerHex);
+
+	strcat(hexData, chainLenHex);
+	strcat(hexData, treeDepthHex);
+	strcat(hexData, fTypeHex);
+	strcat(hexData, pVerHex);
+}
+
+static char *fileSendAsTxTree(FILE *fp, int cwFType, FILE *tempfp, int depth, int *numTxs) {
+	char hexChunk[TX_DATA_CHARS + 1]; char *hexChunkPtr = hexChunk;
 	char *txid;
 	if ((txid = malloc(TXID_CHARS+1)) == NULL) { die("malloc failed"); }
-	char buf[depth ? TX_DATA_CHARS : TX_DATA_BYTES];
+	int metadataLen = depth ? CW_METADATA_CHARS : CW_METADATA_BYTES;
+	int dataLen = depth ? TX_DATA_CHARS : TX_DATA_BYTES;
+	char buf[dataLen];
+	*numTxs = 0;
+	bool rootCheck = false;
+	int readSz = depth ? 2 : 1;
 	int n;
-	while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
-		if (!depth) {
-			fileBytesToHexStr(hexChunk, buf, n);
-		} else if (n%2 == 0) { 
-			memcpy(hexChunk, buf, n); 
-			hexChunk[n] = 0; 
-		} else { die("fread() error"); }
-		sendTx(hexChunk, &txid);
+	while ((n = fread(buf, readSz, sizeof(buf)/readSz, fp)*readSz) > 0 || !rootCheck) {
+		if (n > 0) {
+			if (!depth) {
+				fileBytesToHexStr(buf, n, hexChunk);
+			} else { 
+				memcpy(hexChunk, buf, n); 
+				hexChunk[n] = 0; 
+			}
+		} else { ++*numTxs; break; }
+
+		if (feof(fp) && *numTxs < 1) {
+			rootCheck = true;
+			if (n+metadataLen <= dataLen) {
+				struct cwFileMetadata md;
+				md.length = 0; md.depth = depth; md.type = cwFType; md.pVer = CW_P_VER;
+				hexAppendMetadata(hexChunk, &md);
+			} else { ++*numTxs; }
+		}
+
+		sendTx((const char **)&hexChunkPtr, 1, &txid);
+		++*numTxs;
 		if (fputs(txid, tempfp) == EOF) { die("fputs() failed"); }
 	}
-	if (fputs(TREE_SUFFIX, tempfp) == EOF) { die("fputs() failed"); }
 	if (ferror(fp)) { die("file error on fread()"); }
 	return txid;
 }
 
-static char *fileHandleByTxChain(FILE *fp, long size, int isHex) { 
-	char hexChunk[TX_DATA_CHARS + 1];
+static char *fileSendAsTxChain(FILE *fp, int cwFType, long size, int treeDepth) { 
+	char hexChunk[TX_DATA_CHARS + 1]; char *hexChunkPtr = hexChunk;
 	char *txid;
 	if ((txid = malloc(TXID_CHARS+1)) == NULL) { die("malloc failed"); }
 	txid[0] = 0;
-	char buf[isHex ? TX_DATA_CHARS : TX_DATA_BYTES];
-	int toRead = size < sizeof(buf) ? size : sizeof(buf);
+	char buf[treeDepth ? TX_DATA_CHARS : TX_DATA_BYTES];
+	int metadataLen = treeDepth ? CW_METADATA_CHARS : CW_METADATA_BYTES;
+	int readSz = treeDepth ? 2 : 1;
+	int toRead = size <= sizeof(buf) ? size : sizeof(buf);
 	int read;
-	int begin = 1; int end = 0;
+	bool begin = true; bool end = size+metadataLen <= sizeof(buf);
+	struct cwFileMetadata md;
+	md.length = 0; md.depth = treeDepth; md.type = cwFType; md.pVer = CW_P_VER;
 	int loc = 0;
-	if (fseek(fp, -toRead, SEEK_END) != 0) { die("fseek() failed"); }
-	while ((read = fread(buf, 1, toRead, fp)) > 0) {
-		if (!isHex) {
-			fileBytesToHexStr(hexChunk, buf, read);
-		} else {
-			memcpy(hexChunk, buf, toRead);
-			hexChunk[toRead] = 0;
-		}
+	if (fseek(fp, -toRead, SEEK_END) != 0) { die("fseek() SEEK_END failed"); }
+	while (!ferror(fp)) {
+		if ((read = fread(buf, readSz, toRead/readSz, fp)*readSz) > 0) {
+			if (!treeDepth) {
+				fileBytesToHexStr(buf, read, hexChunk);
+			} else {
+				memcpy(hexChunk, buf, read);
+				hexChunk[read] = 0;
+			}
+		} else { hexChunk[0] = 0; }
 		strcat(hexChunk, txid);
-		sendTx(hexChunk, &txid);
+		if (end) { hexAppendMetadata(hexChunk, &md); }
+		sendTx((const char **)&hexChunkPtr, 1, &txid);
 		if (end) { break; }
-		if (begin) { toRead -= isHex ? TXID_CHARS : TXID_BYTES; begin = 0; }
+		++md.length;
+		if (begin) { toRead -= treeDepth ? TXID_CHARS : TXID_BYTES; begin = false; }
 		if ((loc = ftell(fp))-read < toRead) {
+			if (loc-read < toRead-metadataLen) { end = true; }
 			toRead = loc-read;
-			if (fseek(fp, 0, SEEK_SET) != 0) { die("fseek() failed"); }
-			end = 1; 
-		} else if (fseek(fp, -read-toRead, SEEK_CUR) != 0) { die("fseek() failed"); }
+			if (fseek(fp, 0, SEEK_SET) != 0) { die("fseek() SEEK_SET failed"); }
+		} else if (fseek(fp, -read-toRead, SEEK_CUR) != 0) { die("fseek() SEEK_CUR failed"); }
 	}
 	if (ferror(fp)) { die("file error on fread()"); }
 	fprintf(stderr, "\n");
 	return txid;
 }
 
-static inline char *sendFileChain(FILE *fp, int isHex) {
-	return fileHandleByTxChain(fp, fileSize(fileno(fp)), isHex);
+static inline char *sendFileChain(FILE *fp, int cwFType, int treeDepth) {
+	return fileSendAsTxChain(fp, cwFType, fileSize(fileno(fp)), treeDepth);
 }
 
-static char *sendFileTree(FILE *fp, int depth, int maxDepth) {
-	if (maxDepth >= 0 && depth >= maxDepth) { return sendFileChain(fp, depth); }
+static char *sendFileTree(FILE *fp, int cwFType, int depth, int maxDepth) {
+	if (maxDepth >= 0 && depth >= maxDepth) { return sendFileChain(fp, cwFType, depth); }
 
 	FILE *tfp;
 	if ((tfp = tmpfile()) == NULL) { die("tmpfile() failed"); }
 
-	char *txidF = fileHandleByTxTree(fp, tfp, depth);
-	if ((int)ceil((double)fileSize(fileno(fp))/(depth ? TX_DATA_CHARS : TX_DATA_BYTES)) < 2) { fclose(tfp); return txidF; }
+	int numTxs;
+	char *txidF = fileSendAsTxTree(fp, cwFType, tfp, depth, &numTxs);
+	if (numTxs < 2) { fclose(tfp); return txidF; }
 	free(txidF);
 
 	rewind(tfp);
-	char *txid = sendFileTree(tfp, depth+1, maxDepth);
+	char *txid = sendFileTree(tfp, cwFType, depth+1, maxDepth);
 	fclose(tfp);
 	fprintf(stderr, "\n");
 	return txid;
 }
 
-static inline char *sendFp(FILE *fp, int maxTreeDepth) {
-	return sendFileTree(fp, 0, maxTreeDepth);
+static inline char *sendFp(FILE *fp, int cwFType, int maxTreeDepth) {
+	return sendFileTree(fp, cwFType, 0, maxTreeDepth);
 }
 
-char *sendFile(const char *filePath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff) {
-	initRpc(rpcCli);
+char *sendFile(const char *filePath, int cwType, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff) {
+	bool initHere = initRpc(rpcCli);
 
 	double bal;
 	if (balanceDiff) { bal = checkBalance(); }
 
 	FILE *fp;
 	if ((fp = fopen(filePath, "rb")) == NULL) { die("fopen() failed"); }	
-	char *txid = sendFp(fp, maxTreeDepth);
+	char *txid = sendFp(fp, cwType, maxTreeDepth);
 
 	if (balanceDiff) { *balanceDiff = bal - checkBalance(); }
 
 	fclose(fp);
-	freeRpcMethods();
+	if (initHere) { freeRpcMethods(); }
 	return txid;
 }
 
 char *sendDir(const char *dirPath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff) {
-	initRpc(rpcCli);
+	bool initHere = initRpc(rpcCli);
 
 	FTS *ftsp;
 	int fts_options = FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR;
@@ -443,19 +559,19 @@ char *sendDir(const char *dirPath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, do
 	while ((p = fts_read(ftsp)) != NULL) {
 		if (p->fts_info == FTS_F && strncmp(p->fts_path, dirPath, dirPathLen) == 0) {
 			fprintf(stderr, "Sending %s", p->fts_path+dirPathLen);
-			txid = sendFile(p->fts_path, maxTreeDepth, NULL, NULL);
+			txid = sendFile(p->fts_path, CW_T_FILE, maxTreeDepth, NULL, NULL);
 			fprintf(tmpDirFp, "%s\n%s\n", p->fts_path+dirPathLen, txid);
 			free(txid);
 		}
 	}
 	fprintf(stderr, "Sending root directory file");
 	rewind(tmpDirFp);
-	txid = sendFp(tmpDirFp, maxTreeDepth);
+	txid = sendFp(tmpDirFp, CW_T_DIR, maxTreeDepth);
 
 	if (balanceDiff) { *balanceDiff = bal - checkBalance(); }
 
 	fclose(tmpDirFp);
 	fts_close(ftsp);
-	freeRpcMethods();
+	if (initHere) { freeRpcMethods(); }
 	return txid;	
 }

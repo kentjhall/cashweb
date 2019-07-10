@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
 	char *txid;
 	struct stat st;
 	if (stat(filePath, &st) != 0) { die("stat() failed"); }
-	txid = S_ISDIR(st.st_mode) ? sendDir(filePath, maxTreeDepth, rpcClient, &balanceDiff) : sendFile(filePath, maxTreeDepth, rpcClient, &balanceDiff);
+	txid = S_ISDIR(st.st_mode) ? sendDir(filePath, maxTreeDepth, rpcClient, &balanceDiff) : sendFile(filePath, CW_T_FILE, maxTreeDepth, rpcClient, &balanceDiff);
 
 	printf("%s", txid);
 	fprintf(stderr, "\nSend cost: %.8f\n", balanceDiff);

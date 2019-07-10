@@ -15,7 +15,7 @@
 
 // send file to blockchain
 // specify maxTreeDepth, will be chained at top level
-char *sendFile(const char *filePath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff);
+char *sendFile(const char *filePath, int cwType, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff);
 
 // send directory to blockchain
 // specify maxTreeDepth for all files

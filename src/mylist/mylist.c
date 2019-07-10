@@ -42,7 +42,8 @@ void *popFront(struct List *list) {
 
 void removeAllNodes(struct List *list) {
 	while (list->head) {
-		popFront(list);
+		void *d = popFront(list);
+		if (d) { free(d); }
 	}
 }
 
