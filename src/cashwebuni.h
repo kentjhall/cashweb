@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+typedef uint16_t CW_STATUS;
 #define CW_OK 0
 
 // protocol version specific #defines
@@ -24,6 +25,13 @@ struct cwFileMetadata {
 	uint16_t type;
 	uint16_t pVer;
 };
+
+static inline void initCwFileMetadata(struct cwFileMetadata *md, uint16_t cwFType) {
+	md->length = 0;
+	md->depth = 0;
+	md->type = cwFType;
+	md->pVer = CW_P_VER;
+}
 
 #define CW_MD_BYTES(md) sizeof(((struct cwFileMetadata *)0)->md)
 #define CW_METADATA_BYTES (CW_MD_BYTES(length)+\

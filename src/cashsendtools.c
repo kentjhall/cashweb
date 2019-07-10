@@ -442,7 +442,8 @@ static char *fileSendAsTxTree(FILE *fp, int cwFType, FILE *tempfp, int depth, in
 			rootCheck = true;
 			if (n+metadataLen <= dataLen) {
 				struct cwFileMetadata md;
-				md.length = 0; md.depth = depth; md.type = cwFType; md.pVer = CW_P_VER;
+				initCwFileMetadata(&md, cwFType);
+				md.depth = depth;
 				hexAppendMetadata(hexChunk, &md);
 			} else { ++*numTxs; }
 		}
@@ -467,7 +468,8 @@ static char *fileSendAsTxChain(FILE *fp, int cwFType, long size, int treeDepth) 
 	int read;
 	bool begin = true; bool end = size+metadataLen <= sizeof(buf);
 	struct cwFileMetadata md;
-	md.length = 0; md.depth = treeDepth; md.type = cwFType; md.pVer = CW_P_VER;
+	initCwFileMetadata(&md, cwFType);
+	md.depth = treeDepth;
 	int loc = 0;
 	if (fseek(fp, -toRead, SEEK_END) != 0) { die("fseek() SEEK_END failed"); }
 	while (!ferror(fp)) {
@@ -492,7 +494,6 @@ static char *fileSendAsTxChain(FILE *fp, int cwFType, long size, int treeDepth) 
 		} else if (fseek(fp, -read-toRead, SEEK_CUR) != 0) { die("fseek() SEEK_CUR failed"); }
 	}
 	if (ferror(fp)) { die("file error on fread()"); }
-	fprintf(stderr, "\n");
 	return txid;
 }
 
@@ -514,12 +515,13 @@ static char *sendFileTree(FILE *fp, int cwFType, int depth, int maxDepth) {
 	rewind(tfp);
 	char *txid = sendFileTree(tfp, cwFType, depth+1, maxDepth);
 	fclose(tfp);
-	fprintf(stderr, "\n");
 	return txid;
 }
 
 static inline char *sendFp(FILE *fp, int cwFType, int maxTreeDepth) {
-	return sendFileTree(fp, cwFType, 0, maxTreeDepth);
+	char *txid = sendFileTree(fp, cwFType, 0, maxTreeDepth);
+	fprintf(stderr, "\n");
+	return txid;
 }
 
 char *sendFile(const char *filePath, int cwType, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff) {

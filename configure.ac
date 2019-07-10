@@ -48,6 +48,12 @@ AS_IF([test "x$with_cashsend" != xno],
 	AC_CHECK_HEADER([jansson.h], [], [
 	  AC_MSG_ERROR([unable to find header jansson.h; please verify jansson library installation and try again])
 	])
+	AC_SEARCH_LIBS([uuid_generate_random], [uuid], [], [
+	  AC_MSG_ERROR([unable to find uuid, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend])
+	])
+	AC_CHECK_HEADER([uuid/uuid.h], [], [
+	  AC_MSG_ERROR([unable to find header jansson.h; please verify jansson library installation and try again])
+	])
 	AM_CONDITIONAL(WITH_CASHSEND, true)
 	], [
 	AM_CONDITIONAL(WITH_CASHSEND, false)

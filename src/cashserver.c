@@ -3,12 +3,16 @@
 #include <microhttpd.h>
 
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
-
 #define RESP_BUF 80
 
-static char *bitdbNode;
+struct responseData {
+	char *requestedDirTxid;
+	char *requestedFile;
+};
 
-static void cashFoundHandler(int status, int sockfd) {
+static char *bitdbNode = NULL;
+
+static void cashFoundHandler(CW_STATUS status, void *responseData, int sockfd) {
 	char *errMsg = status != CW_OK ? errNoToMsg(status) : "";
 	int buf = RESP_BUF + strlen(errMsg);
 	char respStatus[buf];
@@ -27,28 +31,35 @@ static int requestHandler(void *cls,
 			  void **ptr) {
 	static int dummy;
 	if (strcmp(method, "GET") != 0) { return MHD_NO;  }
-	if (*ptr != &dummy) { *ptr = &dummy; return MHD_YES; }
 	if (*upload_data_size != 0) { return MHD_NO; }
+	if (*ptr != &dummy) { *ptr = &dummy; return MHD_YES; }
+
+	if (bitdbNode == NULL) { fprintf(stderr, "cashserver error: bitdbNode not set\n"); die(NULL); }
 
 	const union MHD_ConnectionInfo *info_fd = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CONNECTION_FD);
 	const union MHD_ConnectionInfo *info_addr = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS);
 	char *clntip = inet_ntoa(((struct sockaddr_in *) info_addr->client_addr)->sin_addr);
 	fprintf(stderr, "%s: requested %s\n", clntip, url);
 
-	int status;
+	struct cwgGetParams params;
+	initCwgGetParams(&params, bitdbNode);
+	params.dirPath = "/index.html";
+	CW_STATUS status;
 	char *realUrl;
 	if ((realUrl = strstr(url+1, "/")) != NULL) {
-		if (strcmp(realUrl, "/") == 0) { realUrl = "/index.html"; }
+		if (strcmp(realUrl, "/") != 0) {
+			params.dirPath = realUrl;
+		}
 
 		char txid[TXID_CHARS+1];
 		strncpy(txid, url+1, TXID_CHARS);
 		txid[TXID_CHARS] = 0;
 
 		fprintf(stderr, "%s: fetching directory at %s for file at path %s\n", clntip, txid, realUrl);
-		status = getDirFile(txid, realUrl, bitdbNode, NULL, &cashFoundHandler, info_fd->connect_fd);
+		status = getFile(txid, &params, &cashFoundHandler, info_fd->connect_fd);
 	} else { 
 		fprintf(stderr, "%s: fetching and serving file at %s\n", clntip, url+1);
-		status = getFile(url+1, bitdbNode, &cashFoundHandler, info_fd->connect_fd);
+		status = getFile(url+1, &params, &cashFoundHandler, info_fd->connect_fd);
 	}
 
 	if (status == CW_OK) { fprintf(stderr, "%s: requested file fetched and served\n", clntip); }
