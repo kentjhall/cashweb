@@ -198,27 +198,21 @@ static CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count) {
 		long respSz = fileSize(fileno(respFp));
 		char respMsg[respSz];
 		respMsg[fread(respMsg, 1, respSz, respFp)] = 0;
-		if (strlen(respMsg) < 1) {
-			fprintf(stderr, "BitDB node failed to respond to query of length %lu", strlen(query));
-			status = CWG_FETCH_ERR;
+		if ((strlen(respMsg) < 1 && count > 1) || (strstr(respMsg, "URI") && strstr(respMsg, "414"))) { // catch for Request-URI Too Large or empty response body
+			int firstCount = count/2;
+			CW_STATUS status1; CW_STATUS status2;
+			if ((status1 = fetchHexData(hexDataAll, txids, firstCount)) == 
+			    (status2 = fetchHexData(hexDataAll+strlen(hexDataAll), txids+firstCount, count-firstCount))) { status = status1; }
+			else { status = status1 > status2 ? status1 : status2; }
 			goto cleanup;
 		}
 		else if (strstr(respMsg, "html")) {
-			if (strstr(respMsg, "URI") && strstr(respMsg, "414")) { // catch for Request-URI Too Large
-				int firstCount = count/2;
-				CW_STATUS status1; CW_STATUS status2;
-				if ((status1 = fetchHexData(hexDataAll, txids, firstCount)) == 
-				    (status2 = fetchHexData(hexDataAll+strlen(hexDataAll), txids+firstCount, count-firstCount))) { status = status1; }
-				else { status = status1 > status2 ? status1 : status2; }
-				goto cleanup;
-			} else {
-				fprintf(stderr, "HTML response error unhandled in cashgettools:\n%s\n", respMsg);
-				status = CWG_FETCH_ERR;
-				goto cleanup;
-			}	
+			fprintf(stderr, "HTML response error unhandled in cashgettools:\n%s\n", respMsg);
+			status = CWG_FETCH_ERR;
+			goto cleanup;
 		}
 		else {
-			fprintf(stderr, "jansson error in parsing response from BitDB node: %s\n", jsonError.text);
+			fprintf(stderr, "jansson error in parsing response from BitDB node: %s\nResponse:\n%s\n", jsonError.text, respMsg);
 			json_decref(respJson);
 			status = CWG_FETCH_ERR;
 			goto cleanup;
@@ -407,11 +401,15 @@ const char *cwgErrNoToMsg(int errNo) {
 CW_STATUS dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
 	CW_STATUS status = CWG_IN_DIR_NO;
 
+	char pathTxidBytes[TXID_BYTES];
+	memset(pathTxidBytes, 0, TXID_BYTES);
+
 	struct DynamicMemory line;
 	initDynamicMemory(&line);
 	resizeDynamicMemory(&line, DIR_LINE_BUF);
 	bzero(line.data, line.size);
 
+	bool found = false;
 	int count = 0;
 	int lineLen;
 	int offset = 0;
@@ -427,17 +425,23 @@ CW_STATUS dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
 		line.data[lineLen-1] = 0;
 
 		if (strlen(line.data) < 1) { break; }
-		++count;
 				
-		if (strcmp(line.data, dirPath) == 0) {
-			fgets(pathTxid, TXID_CHARS+1, dirFp);
-			pathTxid[TXID_CHARS] = 0;
-			fprintf(stderr, "%s\n", pathTxid);
-			status = CW_OK;
-			goto cleanup;
+		if (!found) {
+			++count;
+			if (strcmp(line.data, dirPath) == 0) {
+				found = true;
+				status = CW_OK;
+			}
 		}
 	}
 	if (ferror(dirFp)) { perror("error reading dirFp in dirPathToTxid()"); status = CWG_SYS_ERR; }
+	if (status != CW_OK) { goto cleanup; }
+
+	if (count > 0) {
+		if (fseek(dirFp, TXID_BYTES*(count-1), SEEK_CUR) < 0) { perror("fseek() SEEK_CUR failed"); status = CWG_SYS_ERR; goto cleanup; }
+		if (fread(pathTxidBytes, TXID_BYTES, 1, dirFp) < 1) { perror("fread() failed on dirFp"); status = CWG_SYS_ERR; goto cleanup; }
+		byteArrToHexStr(pathTxidBytes, TXID_BYTES, pathTxid);
+	} else { status = CWG_IN_DIR_NO; }
 
 	cleanup:
 		freeDynamicMemory(&line);

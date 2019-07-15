@@ -97,8 +97,8 @@ static inline void freeDynamicMemory(struct DynamicMemory *dm) {
  */
 static inline void byteArrToHexStr(const char *fileBytes, int n, char *hex) {
 	for (int i=0; i<n; i++) {
-		hex[i*2]   = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) >> 4];
-		hex[i*2+1] = "0123456789ABCDEF"[((uint8_t)fileBytes[i]) & 0x0F];
+		hex[i*2]   = "0123456789abcdef"[((uint8_t)fileBytes[i]) >> 4];
+		hex[i*2+1] = "0123456789abcdef"[((uint8_t)fileBytes[i]) & 0x0F];
 	}
 	hex[n*2] = 0;
 }

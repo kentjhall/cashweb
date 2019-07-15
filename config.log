@@ -30,8 +30,8 @@ Kernel configured for up to 4 processors.
 Processor type: x86_64h (Intel x86-64h Haswell)
 Processors active: 0 1 2 3
 Primary memory available: 8.00 gigabytes
-Default processor set: 373 tasks, 2063 threads, 4 processors
-Load average: 1.62, Mach factor: 2.37
+Default processor set: 423 tasks, 2262 threads, 4 processors
+Load average: 1.66, Mach factor: 2.34
 /bin/machine           = unknown
 /usr/bin/oslevel       = unknown
 /bin/universe          = unknown
@@ -149,7 +149,7 @@ configure:4024: checking for library containing curl_easy_init
 configure:4055: gcc -o conftest -g -O2   conftest.c  >&5
 Undefined symbols for architecture x86_64:
   "_curl_easy_init", referenced from:
-      _main in conftest-6fc999.o
+      _main in conftest-36cc22.o
 ld: symbol(s) not found for architecture x86_64
 clang: error: linker command failed with exit code 1 (use -v to see invocation)
 configure:4055: $? = 1
@@ -282,71 +282,14 @@ configure:4481: $? = 0
 configure:4481: result: yes
 configure:4481: checking for curl/curl.h
 configure:4481: result: yes
-configure:4493: checking for library containing MHD_start_daemon
-configure:4524: gcc -o conftest -g -O2   conftest.c -lcurl  >&5
-Undefined symbols for architecture x86_64:
-  "_MHD_start_daemon", referenced from:
-      _main in conftest-33ef34.o
-ld: symbol(s) not found for architecture x86_64
-clang: error: linker command failed with exit code 1 (use -v to see invocation)
-configure:4524: $? = 1
-configure: failed program was:
-| /* confdefs.h */
-| #define PACKAGE_NAME "cashwebtools"
-| #define PACKAGE_TARNAME "cashwebtools"
-| #define PACKAGE_VERSION "0"
-| #define PACKAGE_STRING "cashwebtools 0"
-| #define PACKAGE_BUGREPORT ""
-| #define PACKAGE_URL ""
-| #define PACKAGE "cashwebtools"
-| #define VERSION "0"
-| #define STDC_HEADERS 1
-| #define HAVE_SYS_TYPES_H 1
-| #define HAVE_SYS_STAT_H 1
-| #define HAVE_STDLIB_H 1
-| #define HAVE_STRING_H 1
-| #define HAVE_MEMORY_H 1
-| #define HAVE_STRINGS_H 1
-| #define HAVE_INTTYPES_H 1
-| #define HAVE_STDINT_H 1
-| #define HAVE_UNISTD_H 1
-| /* end confdefs.h.  */
-| 
-| /* Override any GCC internal prototype to avoid an error.
-|    Use char because int might match the return type of a GCC
-|    builtin and then its argument prototype would still apply.  */
-| #ifdef __cplusplus
-| extern "C"
-| #endif
-| char MHD_start_daemon ();
-| int
-| main ()
-| {
-| return MHD_start_daemon ();
-|   ;
-|   return 0;
-| }
-configure:4524: gcc -o conftest -g -O2   conftest.c -lmicrohttpd  -lcurl  >&5
-configure:4524: $? = 0
-configure:4541: result: -lmicrohttpd
-configure:4553: checking microhttpd.h usability
-configure:4553: gcc -c -g -O2  conftest.c >&5
-configure:4553: $? = 0
-configure:4553: result: yes
-configure:4553: checking microhttpd.h presence
-configure:4553: gcc -E  conftest.c
-configure:4553: $? = 0
-configure:4553: result: yes
-configure:4553: checking for microhttpd.h
-configure:4553: result: yes
-configure:4586: checking for library containing json_object
-configure:4617: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -lcurl  >&5
+configure:4491: checking for library containing json_object
+configure:4522: gcc -o conftest -g -O2   conftest.c -lcurl  >&5
 Undefined symbols for architecture x86_64:
   "_json_object", referenced from:
-      _main in conftest-2b0f06.o
+      _main in conftest-4c8505.o
 ld: symbol(s) not found for architecture x86_64
 clang: error: linker command failed with exit code 1 (use -v to see invocation)
-configure:4617: $? = 1
+configure:4522: $? = 1
 configure: failed program was:
 | /* confdefs.h */
 | #define PACKAGE_NAME "cashwebtools"
@@ -383,21 +326,78 @@ configure: failed program was:
 |   ;
 |   return 0;
 | }
-configure:4617: gcc -o conftest -g -O2   conftest.c -ljansson  -lmicrohttpd -lcurl  >&5
-configure:4617: $? = 0
-configure:4634: result: -ljansson
-configure:4646: checking jansson.h usability
-configure:4646: gcc -c -g -O2  conftest.c >&5
-configure:4646: $? = 0
-configure:4646: result: yes
-configure:4646: checking jansson.h presence
-configure:4646: gcc -E  conftest.c
-configure:4646: $? = 0
-configure:4646: result: yes
-configure:4646: checking for jansson.h
-configure:4646: result: yes
+configure:4522: gcc -o conftest -g -O2   conftest.c -ljansson  -lcurl  >&5
+configure:4522: $? = 0
+configure:4539: result: -ljansson
+configure:4551: checking jansson.h usability
+configure:4551: gcc -c -g -O2  conftest.c >&5
+configure:4551: $? = 0
+configure:4551: result: yes
+configure:4551: checking jansson.h presence
+configure:4551: gcc -E  conftest.c
+configure:4551: $? = 0
+configure:4551: result: yes
+configure:4551: checking for jansson.h
+configure:4551: result: yes
+configure:4563: checking for library containing MHD_start_daemon
+configure:4594: gcc -o conftest -g -O2   conftest.c -ljansson -lcurl  >&5
+Undefined symbols for architecture x86_64:
+  "_MHD_start_daemon", referenced from:
+      _main in conftest-2d7246.o
+ld: symbol(s) not found for architecture x86_64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+configure:4594: $? = 1
+configure: failed program was:
+| /* confdefs.h */
+| #define PACKAGE_NAME "cashwebtools"
+| #define PACKAGE_TARNAME "cashwebtools"
+| #define PACKAGE_VERSION "0"
+| #define PACKAGE_STRING "cashwebtools 0"
+| #define PACKAGE_BUGREPORT ""
+| #define PACKAGE_URL ""
+| #define PACKAGE "cashwebtools"
+| #define VERSION "0"
+| #define STDC_HEADERS 1
+| #define HAVE_SYS_TYPES_H 1
+| #define HAVE_SYS_STAT_H 1
+| #define HAVE_STDLIB_H 1
+| #define HAVE_STRING_H 1
+| #define HAVE_MEMORY_H 1
+| #define HAVE_STRINGS_H 1
+| #define HAVE_INTTYPES_H 1
+| #define HAVE_STDINT_H 1
+| #define HAVE_UNISTD_H 1
+| /* end confdefs.h.  */
+| 
+| /* Override any GCC internal prototype to avoid an error.
+|    Use char because int might match the return type of a GCC
+|    builtin and then its argument prototype would still apply.  */
+| #ifdef __cplusplus
+| extern "C"
+| #endif
+| char MHD_start_daemon ();
+| int
+| main ()
+| {
+| return MHD_start_daemon ();
+|   ;
+|   return 0;
+| }
+configure:4594: gcc -o conftest -g -O2   conftest.c -lmicrohttpd  -ljansson -lcurl  >&5
+configure:4594: $? = 0
+configure:4611: result: -lmicrohttpd
+configure:4623: checking microhttpd.h usability
+configure:4623: gcc -c -g -O2  conftest.c >&5
+configure:4623: $? = 0
+configure:4623: result: yes
+configure:4623: checking microhttpd.h presence
+configure:4623: gcc -E  conftest.c
+configure:4623: $? = 0
+configure:4623: result: yes
+configure:4623: checking for microhttpd.h
+configure:4623: result: yes
 configure:4656: checking for library containing uuid_generate_random
-configure:4687: gcc -o conftest -g -O2   conftest.c -ljansson -lmicrohttpd -lcurl  >&5
+configure:4687: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -ljansson -lcurl  >&5
 configure:4687: $? = 0
 configure:4704: result: none required
 configure:4716: checking uuid/uuid.h usability
@@ -632,7 +632,7 @@ configure:4904: result: yes
 configure:4922: checking for stdlib.h
 configure:4922: result: yes
 configure:4932: checking for GNU libc compatible malloc
-configure:4956: gcc -o conftest -g -O2   conftest.c -ljansson -lmicrohttpd -lcurl  >&5
+configure:4956: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -ljansson -lcurl  >&5
 configure:4956: $? = 0
 configure:4956: ./conftest
 configure:4956: $? = 0
@@ -640,17 +640,17 @@ configure:4966: result: yes
 configure:4989: checking for stdlib.h
 configure:4989: result: yes
 configure:4999: checking for GNU libc compatible realloc
-configure:5023: gcc -o conftest -g -O2   conftest.c -ljansson -lmicrohttpd -lcurl  >&5
+configure:5023: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -ljansson -lcurl  >&5
 configure:5023: $? = 0
 configure:5023: ./conftest
 configure:5023: $? = 0
 configure:5033: result: yes
 configure:5057: checking for inet_ntoa
-configure:5057: gcc -o conftest -g -O2   conftest.c -ljansson -lmicrohttpd -lcurl  >&5
+configure:5057: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -ljansson -lcurl  >&5
 configure:5057: $? = 0
 configure:5057: result: yes
 configure:5057: checking for memset
-configure:5057: gcc -o conftest -g -O2   conftest.c -ljansson -lmicrohttpd -lcurl  >&5
+configure:5057: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -ljansson -lcurl  >&5
 conftest.c:55:6: warning: incompatible redeclaration of library function 'memset' [-Wincompatible-library-redeclaration]
 char memset ();
      ^
@@ -659,7 +659,7 @@ conftest.c:55:6: note: 'memset' is a builtin with type 'void *(void *, int, unsi
 configure:5057: $? = 0
 configure:5057: result: yes
 configure:5057: checking for strstr
-configure:5057: gcc -o conftest -g -O2   conftest.c -ljansson -lmicrohttpd -lcurl  >&5
+configure:5057: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -ljansson -lcurl  >&5
 conftest.c:56:6: warning: incompatible redeclaration of library function 'strstr' [-Wincompatible-library-redeclaration]
 char strstr ();
      ^
@@ -668,7 +668,7 @@ conftest.c:56:6: note: 'strstr' is a builtin with type 'char *(const char *, con
 configure:5057: $? = 0
 configure:5057: result: yes
 configure:5057: checking for strtoul
-configure:5057: gcc -o conftest -g -O2   conftest.c -ljansson -lmicrohttpd -lcurl  >&5
+configure:5057: gcc -o conftest -g -O2   conftest.c -lmicrohttpd -ljansson -lcurl  >&5
 configure:5057: $? = 0
 configure:5057: result: yes
 configure:5178: checking that generated files are newer than configure
@@ -693,6 +693,7 @@ on Kents-MacBook-Pro-3.local
 config.status:872: creating Makefile
 config.status:872: creating src/Makefile
 config.status:872: creating config.h
+config.status:1053: config.h is unchanged
 config.status:1101: executing depfiles commands
 config.status:1178: cd src       && sed -e '/# am--include-marker/d' Makefile         | make -f - am--depfiles
 config.status:1183: $? = 0
@@ -803,7 +804,7 @@ INSTALL_SCRIPT='${INSTALL}'
 INSTALL_STRIP_PROGRAM='$(install_sh) -c -s'
 LDFLAGS=''
 LIBOBJS=''
-LIBS='-ljansson -lmicrohttpd -lcurl '
+LIBS='-lmicrohttpd -ljansson -lcurl '
 LTLIBOBJS=''
 MAKEINFO='${SHELL} /Users/kenthall/documents/cashweb/missing makeinfo'
 MKDIR_P='/usr/local/bin/gmkdir -p'
@@ -904,21 +905,3 @@ target_alias=''
 #define HAVE_STRTOUL 1
 
 configure: exit 0
-
-## ---------------------- ##
-## Running config.status. ##
-## ---------------------- ##
-
-This file was extended by cashwebtools config.status 0, which was
-generated by GNU Autoconf 2.69.  Invocation command line was
-
-  CONFIG_FILES    = 
-  CONFIG_HEADERS  = 
-  CONFIG_LINKS    = 
-  CONFIG_COMMANDS = 
-  $ ./config.status config.h
-
-on Kents-MacBook-Pro-3.local
-
-config.status:872: creating config.h
-config.status:1053: config.h is unchanged

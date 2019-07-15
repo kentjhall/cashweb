@@ -25,9 +25,9 @@ if [ $(bitcoin-cli listunspent 0 | jq -r 'length') -gt 0 ]; then
 		utxo_txid=$(echo -n $biggest_utxo | jq -r ".txid")
 		utxo_vout=$(echo -n $biggest_utxo | jq -r ".vout")
 		outputs=""
-		total_outputs=$(bc <<< "if ($utxo_amnt%$max_amnt) $utxo_amnt/$max_amnt+1 else $utxo_amnt/$max_amnt") # ceiling
+		total_outputs=$(bc <<< "if ($utxo_amnt%$max_amnt) ($utxo_amnt/$max_amnt)+1 else $utxo_amnt/$max_amnt") # ceiling
 		if [ "$(bc <<< "$total_outputs <= $max_outputs")" = 1 ]; then num_outputs=$total_outputs; else num_outputs=$max_outputs; fi
-		size_bytes=$(bc -l <<< "$base_size_bytes+($out_size_bytes*$num_outputs)+1")
+		size_bytes=$(bc -l <<< "$base_size_bytes+($out_size_bytes*$num_outputs)")
 		fee=$(bc -l <<< "$fee_per_byte * $size_bytes")
 		utxo_amnt=$(bc -l <<< "$utxo_amnt - $fee")
 		count=0
@@ -45,6 +45,9 @@ if [ $(bitcoin-cli listunspent 0 | jq -r 'length') -gt 0 ]; then
 		done
 		rawtx=$(bitcoin-cli createrawtransaction '''[ { "txid": "'$utxo_txid'", "vout": '$utxo_vout' } ]''' '''{ '$outputs' }''')
 		signedtx=$(bitcoin-cli signrawtransactionwithwallet $rawtx | jq -r '.hex')
+		echo
+		echo $num_outputs
+		echo $outputs
 		bitcoin-cli sendrawtransaction $signedtx > /dev/null
 		echo "" 1>&2
 	done

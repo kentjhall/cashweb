@@ -28,6 +28,12 @@ AC_SEARCH_LIBS([curl_easy_init], [curl], [], [
 AC_CHECK_HEADER([curl/curl.h], [], [
   AC_MSG_ERROR([unable to find header curl/curl.h, please verify curl library installation and try again])
 ])
+AC_SEARCH_LIBS([json_object], [jansson], [], [
+  AC_MSG_ERROR([unable to find jansson, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend])
+])
+AC_CHECK_HEADER([jansson.h], [], [
+  AC_MSG_ERROR([unable to find header jansson.h; please verify jansson library installation and try again])
+])
 AS_IF([test "x$with_cashserver" != xno],
 	[
 	AC_SEARCH_LIBS([MHD_start_daemon], [microhttpd], [], [
@@ -41,13 +47,7 @@ AS_IF([test "x$with_cashserver" != xno],
 	AM_CONDITIONAL(WITH_CASHSERVER, false)
 	])
 AS_IF([test "x$with_cashsend" != xno],
-	[
-	AC_SEARCH_LIBS([json_object], [jansson], [], [
-	  AC_MSG_ERROR([unable to find jansson, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend])
-	])
-	AC_CHECK_HEADER([jansson.h], [], [
-	  AC_MSG_ERROR([unable to find header jansson.h; please verify jansson library installation and try again])
-	])
+	[	
 	AC_SEARCH_LIBS([uuid_generate_random], [uuid], [], [
 	  AC_MSG_ERROR([unable to find uuid, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend])
 	])

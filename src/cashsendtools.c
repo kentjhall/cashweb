@@ -255,8 +255,10 @@ static int sendTxAttempt(const char **hexDatas, int hexDatasC, bool useUnconfirm
 		size = TX_BASE_SZ + (TX_INPUT_SZ*numInputs) + TX_OUTPUT_SZ + TX_DATA_BASE_SZ + txDataSz;
 		fee = feePerByte * size;
 		changeAmnt = totalAmnt - fee;
+		// drop the change if less than cost of adding an additional input
+		if (changeAmnt < feePerByte*(TX_INPUT_SZ)) { fee = feePerByte*(size-TX_OUTPUT_SZ); changeAmnt = 0; }
 
-		if (totalAmnt >= fee && changeAmnt > TX_DUST_AMNT) { break; }
+		if (totalAmnt >= fee && (changeAmnt > TX_DUST_AMNT || changeAmnt == 0)) { break; }
 	}	
 	json_decref(jsonResult);
 
@@ -570,6 +572,7 @@ char *sendDir(const char *dirPath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, do
 			fprintf(stderr, "Sending %s", p->fts_path+dirPathLen);
 
 			txid = sendFile(p->fts_path, CW_T_FILE, maxTreeDepth, NULL, NULL);
+			fprintf(stderr, "%s\n", txid);
 			if (hexStrToByteArr(txid, 0, txidsByteData+(count*TXID_BYTES)) != TXID_BYTES) {
 				fprintf(stderr, "invalid txid in fileSendAsTxTree\n"); die(NULL);
 			}
@@ -580,7 +583,7 @@ char *sendDir(const char *dirPath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, do
 		}
 	}
 	fprintf(tmpDirFp, "\n");
-	if (fwrite(txidsByteData, TXID_BYTES, numFiles, tmpDirFp) <= 0) { die("fwrite() to tmpDirFp failed"); }
+	if (fwrite(txidsByteData, TXID_BYTES, numFiles, tmpDirFp) < numFiles) { die("fwrite() to tmpDirFp failed"); }
 	fprintf(stderr, "Sending root directory file");
 	rewind(tmpDirFp);
 	txid = sendFp(tmpDirFp, CW_T_DIR, maxTreeDepth);
