@@ -12,19 +12,19 @@ int main(int argc, char **argv) {
 
 	int opc=0;
 	for (int i=1; i<argc; i++) {
-		if (strncmp("--bitdb=", argv[i], 8) == 0) { bitdbNode = argv[i]+7; ++opc; }
+		if (strncmp("--bitdb=", argv[i], 8) == 0) { bitdbNode = argv[i]+8; ++opc; }
 	}
 
-	char txid[TXID_CHARS+1];
-	if (argc-opc > 1) { strcpy(txid, argv[1]); } else { fgets(txid, TXID_CHARS+1, stdin); txid[TXID_CHARS] = 0; sleep(1); }
+	char txid[TXID_CHARS+1]; txid[0] = 0;
+	if (argc-opc > 1) { strncat(txid, argv[1], TXID_CHARS); } else { fgets(txid, TXID_CHARS+1, stdin); txid[TXID_CHARS] = 0; sleep(1); }
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	struct cwgGetParams params;
-	initCwgGetParams(&params, bitdbNode);
+	struct cwGetParams params;
+	initCwGetParams(&params, bitdbNode);
 	CW_STATUS status = CW_OK;
-	if ((status = getFile(txid, &params, NULL, STDOUT_FILENO)) != CW_OK) { 
-		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, errNoToMsg(status));
+	if ((status = getFile(txid, &params, STDOUT_FILENO)) != CW_OK) { 
+		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, cwgErrNoToMsg(status));
 	}
 
 	curl_global_cleanup();

@@ -1,24 +1,174 @@
 #include "cashgettools.h"
-#include <arpa/inet.h>
 #include <microhttpd.h>
 
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
-#define RESP_BUF 80
 
-struct responseData {
-	char *requestedDirTxid;
-	char *requestedFile;
+typedef int CS_CW_STATUS;
+#define CS_REQUEST_NO -1
+
+#define RESP_BUF 110
+#define REQ_DESCRIPT_BUF 25
+#define TRAILING_BACKSLASH_APPEND "index.html"
+
+static uint16_t port = 80;
+static char *bitdbNode = BITDB_DEFAULT;
+static bool dirBySubdomain = false;
+
+struct cashRequestData {
+	const char *cwId;
+	const char *path;
+	const char *clntip;
 };
 
-static char *bitdbNode = NULL;
+static inline void initCashRequestData(struct cashRequestData *requestData, const char *clntip) {
+	requestData->cwId = NULL;
+	requestData->path = NULL;
+	requestData->clntip = clntip;
+}
 
-static void cashFoundHandler(CW_STATUS status, void *responseData, int sockfd) {
-	char *errMsg = status != CW_OK ? errNoToMsg(status) : "";
-	int buf = RESP_BUF + strlen(errMsg);
-	char respStatus[buf];
-	snprintf(respStatus, buf, status == CW_OK ? "HTTP/1.1 200 OK\r\n\r\n" :
-		 "HTTP/1.1 404 Not Found\r\n\r\n<html><body><h1>Error 404</h1><h2>%s</h2></body></html>\r\n", errMsg);
-	if (send(sockfd, respStatus, strlen(respStatus), 0) != strlen(respStatus)) { fprintf(stderr, "send() failed on response\n"); }
+static char *cashStatusToResponseMsg(CS_CW_STATUS status) {
+	switch (status) {
+		case CW_OK:
+			return "200 OK";
+		case CWG_FETCH_ERR:
+		case CWG_WRITE_ERR:
+		case CWG_SYS_ERR:
+			return "500 Internal Server Error";
+		case CS_REQUEST_NO:
+			return "400 Bad Request";
+		default:
+			return "404 Not Found";
+	}
+}
+
+static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd) {
+	struct cashRequestData *rd = (struct cashRequestData *)requestData;
+	const char *errMsg;
+	if (status == CW_OK) { errMsg = ""; }
+	else if (status == CS_REQUEST_NO) { errMsg = "Request is missing host header."; }
+	else { errMsg = cwgErrNoToMsg(status); }
+	int bufSz = RESP_BUF + strlen(errMsg);
+
+	int reqDBufSz = REQ_DESCRIPT_BUF;
+	const char *clntip = rd && rd->clntip ? rd->clntip : NULL;
+	const char *reqCwId = rd && rd->cwId ? rd->cwId : NULL;
+	const char *reqPath = rd && rd->path ? rd->path : NULL;
+	if (reqCwId) { reqDBufSz += strlen(reqCwId); }
+	if (reqPath) { reqDBufSz += strlen(reqPath); }
+	char reqDescript[reqDBufSz]; reqDescript[0] = 0;
+	bufSz += reqDBufSz;
+	
+	char respStatus[bufSz];
+	if (status == CW_OK) {
+		if (reqCwId && reqPath) {
+			fprintf(stderr, "%s: serving file at identifier %s, path %s\n", clntip ? clntip : "?", reqCwId, reqPath);
+		} else {
+			fprintf(stderr, "%s: serving file at identifier %s\n", clntip ? clntip : "?", reqCwId ? reqCwId : "?");
+		}
+		snprintf(respStatus, bufSz, "HTTP/1.1 %s\r\n\r\n",
+			 cashStatusToResponseMsg(status));
+	} else {
+		char *httpErrMsg = cashStatusToResponseMsg(status);
+		if (reqCwId && reqPath) {
+			snprintf(reqDescript, reqDBufSz, " - identifier: %s, path: %s", reqCwId, reqPath);
+		}
+		else if (reqCwId) { snprintf(reqDescript, reqDBufSz, " - identifier: %s", reqCwId); }
+
+		snprintf(respStatus, bufSz,
+			"HTTP/1.1 %s\r\n\r\n<html><body><h1>%s</h1><h2>%s%s</h2></body></html>\r\n",
+			 httpErrMsg, httpErrMsg, errMsg, reqDescript);
+	}
+
+	if (send(sockfd, respStatus, strlen(respStatus), 0) != strlen(respStatus)) { perror("send() failed on response"); }
+}
+
+static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int sockfd) {
+	struct cashRequestData rd;
+	initCashRequestData(&rd, clntip);
+
+	struct cwGetParams getParams;
+	initCwGetParams(&getParams, bitdbNode);
+	getParams.foundHandler = &cashFoundHandler;	
+	getParams.foundHandleData = &rd;
+
+	int urlLen = strlen(url);
+
+	char reqCwId[urlLen+1]; reqCwId[0] = 0;
+	char reqPath[urlLen + strlen(TRAILING_BACKSLASH_APPEND) + 1]; reqPath[0] = 0;
+
+	const char *urlPtr;
+	if ((urlPtr = strstr(url+1, "/")) != NULL) {
+		strcat(reqPath, urlPtr);
+		if (url[strlen(url)-1] == '/') { strcat(reqPath, TRAILING_BACKSLASH_APPEND); }
+		rd.path = getParams.dirPath = reqPath;
+
+		int cwIdLen = urlPtr-(url+1);
+		if (cwIdLen > 0) {
+			strncat(reqCwId, url+1, cwIdLen);
+			rd.cwId = reqCwId;
+		}
+	} else if (urlLen > 1) { rd.cwId = url+1; }
+	
+	if (rd.cwId == NULL) { cashFoundHandler(CWG_FETCH_NO, NULL, sockfd); return CWG_FETCH_NO; }
+
+	if (rd.path) {
+		fprintf(stderr, "%s: fetching requested file at identifier %s, path %s\n", clntip, rd.cwId, rd.path);
+	} else {
+		fprintf(stderr, "%s: fetching requested file at identifier %s\n", clntip, rd.cwId);
+	}
+
+	return getFile(rd.cwId, &getParams, sockfd);
+}
+
+static CS_CW_STATUS cashRequestHandleBySubdomain(struct MHD_Connection *connection, const char *url, const char *clntip, int sockfd) {
+	const char *host = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, "Host");
+	if (host == NULL) { cashFoundHandler(CS_REQUEST_NO, NULL, sockfd); return CS_REQUEST_NO; }
+
+	struct cashRequestData rd;
+	initCashRequestData(&rd, clntip);
+
+	struct cwGetParams getParams;
+	initCwGetParams(&getParams, bitdbNode);
+	getParams.foundHandler = &cashFoundHandler;	
+	getParams.foundHandleData = &rd;
+
+	int endPos = strlen(host);
+	int counter = 0;
+	for (int i=endPos-1; i>=0; i--) {
+		if (host[i] == '.') {
+			endPos = i;
+			if (++counter > 1) { break; }
+		}
+	}
+
+	int urlLen = strlen(url);
+	
+	char reqCwId[endPos+1]; reqCwId[0] = 0;
+	strncat(reqCwId, host, endPos);	
+	if (endPos > 0) { rd.cwId = reqCwId; }
+
+	char reqPath[urlLen + strlen(TRAILING_BACKSLASH_APPEND) + 1]; reqPath[0] = 0;
+	strcat(reqPath, url);
+	if (url[urlLen-1] == '/') { strcat(reqPath, TRAILING_BACKSLASH_APPEND); }
+	getParams.dirPath = reqPath;
+	if (strcmp(url, "/") == 0) { getParams.foundSuppressErr = CWG_IS_DIR_NO; }
+	else { rd.path = getParams.dirPath; }
+
+	if (rd.cwId == NULL) { cashFoundHandler(CWG_FETCH_NO, NULL, sockfd); return CWG_FETCH_NO; }
+
+	if (rd.path) {
+		fprintf(stderr, "%s: fetching requested file at identifier %s, path %s\n", clntip, rd.cwId, rd.path);
+	} else {
+		fprintf(stderr, "%s: fetching requested file at identifier %s\n", clntip, rd.cwId);
+	}
+
+	return getFile(rd.cwId, &getParams, sockfd);
+}
+
+static inline CS_CW_STATUS cashRequestHandle(struct MHD_Connection *connection, const char *url, const char *clntip, int sockfd) {
+	return dirBySubdomain ? cashRequestHandleBySubdomain(connection, url, clntip, sockfd)
+			      : cashRequestHandleByUri(url, clntip, sockfd);	
+	
 }
 
 static int requestHandler(void *cls,
@@ -29,50 +179,29 @@ static int requestHandler(void *cls,
 			  const char *upload_data,
 			  size_t *upload_data_size,
 			  void **ptr) {
-	static int dummy;
 	if (strcmp(method, "GET") != 0) { return MHD_NO;  }
 	if (*upload_data_size != 0) { return MHD_NO; }
-	if (*ptr != &dummy) { *ptr = &dummy; return MHD_YES; }
 
 	if (bitdbNode == NULL) { fprintf(stderr, "cashserver error: bitdbNode not set\n"); die(NULL); }
 
 	const union MHD_ConnectionInfo *info_fd = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CONNECTION_FD);
 	const union MHD_ConnectionInfo *info_addr = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS);
-	char *clntip = inet_ntoa(((struct sockaddr_in *) info_addr->client_addr)->sin_addr);
+	const char *clntip = inet_ntoa(((struct sockaddr_in *) info_addr->client_addr)->sin_addr);
 	fprintf(stderr, "%s: requested %s\n", clntip, url);
-
-	struct cwgGetParams params;
-	initCwgGetParams(&params, bitdbNode);
-	params.dirPath = "/index.html";
-	CW_STATUS status;
-	char *realUrl;
-	if ((realUrl = strstr(url+1, "/")) != NULL) {
-		if (strcmp(realUrl, "/") != 0) {
-			params.dirPath = realUrl;
-		}
-
-		char txid[TXID_CHARS+1];
-		strncpy(txid, url+1, TXID_CHARS);
-		txid[TXID_CHARS] = 0;
-
-		fprintf(stderr, "%s: fetching directory at %s for file at path %s\n", clntip, txid, realUrl);
-		status = getFile(txid, &params, &cashFoundHandler, info_fd->connect_fd);
-	} else { 
-		fprintf(stderr, "%s: fetching and serving file at %s\n", clntip, url+1);
-		status = getFile(url+1, &params, &cashFoundHandler, info_fd->connect_fd);
-	}
+	
+	CS_CW_STATUS status = cashRequestHandle(connection, url, clntip, info_fd->connect_fd);
 
 	if (status == CW_OK) { fprintf(stderr, "%s: requested file fetched and served\n", clntip); }
-	else { fprintf(stderr, "%s: request %s resulted in error code %d: %s\n", clntip, url, status, errNoToMsg(status)); }
+	else if (status == CS_REQUEST_NO) { fprintf(stderr, "%s: bad request, no host header\n", clntip); }
+	else { fprintf(stderr, "%s: request %s resulted in error code %d: %s\n", clntip, url, status, cwgErrNoToMsg(status)); }
 
 	return MHD_NO;
 }
 
 int main() {
-	bitdbNode = BITDB_DEFAULT;
 	struct MHD_Daemon *d;
 	if ((d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
-				  80,
+				  port,
 				  NULL,
 				  NULL,
 				  &requestHandler,

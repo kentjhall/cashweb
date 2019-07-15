@@ -3,7 +3,6 @@
 
 #include <sys/stat.h>
 #include <fts.h>
-#include <jansson.h>
 #include <libbitcoinrpc/bitcoinrpc.h>
 #include "cashwebuni.h"
 

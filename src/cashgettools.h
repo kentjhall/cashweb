@@ -2,38 +2,48 @@
 #define __CASHGETTOOLS_H__
 
 #include <curl/curl.h>
+#include <libmongoc/mongoc/mongoc.h>
 #include <b64/b64.h>
 #include <mylist/mylist.h>
 #include "cashwebuni.h"
 
-#define CWG_DIR_NO 1
-#define CWG_FETCH_NO 2
-#define CWG_METADATA_NO 3
-#define CWG_SYS_ERR 4
-#define CWG_FETCH_ERR 5
-#define CWG_WRITE_ERR 6
-#define CWG_FILE_ERR 7
-#define CWG_FILE_LEN_ERR 8
-#define CWG_FILE_DEPTH_ERR 9
+// #defines error codes
+#define CWG_IN_DIR_NO 1
+#define CWG_IS_DIR_NO 2
+#define CWG_FETCH_NO 3
+#define CWG_METADATA_NO 4
+#define CWG_SYS_ERR 5
+#define CWG_FETCH_ERR 6
+#define CWG_WRITE_ERR 7
+#define CWG_FILE_ERR 8
+#define CWG_FILE_LEN_ERR 9
+#define CWG_FILE_DEPTH_ERR 10
 
-struct cwgGetParams {
+// #defines defaults
+#define CWG_MAX_HEAP_ALLOC_MB_DEFAULT 1024
+
+struct cwGetParams {
 	char *bitdbNode;
 	char *dirPath;
 	FILE *saveDirFp;
-	void *extraData;
+	void (*foundHandler) (CW_STATUS, void *, int);
+	void *foundHandleData;
+	CW_STATUS foundSuppressErr;
 };
 
-static inline void initCwgGetParams(struct cwgGetParams *cgp, char *bitdbNode) {
+static inline void initCwGetParams(struct cwGetParams *cgp, char *bitdbNode) {
 	cgp->bitdbNode = bitdbNode;
 	cgp->dirPath = NULL;
 	cgp->saveDirFp = NULL;
-	cgp->extraData = NULL;
+	cgp->foundHandler = NULL;
+	cgp->foundHandleData = NULL;
+	cgp->foundSuppressErr = -1;
 }
 
 /*
  * returns generic error message by error code
  */
-char *errNoToMsg(int errNo);
+const char *cwgErrNoToMsg(int errNo);
 
 /*
  * gets the file at the specified txid and writes to given file descriptor
@@ -42,7 +52,7 @@ char *errNoToMsg(int errNo);
  * if foundHandler specified, will call to indicate if file is found before writing
  * returns appropriate status code
  */
-CW_STATUS getFile(const char *txid, struct cwgGetParams *params, void (*foundHandler) (CW_STATUS, void *, int), int fd);
+CW_STATUS getFile(const char *txid, struct cwGetParams *params, int fd);
 
 /*
  * reads from specified file stream to ascertain the desired txid from given directory/path

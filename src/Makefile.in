@@ -132,14 +132,14 @@ libmylist_a_OBJECTS = $(am_libmylist_a_OBJECTS)
 am_cashget_OBJECTS = cashget.$(OBJEXT) cashgettools.$(OBJEXT)
 cashget_OBJECTS = $(am_cashget_OBJECTS)
 cashget_LDADD = $(LDADD)
-cashget_DEPENDENCIES = libmylist.a libb64encode.a
+cashget_DEPENDENCIES = libmylist.a libb64encode.a libmongoc/*.a
 am_cashsend_OBJECTS = cashsend.$(OBJEXT) cashsendtools.$(OBJEXT)
 cashsend_OBJECTS = $(am_cashsend_OBJECTS)
 cashsend_DEPENDENCIES = libbitcoinrpc.a
 am_cashserver_OBJECTS = cashserver.$(OBJEXT) cashgettools.$(OBJEXT)
 cashserver_OBJECTS = $(am_cashserver_OBJECTS)
 cashserver_LDADD = $(LDADD)
-cashserver_DEPENDENCIES = libmylist.a libb64encode.a
+cashserver_DEPENDENCIES = libmylist.a libb64encode.a libmongoc/*.a
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -307,7 +307,7 @@ libbitcoinrpc_a_SOURCES = libbitcoinrpc/bitcoinrpc_err.c libbitcoinrpc/bitcoinrp
 cashget_SOURCES = cashget.c cashgettools.c cashgettools.h cashwebuni.h
 cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h cashwebuni.h
 cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h cashwebuni.h
-LDADD = libmylist.a libb64encode.a
+LDADD = libmylist.a libb64encode.a libmongoc/*.a
 cashsend_LDADD = libbitcoinrpc.a
 all: all-am
 

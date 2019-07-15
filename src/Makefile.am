@@ -20,5 +20,5 @@ cashget_SOURCES = cashget.c cashgettools.c cashgettools.h cashwebuni.h
 cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h cashwebuni.h
 cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h cashwebuni.h
 
-LDADD = libmylist.a libb64encode.a
+LDADD = libmylist.a libb64encode.a libmongoc/*.a
 cashsend_LDADD = libbitcoinrpc.a
