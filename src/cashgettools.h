@@ -19,11 +19,20 @@
 #define CWG_FILE_LEN_ERR 9
 #define CWG_FILE_DEPTH_ERR 10
 
-// #defines defaults
-#define CWG_MAX_HEAP_ALLOC_MB_DEFAULT 1024
-
+/*
+ * mongodb: MongoDB address (assumed to be populated by BitDB Node); only specify if not using the latter
+ * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
+ * bitdbRequestLimit: Specify whether or not BitDB Node has request limit
+ * dirPath: Specify path if requesting a directory
+ * saveDirFp: Optionally specify stream for writing directory contents if requesting a directory
+ * foundHandler: Function to call when file is found, before writing
+ * foundHandleData: Data pointer to pass to foundHandler()
+ * foundSuppressErr: Specify an error code to suppress if file is found; <0 for none
+ */
 struct cwGetParams {
-	char *bitdbNode;
+	const char *mongodb;
+	const char *bitdbNode;
+	bool bitdbRequestLimit;
 	char *dirPath;
 	FILE *saveDirFp;
 	void (*foundHandler) (CW_STATUS, void *, int);
@@ -31,13 +40,33 @@ struct cwGetParams {
 	CW_STATUS foundSuppressErr;
 };
 
-static inline void initCwGetParams(struct cwGetParams *cgp, char *bitdbNode) {
+/*
+ * either MongoDB or BitDB HTTP endpoint address must be specified on init
+ * if both specified, will default to MongoDB
+ */ 
+static inline void initCwGetParams(struct cwGetParams *cgp, const char *mongodb, const char *bitdbNode) {
+	if (!mongodb && !bitdbNode) {
+		fprintf(stderr, "ERROR: cashgettools params must be provided with address for MongoDB or BitDB HTTP endpoint on init; exit");
+		die(NULL);
+	} 
+	cgp->mongodb = mongodb;
 	cgp->bitdbNode = bitdbNode;
+	cgp->bitdbRequestLimit = true;
 	cgp->dirPath = NULL;
 	cgp->saveDirFp = NULL;
 	cgp->foundHandler = NULL;
 	cgp->foundHandleData = NULL;
 	cgp->foundSuppressErr = -1;
+}
+
+static inline void copyCwGetParams(struct cwGetParams *dest, struct cwGetParams *source) {
+	dest->mongodb = source->mongodb;
+	dest->bitdbNode = source->bitdbNode;
+	dest->dirPath = source->dirPath;
+	dest->saveDirFp = source->saveDirFp;
+	dest->foundHandler = source->foundHandler;
+	dest->foundHandleData = source->foundHandleData;
+	dest->foundSuppressErr = source->foundSuppressErr;
 }
 
 /*

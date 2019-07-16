@@ -18,15 +18,12 @@ int main(int argc, char **argv) {
 	char txid[TXID_CHARS+1]; txid[0] = 0;
 	if (argc-opc > 1) { strncat(txid, argv[1], TXID_CHARS); } else { fgets(txid, TXID_CHARS+1, stdin); txid[TXID_CHARS] = 0; sleep(1); }
 
-	curl_global_init(CURL_GLOBAL_DEFAULT);
-
 	struct cwGetParams params;
-	initCwGetParams(&params, bitdbNode);
+	initCwGetParams(&params, NULL, bitdbNode);
 	CW_STATUS status = CW_OK;
 	if ((status = getFile(txid, &params, STDOUT_FILENO)) != CW_OK) { 
 		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, cwgErrNoToMsg(status));
 	}
 
-	curl_global_cleanup();
 	return status;
 }

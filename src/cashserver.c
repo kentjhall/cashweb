@@ -87,7 +87,7 @@ static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int
 	initCashRequestData(&rd, clntip);
 
 	struct cwGetParams getParams;
-	initCwGetParams(&getParams, bitdbNode);
+	initCwGetParams(&getParams, NULL, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
 
@@ -128,7 +128,7 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(struct MHD_Connection *connecti
 	initCashRequestData(&rd, clntip);
 
 	struct cwGetParams getParams;
-	initCwGetParams(&getParams, bitdbNode);
+	initCwGetParams(&getParams, NULL, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
 
