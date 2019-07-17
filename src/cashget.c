@@ -22,11 +22,11 @@ int main(int argc, char **argv) {
 	strncpy(txid, argv[1], TXID_CHARS);
 	txid[TXID_CHARS] = 0;
 
-	struct cwGetParams params;
-	initCwGetParams(&params, mongodb, bitdbNode);
+	struct CWG_params params;
+	init_CWG_params(&params, mongodb, bitdbNode);
 	CW_STATUS status = CW_OK;
-	if ((status = getFile(txid, &params, STDOUT_FILENO)) != CW_OK) { 
-		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, cwgErrNoToMsg(status));
+	if ((status = CWG_get_by_txid(txid, &params, STDOUT_FILENO)) != CW_OK) { 
+		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, CWG_errno_to_msg(status));
 	}
 
 	return status;

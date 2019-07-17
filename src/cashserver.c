@@ -49,7 +49,7 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	const char *errMsg;
 	if (status == CW_OK) { errMsg = ""; }
 	else if (status == CS_REQUEST_NO) { errMsg = "Request is missing host header."; }
-	else { errMsg = cwgErrNoToMsg(status); }
+	else { errMsg = CWG_errno_to_msg(status); }
 	int bufSz = RESP_BUF + strlen(errMsg);
 
 	int reqDBufSz = REQ_DESCRIPT_BUF;
@@ -89,8 +89,8 @@ static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int
 	struct cashRequestData rd;
 	initCashRequestData(&rd, clntip);
 
-	struct cwGetParams getParams;
-	initCwGetParams(&getParams, mongodb, bitdbNode);
+	struct CWG_params getParams;
+	init_CWG_params(&getParams, mongodb, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
 
@@ -120,7 +120,7 @@ static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int
 		fprintf(stderr, "%s: fetching requested file at identifier %s\n", clntip, rd.cwId);
 	}
 
-	return getFile(rd.cwId, &getParams, sockfd);
+	return CWG_get_by_txid(rd.cwId, &getParams, sockfd);
 }
 
 static CS_CW_STATUS cashRequestHandleBySubdomain(struct MHD_Connection *connection, const char *url, const char *clntip, int sockfd) {
@@ -130,8 +130,8 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(struct MHD_Connection *connecti
 	struct cashRequestData rd;
 	initCashRequestData(&rd, clntip);
 
-	struct cwGetParams getParams;
-	initCwGetParams(&getParams, mongodb, bitdbNode);
+	struct CWG_params getParams;
+	init_CWG_params(&getParams, mongodb, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
 
@@ -165,7 +165,7 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(struct MHD_Connection *connecti
 		fprintf(stderr, "%s: fetching requested file at identifier %s\n", clntip, rd.cwId);
 	}
 
-	return getFile(rd.cwId, &getParams, sockfd);
+	return CWG_get_by_txid(rd.cwId, &getParams, sockfd);
 }
 
 static inline CS_CW_STATUS cashRequestHandle(struct MHD_Connection *connection, const char *url, const char *clntip, int sockfd) {
@@ -196,7 +196,7 @@ static int requestHandler(void *cls,
 
 	if (status == CW_OK) { fprintf(stderr, "%s: requested file fetched and served\n", clntip); }
 	else if (status == CS_REQUEST_NO) { fprintf(stderr, "%s: bad request, no host header\n", clntip); }
-	else { fprintf(stderr, "%s: request %s resulted in error code %d: %s\n", clntip, url, status, cwgErrNoToMsg(status)); }
+	else { fprintf(stderr, "%s: request %s resulted in error code %d: %s\n", clntip, url, status, CWG_errno_to_msg(status)); }
 
 	return MHD_NO;
 }

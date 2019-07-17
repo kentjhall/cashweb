@@ -80,7 +80,7 @@ static CW_STATUS netHexStrToInt(const char *hex, int numBytes, void *uintPtr) {
  * resolves file metadata from given hex data string according to protocol format,
  * and save to given struct pointer
  */
-static CW_STATUS hexResolveMetadata(const char *hexData, struct cwFileMetadata *md) {
+static CW_STATUS hexResolveMetadata(const char *hexData, struct CW_file_metadata *md) {
 	int hexDataLen = strlen(hexData);
 	if (hexDataLen < CW_METADATA_CHARS) { return CWG_METADATA_NO; }
 	const char *metadataPtr = hexData + hexDataLen - CW_METADATA_CHARS;
@@ -304,7 +304,7 @@ static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbC
 	return status;
 }
 
-static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count, struct cwGetParams *params) {
+static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count, struct CWG_params *params) {
 	if (params->mongodbCli) { return fetchHexDataMongoDB(hexDataAll, params->mongodbCli, txids, count); }
 	else if (params->bitdbNode) { return fetchHexDataBitDBNode(hexDataAll, params->bitdbNode, params->bitdbRequestLimit, txids, count); }
 	else {
@@ -314,7 +314,7 @@ static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int c
 }
 
 static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[], int suffixLen, int depth,
-			    	  struct cwGetParams *params, struct cwFileMetadata *md, int fd) {
+			    	  struct CWG_params *params, struct CW_file_metadata *md, int fd) {
 
 	char *partialTxid;
 	int partialTxidFill = partialTxids != NULL && (partialTxid = popFront(partialTxids[0])) != NULL ?
@@ -381,7 +381,7 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 		return status;
 }
 
-static CW_STATUS traverseFileChain(const char *hexDataStart, struct cwGetParams *params, struct cwFileMetadata *md, int fd) {
+static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *params, struct CW_file_metadata *md, int fd) {
 	char hexData[TX_DATA_CHARS+1];
 	strcpy(hexData, hexDataStart);
 	char *hexDataNext = malloc(TX_DATA_CHARS+1);
@@ -436,17 +436,17 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct cwGetParams 
 		return status;
 }
 
-static inline CW_STATUS traverseFile(const char *hexDataStart, struct cwGetParams *params, struct cwFileMetadata *md, int fd) {
+static inline CW_STATUS traverseFile(const char *hexDataStart, struct CWG_params *params, struct CW_file_metadata *md, int fd) {
 	return md->length > 0 || md->depth == 0 ? traverseFileChain(hexDataStart, params, md, fd)
 						: traverseFileTree(hexDataStart, NULL, CW_METADATA_CHARS, 0, params, md, fd);
 }
 
-static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int fd) {
+static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 
 	char *hexDataStart = malloc(TX_DATA_CHARS+1);
 	if (hexDataStart == NULL) { perror("malloc failed"); status = CWG_SYS_ERR; goto foundhandler; }
-	struct cwFileMetadata md;
+	struct CW_file_metadata md;
 
 	if ((status = fetchHexData(hexDataStart, (const char **)&txid, 1, params)) != CW_OK) { goto foundhandler; }
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }
@@ -460,10 +460,10 @@ static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int
 		rewind(dirFp);
 
 		char pathTxid[TXID_CHARS+1];
-		if ((status = dirPathToTxid(dirFp, params->dirPath, pathTxid)) != CW_OK) { goto foundhandler; }
+		if ((status = CWG_dir_path_to_identifier(dirFp, params->dirPath, pathTxid)) != CW_OK) { goto foundhandler; }
 
-		struct cwGetParams dirFileParams;
-		copyCwGetParams(&dirFileParams, params);
+		struct CWG_params dirFileParams;
+		copy_CWG_params(&dirFileParams, params);
 		dirFileParams.dirPath = NULL;
 		dirFileParams.saveDirFp = NULL;
 
@@ -483,7 +483,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int
 		return status;
 }
 
-static CW_STATUS initParams(struct cwGetParams *params) {
+static CW_STATUS initParams(struct CWG_params *params) {
 	if (params->mongodb) {
 		mongoc_init();
 		bson_error_t error;	
@@ -512,7 +512,7 @@ static CW_STATUS initParams(struct cwGetParams *params) {
 	return CW_OK;
 }
 
-static void cleanupParams(struct cwGetParams *params) {
+static void cleanupParams(struct CWG_params *params) {
 	if (params->mongodb && params->mongodbCli) {
 		mongoc_client_destroy(params->mongodbCli);
 		params->mongodbCli = NULL;
@@ -526,7 +526,7 @@ static void cleanupParams(struct cwGetParams *params) {
 /*
  * see non-static function descriptions in header file
  */
-CW_STATUS getFile(const char *txid, struct cwGetParams *params, int fd) {
+CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 	if ((status = initParams(params)) != CW_OK) { return status; } 
 
@@ -536,7 +536,7 @@ CW_STATUS getFile(const char *txid, struct cwGetParams *params, int fd) {
 	return status;
 }
 
-CW_STATUS dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
+CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathTxid) {
 	CW_STATUS status = CWG_IN_DIR_NO;
 
 	char pathTxidBytes[TXID_BYTES];
@@ -572,7 +572,7 @@ CW_STATUS dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
 			}
 		}
 	}
-	if (ferror(dirFp)) { perror("error reading dirFp in dirPathToTxid()"); status = CWG_SYS_ERR; }
+	if (ferror(dirFp)) { perror("error reading dirFp in CWG_dir_path_to_identifier()"); status = CWG_SYS_ERR; }
 	if (status != CW_OK) { goto cleanup; }
 
 	if (count > 0) {
@@ -586,7 +586,7 @@ CW_STATUS dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid) {
 		return status;
 }
 
-const char *cwgErrNoToMsg(int errNo) {
+const char *CWG_errno_to_msg(int errNo) {
 	switch (errNo) {
 		case CWG_IN_DIR_NO:
 			return "Requested file doesn't exist in specified directory";

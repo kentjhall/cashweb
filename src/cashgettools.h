@@ -31,7 +31,7 @@
  * foundHandleData: Data pointer to pass to foundHandler()
  * foundSuppressErr: Specify an error code to suppress if file is found; <0 for none
  */
-struct cwGetParams {
+struct CWG_params {
 	const char *mongodb;
 	mongoc_client_t *mongodbCli;
 	const char *bitdbNode;
@@ -44,10 +44,11 @@ struct cwGetParams {
 };
 
 /*
+ * initialize struct CWG_params
  * either MongoDB or BitDB HTTP endpoint address must be specified on init
  * if both specified, will default to MongoDB within cashgettools
  */ 
-static inline void initCwGetParams(struct cwGetParams *cgp, const char *mongodb, const char *bitdbNode) {
+inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode) {
 	if (!mongodb && !bitdbNode) {
 		fprintf(stderr, "ERROR: cashgettools params must be provided with address for MongoDB or BitDB HTTP endpoint on init; exit");
 		die(NULL);
@@ -63,7 +64,10 @@ static inline void initCwGetParams(struct cwGetParams *cgp, const char *mongodb,
 	cgp->foundSuppressErr = -1;
 }
 
-static inline void copyCwGetParams(struct cwGetParams *dest, struct cwGetParams *source) {
+/*
+ * copy struct CWG_params from source to dest
+ */
+inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
 	dest->mongodb = source->mongodb;
 	dest->mongodbCli = source->mongodbCli;
 	dest->bitdbNode = source->bitdbNode;
@@ -75,23 +79,21 @@ static inline void copyCwGetParams(struct cwGetParams *dest, struct cwGetParams 
 }
 
 /*
+ * gets the file at the specified txid and writes to given file descriptor
+ * queries at specified BitDB-populated MongoDB or BitDB HTTP endpoint
+ * if foundHandler specified, will call to indicate if file is found before writing
+ */
+CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
+
+/*
+ * reads from specified file stream to ascertain the desired txid from given directory/path;
+ * writes txid to specified location in memory
+ */
+CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathTxid);
+
+/*
  * returns generic error message by error code
  */
-const char *cwgErrNoToMsg(int errNo);
-
-/*
- * gets the file at the specified txid and writes to given file descriptor
- * in params: bitdbNode must be specified; specify dirPath if directory; specify saveDirFp to save directory contents
- * queries at specified BitDB node
- * if foundHandler specified, will call to indicate if file is found before writing
- * returns appropriate status code
- */
-CW_STATUS getFile(const char *txid, struct cwGetParams *params, int fd);
-
-/*
- * reads from specified file stream to ascertain the desired txid from given directory/path
- * returns appropriate status code
- */
-CW_STATUS dirPathToTxid(FILE *dirFp, const char *dirPath, char *pathTxid);
+const char *CWG_errno_to_msg(int errNo);
 
 #endif

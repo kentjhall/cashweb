@@ -22,21 +22,21 @@ typedef int CW_STATUS;
 #define CW_T_FILE 0
 #define CW_T_DIR 1
 
-struct cwFileMetadata {
+struct CW_file_metadata {
 	uint32_t length;
 	uint32_t depth;
 	uint16_t type;
 	uint16_t pVer;
 };
 
-static inline void initCwFileMetadata(struct cwFileMetadata *md, uint16_t cwFType) {
+static inline void init_CW_file_metadata(struct CW_file_metadata *md, uint16_t cwFType) {
 	md->length = 0;
 	md->depth = 0;
 	md->type = cwFType;
 	md->pVer = CW_P_VER;
 }
 
-#define CW_MD_BYTES(md) sizeof(((struct cwFileMetadata *)0)->md)
+#define CW_MD_BYTES(md) sizeof(((struct CW_file_metadata *)0)->md)
 #define CW_METADATA_BYTES (CW_MD_BYTES(length)+\
 			   CW_MD_BYTES(depth)+\
 			   CW_MD_BYTES(type)+\
@@ -56,12 +56,12 @@ static inline void initCwFileMetadata(struct cwFileMetadata *md, uint16_t cwFTyp
 #define TXID_CHARS HEX_CHARS(TXID_BYTES)
 
 /*
- * reports system error + custom message and exits
+ * reports system error + custom message and exits; for internal use
  */
 static inline void die(char *e) { perror(e); exit(1); }
 
 /*
- * reports file size of file at given descriptor
+ * reports file size of file at given descriptor; for internal use
  */
 static inline long fileSize(int fd) {
 	struct stat st;
@@ -70,7 +70,7 @@ static inline long fileSize(int fd) {
 }
 
 /*
- * struct/functions for dynamically sized heap-allocated memory, pretty self-explanatory
+ * struct/functions for dynamically sized heap-allocated memory; for internal use
  */
 struct DynamicMemory {
 	char *data;

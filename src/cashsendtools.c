@@ -393,7 +393,7 @@ static void sendTx(const char **hexDatas, int hexDatasC, char **resultTxid) {
 	} while (status != CW_OK);
 }
 
-static void hexAppendMetadata(char *hexData, struct cwFileMetadata *md) {	
+static void hexAppendMetadata(char *hexData, struct CW_file_metadata *md) {	
 	char chainLenHex[CW_MD_CHARS(length)+1]; char treeDepthHex[CW_MD_CHARS(depth)+1];
 	char fTypeHex[CW_MD_CHARS(type)+1]; char pVerHex[CW_MD_CHARS(pVer)+1];
 
@@ -432,8 +432,8 @@ static char *fileSendAsTxTree(FILE *fp, int cwFType, FILE *tempfp, int depth, in
 		if (feof(fp) && *numTxs < 1) {
 			rootCheck = true;
 			if (n+metadataLen <= dataLen) {
-				struct cwFileMetadata md;
-				initCwFileMetadata(&md, cwFType);
+				struct CW_file_metadata md;
+				init_CW_file_metadata(&md, cwFType);
 				md.depth = depth;
 				hexAppendMetadata(hexChunk, &md);
 			} else { ++*numTxs; }
@@ -458,8 +458,8 @@ static char *fileSendAsTxChain(FILE *fp, int cwFType, long size, int treeDepth) 
 	int toRead = size <= sizeof(buf) ? size : sizeof(buf);
 	int read;
 	bool begin = true; bool end = size+metadataLen <= sizeof(buf);
-	struct cwFileMetadata md;
-	initCwFileMetadata(&md, cwFType);
+	struct CW_file_metadata md;
+	init_CW_file_metadata(&md, cwFType);
 	md.depth = treeDepth;
 	int loc = 0;
 	if (fseek(fp, -toRead, SEEK_END) != 0) { die("fseek() SEEK_END failed"); }
