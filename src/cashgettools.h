@@ -2,7 +2,7 @@
 #define __CASHGETTOOLS_H__
 
 #include <curl/curl.h>
-#include <libmongoc/mongoc/mongoc.h>
+#include <mongoc/mongoc.h>
 #include <b64/b64.h>
 #include <mylist/mylist.h>
 #include "cashwebuni.h"

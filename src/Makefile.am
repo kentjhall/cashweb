@@ -1,6 +1,6 @@
 CC = gcc
 AM_CFLAGS = -g -Wall
-AM_LDFLAGS = -g 
+AM_LDFLAGS = -g
 
 noinst_LIBRARIES = libmylist.a libb64encode.a libbitcoinrpc.a
 
@@ -20,5 +20,5 @@ cashget_SOURCES = cashget.c cashgettools.c cashgettools.h cashwebuni.h
 cashserver_SOURCES = cashserver.c cashgettools.c cashgettools.h cashwebuni.h
 cashsend_SOURCES = cashsend.c cashsendtools.c cashsendtools.h cashwebuni.h
 
-LDADD = libmylist.a libb64encode.a  libmongoc/libmongoc-static-1.0.a libmongoc/libbson-static-1.0.a -lz -lpthread -lresolv -lrt
+LDADD = libmylist.a libb64encode.a 
 cashsend_LDADD = libbitcoinrpc.a

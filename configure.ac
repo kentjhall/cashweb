@@ -22,6 +22,19 @@ AC_PROG_CC
 AC_PROG_RANLIB
 
 # Checks for libraries/corresponding header files.
+
+CFLAGS="$(pkg-config --cflags libmongoc-1.0) ${CFLAGS}"
+LDFLAGS="$(pkg-config --libs libmongoc-1.0) ${LDFLAGS}"
+
+AC_SEARCH_LIBS([mongoc_init], [mongoc-1.0], [], [
+  AC_MSG_ERROR([unable to find mongoc; please install this library with your package manager, and try again])
+])
+AC_SEARCH_LIBS([bson_destroy], [bson-1.0], [], [
+  AC_MSG_ERROR([unable to find bson; please install this library with your package manager (should come included with mongoc), and try again])
+])
+AC_CHECK_HEADER([mongoc/mongoc.h], [], [
+  AC_MSG_ERROR([unable to find header mongoc/mongoc.h, please verify mongoc library installation and try again])
+])
 AC_SEARCH_LIBS([curl_easy_init], [curl], [], [
   AC_MSG_ERROR([unable to find curl; please install this library with your package manager, and try again])
 ])
@@ -34,6 +47,7 @@ AC_SEARCH_LIBS([json_object], [jansson], [], [
 AC_CHECK_HEADER([jansson.h], [], [
   AC_MSG_ERROR([unable to find header jansson.h; please verify jansson library installation and try again])
 ])
+
 AS_IF([test "x$with_cashserver" != xno],
 	[
 	AC_SEARCH_LIBS([MHD_start_daemon], [microhttpd], [], [
@@ -46,6 +60,7 @@ AS_IF([test "x$with_cashserver" != xno],
 	], [
 	AM_CONDITIONAL(WITH_CASHSERVER, false)
 	])
+
 AS_IF([test "x$with_cashsend" != xno],
 	[	
 	AC_SEARCH_LIBS([uuid_generate_random], [uuid], [], [
