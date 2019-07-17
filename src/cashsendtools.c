@@ -37,7 +37,7 @@ static struct bitcoinrpc_method *rpcMethods[RPC_METHODS_COUNT] = { NULL };
 static void intToNetHexStr(void *uintPtr, int numBytes, char *hex) {
 	unsigned char bytes[numBytes];
 	
-	uint16_t uint16; uint32_t uint32;
+	uint16_t uint16 = 0; uint32_t uint32 = 0;
 	bool isShort = false;
 	switch (numBytes) {
 		case sizeof(uint16_t):
@@ -48,7 +48,7 @@ static void intToNetHexStr(void *uintPtr, int numBytes, char *hex) {
 			uint32 = htonl(*(uint32_t *)uintPtr);
 			break;
 		default:
-			fprintf(stderr, "invalid numBytes specified for nIntToHexStr, int must be 2, 4, or 8 bytes; problem with cashsendtools\n");
+			fprintf(stderr, "invalid numBytes specified for nIntToHexStr, int must be 2 or 4 bytes; problem with cashsendtools\n");
 			exit(1);
 	}
 

@@ -7,7 +7,7 @@
 #define BITDB_API_VER 3
 #define BITDB_QUERY_LEN (71+strlen(BITDB_QUERY_DATA_TAG)+strlen(BITDB_QUERY_TXID_TAG))
 #define BITDB_TXID_QUERY_LEN (12+TXID_CHARS)
-#define BITDB_HEADER_BUF_SZ 35
+#define BITDB_HEADER_BUF_SZ 40
 #define BITDB_QUERY_DATA_TAG "data"
 #define BITDB_RESPONSE_DATA_TAG "\""BITDB_QUERY_DATA_TAG"\":\""
 #define BITDB_QUERY_TXID_TAG "txid"
@@ -51,19 +51,17 @@ static CW_STATUS writeHexDataStr(const char *hexDataStr, int suffixLen, int fd) 
  */
 static CW_STATUS netHexStrToInt(const char *hex, int numBytes, void *uintPtr) {
 	if (numBytes != strlen(hex)/2) { return CWG_FILE_ERR; }
-	uint16_t uint16; uint32_t uint32;
+	uint16_t uint16 = 0; uint32_t uint32 = 0;
 	bool isShort = false;
 	switch (numBytes) {
 		case sizeof(uint16_t):
 			isShort = true;
-			uint16 = 0;
 			break;
 		case sizeof(uint32_t):
-			uint32 = 0;
 			break;
 		default:
 			fprintf(stderr, "unsupported number of bytes read for network integer value; probably problem with cashgettools\n");
-			return CWG_FILE_ERR;
+			return CWG_SYS_ERR;
 	}
 
 	char byteData[numBytes];
@@ -444,11 +442,12 @@ static inline CW_STATUS traverseFile(const char *hexDataStart, struct cwGetParam
 }
 
 static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int fd) {
+	CW_STATUS status;
+
 	char *hexDataStart = malloc(TX_DATA_CHARS+1);
-	if (hexDataStart == NULL) { perror("malloc failed"); goto foundhandler; }
+	if (hexDataStart == NULL) { perror("malloc failed"); status = CWG_SYS_ERR; goto foundhandler; }
 	struct cwFileMetadata md;
 
-	CW_STATUS status;
 	if ((status = fetchHexData(hexDataStart, (const char **)&txid, 1, params)) != CW_OK) { goto foundhandler; }
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }
 	protocolCheck(md.pVer);
