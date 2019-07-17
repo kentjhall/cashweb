@@ -1,7 +1,9 @@
 #include "cashgettools.h"
 #include <microhttpd.h>
 
+#define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
+#define CS_PORT_DEFAULT 80
 
 typedef int CS_CW_STATUS;
 #define CS_REQUEST_NO -1
@@ -10,7 +12,8 @@ typedef int CS_CW_STATUS;
 #define REQ_DESCRIPT_BUF 25
 #define TRAILING_BACKSLASH_APPEND "index.html"
 
-static uint16_t port = 80;
+static uint16_t port = CS_PORT_DEFAULT;
+static char *mongodb = NULL;
 static char *bitdbNode = BITDB_DEFAULT;
 static bool dirBySubdomain = false;
 
@@ -87,7 +90,7 @@ static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int
 	initCashRequestData(&rd, clntip);
 
 	struct cwGetParams getParams;
-	initCwGetParams(&getParams, NULL, bitdbNode);
+	initCwGetParams(&getParams, mongodb, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
 
@@ -109,7 +112,7 @@ static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int
 		}
 	} else if (urlLen > 1) { rd.cwId = url+1; }
 	
-	if (rd.cwId == NULL) { cashFoundHandler(CWG_FETCH_NO, NULL, sockfd); return CWG_FETCH_NO; }
+	if (!rd.cwId) { cashFoundHandler(CWG_FETCH_NO, NULL, sockfd); return CWG_FETCH_NO; }
 
 	if (rd.path) {
 		fprintf(stderr, "%s: fetching requested file at identifier %s, path %s\n", clntip, rd.cwId, rd.path);
@@ -128,7 +131,7 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(struct MHD_Connection *connecti
 	initCashRequestData(&rd, clntip);
 
 	struct cwGetParams getParams;
-	initCwGetParams(&getParams, NULL, bitdbNode);
+	initCwGetParams(&getParams, mongodb, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
 
@@ -198,7 +201,14 @@ static int requestHandler(void *cls,
 	return MHD_NO;
 }
 
-int main() {
+int main(int argc, char **argv) {
+	for (int i=1; i<argc; i++) {
+		if (strncmp("--port=", argv[i], 7) == 0) { port = atoi(argv[i]+7); }
+		if (strncmp("--mongodb=", argv[i], 10) == 0) { mongodb = argv[i]+10; }
+		if (strncmp("--mongodb-local", argv[i], 15) == 0) { mongodb = MONGODB_LOCAL_ADDR; }
+		if (strncmp("--bitdb=", argv[i], 8) == 0) { bitdbNode = argv[i]+8; }
+	}
+
 	struct MHD_Daemon *d;
 	if ((d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
 				  port,
@@ -207,6 +217,7 @@ int main() {
 				  &requestHandler,
 				  NULL,
 				  MHD_OPTION_END)) == NULL) { die("MHD_start_daemon() failed"); }
+	fprintf(stderr, "Starting cashserver on port %u... (source is %s at %s)\n", port, mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : bitdbNode);
 	(void) getc (stdin);
 	MHD_stop_daemon(d);
 	return 0;

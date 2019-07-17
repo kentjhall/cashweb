@@ -1,20 +1,19 @@
 #include "cashgettools.h"
 
-#define QUERY_LEN (71+strlen(QUERY_DATA_TAG)+strlen(QUERY_TXID_TAG))
-#define TXID_QUERY_LEN (12+TXID_CHARS)
-#define HEADER_BUF_SZ 35
-#define QUERY_DATA_TAG "data"
-#define RESPONSE_DATA_TAG "\""QUERY_DATA_TAG"\":\""
-#define QUERY_TXID_TAG "txid"
-#define RESPONSE_TXID_TAG "\""QUERY_TXID_TAG"\":\""
+// MongoDB #defines
+#define MONGODB_STR_HEX_PREFIX "OP_RETURN "
+
+// BitDB HTTP #defines
+#define BITDB_API_VER 3
+#define BITDB_QUERY_LEN (71+strlen(BITDB_QUERY_DATA_TAG)+strlen(BITDB_QUERY_TXID_TAG))
+#define BITDB_TXID_QUERY_LEN (12+TXID_CHARS)
+#define BITDB_HEADER_BUF_SZ 35
+#define BITDB_QUERY_DATA_TAG "data"
+#define BITDB_RESPONSE_DATA_TAG "\""BITDB_QUERY_DATA_TAG"\":\""
+#define BITDB_QUERY_TXID_TAG "txid"
+#define BITDB_RESPONSE_TXID_TAG "\""BITDB_QUERY_TXID_TAG"\":\""
 
 #define DIR_LINE_BUF 500
-
-#define BITDB_API_VER 3
-
-static mongoc_client_t *mongodbCli = NULL;
-static const char *bitdbNode = NULL;
-static bool bitdbRequestLimit = true;
 
 /* 
  * currently, simply reports a warning if given protocol version is newer than one in use
@@ -113,47 +112,14 @@ static CW_STATUS hexResolveMetadata(const char *hexData, struct cwFileMetadata *
 /*
  * writes curl response to specified file stream
  */
-static size_t copyResponseToMemory(void *data, size_t size, size_t nmemb, FILE *respFp) {
+static size_t writeResponseToFile(void *data, size_t size, size_t nmemb, FILE *respFp) {
 	return fwrite(data, size, nmemb, respFp)*size;
-}
-
-/*
- * parses given json array for hex datas and puts in appropriate memory location based on matching txid
- * only exists as separate function because it is used multiple times within fetchHexData()
- */
-static CW_STATUS parseJsonArrayForHexDatas(json_t *jsonArr, int count, const char **txids, const char *hexDataPtrs[]) {
-	size_t index;
-	json_t *dataJson;
-	const char *dataTxid;
-	const char *dataHex;
-	bool added[count]; memset(added, 0, count);
-	bool matched;
-	json_array_foreach(jsonArr, index, dataJson) {
-		if ((dataTxid = json_string_value(json_object_get(dataJson, QUERY_TXID_TAG))) == NULL ||
-		    (dataHex = json_string_value(json_object_get(dataJson, QUERY_DATA_TAG))) == NULL) {
-			fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", json_dumps(jsonArr, 0));
-			return CWG_FETCH_ERR;
-		}
-		matched = false;
-		for (int i=0; i<count; i++) {
-			if (!added[i] && strcmp(txids[i], dataTxid) == 0) {
-				hexDataPtrs[i] = dataHex;	
-				added[i] = true;
-				matched = true;
-				break;
-			}
-		}
-		if (!matched) { return CWG_FETCH_NO; }
-	}
-	return CW_OK;
 }
 
 /*
  * fetches hex data (from BitDB HTTP endpoint) at specified txids and copies (in order of txids) to specified location in memory 
  */
-static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char **txids, int count) {
-	if (bitdbNode == NULL) { fprintf(stderr, "BitDB Node address not set; problem with cashgettools implementation\n");
-				 return CWG_SYS_ERR; }
+static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, bool bitdbRequestLimit, const char **txids, int count) {
 	if (count < 1) { return CWG_FETCH_NO; }
 
 	CURL *curl;
@@ -161,15 +127,15 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char **txids, int
 	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() failed\n"); return CWG_FETCH_ERR; }
 
 	// construct query
-	char txidQuery[(TXID_QUERY_LEN*count)+1];
+	char txidQuery[(BITDB_TXID_QUERY_LEN*count)+1];
 	for (int i=0; i<count; i++) {
-		snprintf(txidQuery + (i*TXID_QUERY_LEN), TXID_QUERY_LEN+1, "{\"tx.h\":\"%s\"},", txids[i]);
+		snprintf(txidQuery + (i*BITDB_TXID_QUERY_LEN), BITDB_TXID_QUERY_LEN+1, "{\"tx.h\":\"%s\"},", txids[i]);
 	}
 	txidQuery[strlen(txidQuery)-1] = 0;
-	char query[QUERY_LEN + strlen(txidQuery) + 1];
+	char query[BITDB_QUERY_LEN + strlen(txidQuery) + 1];
 	snprintf(query, sizeof(query), 
 	"{\"v\":%d,\"q\":{\"find\":{\"$or\":[%s]}},\"r\":{\"f\":\"[.[]|{%s:.out[0].h1,%s:.tx.h}]\"}}",
-		BITDB_API_VER, txidQuery, QUERY_DATA_TAG, QUERY_TXID_TAG);
+		BITDB_API_VER, txidQuery, BITDB_QUERY_DATA_TAG, BITDB_QUERY_TXID_TAG);
 	char *queryB64;
 	if ((queryB64 = b64_encode((const unsigned char *)query, strlen(query))) == NULL) { perror("b64 encode failed");
 											    curl_easy_cleanup(curl); return CWG_SYS_ERR; }
@@ -181,22 +147,23 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char **txids, int
 	strcat(url, queryB64);
 	free(queryB64);	
 
-	// initializing variable-length array for hex data pointers before goto statements
+	// initializing variable-length arrays before goto statements
 	const char *hexDataPtrs[count];
+	bool added[count];
 
 	// send curl request
 	FILE *respFp = tmpfile();
 	if (respFp == NULL) { perror("tmpfile() failed"); curl_easy_cleanup(curl); return CWG_SYS_ERR; }
 	struct curl_slist *headers = NULL;
 	if (bitdbRequestLimit) { // this bit is to trick a server's request limit, although won't necessarily work with every server
-		char buf[HEADER_BUF_SZ];
+		char buf[BITDB_HEADER_BUF_SZ];
 		snprintf(buf, sizeof(buf), "X-Forwarded-For: %d.%d.%d.%d",
 			rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1);
 		headers = curl_slist_append(headers, buf);
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 	}
 	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &copyResponseToMemory);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeResponseToFile);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, respFp);
 	res = curl_easy_perform(curl);
 	if (headers) { curl_slist_free_all(headers); }
@@ -215,14 +182,13 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char **txids, int
 	json_t *respJson = json_loadf(respFp, 0, &jsonError);
 	if (respJson == NULL) {
 		long respSz = fileSize(fileno(respFp));
-		char respMsg[respSz];
+		char respMsg[respSz+1];
 		respMsg[fread(respMsg, 1, respSz, respFp)] = 0;
 		if ((strlen(respMsg) < 1 && count > 1) || (strstr(respMsg, "URI") && strstr(respMsg, "414"))) { // catch for Request-URI Too Large or empty response body
 			int firstCount = count/2;
-			CW_STATUS status1; CW_STATUS status2;
-			if ((status1 = fetchHexDataBitDBNode(hexDataAll, txids, firstCount)) == 
-			    (status2 = fetchHexDataBitDBNode(hexDataAll+strlen(hexDataAll), txids+firstCount, count-firstCount))) { status = status1; }
-			else { status = status1 > status2 ? status1 : status2; }
+			CW_STATUS status1 = fetchHexDataBitDBNode(hexDataAll, bitdbNode, bitdbRequestLimit, txids, firstCount);
+			CW_STATUS status2 = fetchHexDataBitDBNode(hexDataAll+strlen(hexDataAll), bitdbNode, bitdbRequestLimit, txids+firstCount, count-firstCount);
+			status = status1 > status2 ? status1 : status2;
 			goto cleanup;
 		}
 		else if (strstr(respMsg, "html")) {
@@ -232,21 +198,45 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char **txids, int
 		}
 		else {
 			fprintf(stderr, "jansson error in parsing response from BitDB node: %s\nResponse:\n%s\n", jsonError.text, respMsg);
-			status = CWG_FETCH_ERR;
+			status = CWG_SYS_ERR;
 			goto cleanup;
 		}
 	}
 
 	// parse for hex datas at matching txids within both unconfirmed and confirmed transaction json arrays
-	json_t *uRespArr = json_object_get(respJson, "u");
-	json_t *cRespArr = json_object_get(respJson, "c");
-	if (!uRespArr || !cRespArr) {
-		fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", json_dumps(respJson, 0));
-		status = CWG_FETCH_ERR;
-		goto cleanup;
+	json_t *jsonArrs[2] = { json_object_get(respJson, "c"), json_object_get(respJson, "u") };
+	size_t index;
+	json_t *dataJson;
+	const char *dataTxid;
+	const char *dataHex;
+	bool matched;
+	memset(added, 0, count);
+	for (int i=0; i<count; i++) {
+		matched = false;
+		for (int a=0; a<sizeof(jsonArrs)/sizeof(jsonArrs[0]); a++) {
+			if (!jsonArrs[a]) {
+				fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", json_dumps(respJson, 0));
+				status = CWG_FETCH_ERR;
+				goto cleanup;
+			}
+			
+			json_array_foreach(jsonArrs[a], index, dataJson) {
+				if ((dataTxid = json_string_value(json_object_get(dataJson, BITDB_QUERY_TXID_TAG))) == NULL ||
+				    (dataHex = json_string_value(json_object_get(dataJson, BITDB_QUERY_DATA_TAG))) == NULL) {
+					fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", json_dumps(jsonArrs[a], 0));
+					status = CWG_FETCH_ERR; goto cleanup;
+				}
+				if (!added[i] && strcmp(txids[i], dataTxid) == 0) {
+					hexDataPtrs[i] = dataHex;	
+					added[i] = true;
+					matched = true;
+					break;
+				}
+			}
+			if (matched) { break; } 
+		}
+		if (!matched) { status = CWG_FETCH_NO; goto cleanup; }
 	}
-	if ((status = parseJsonArrayForHexDatas(uRespArr, count, txids, hexDataPtrs)) != CW_OK ||
-	    (status = parseJsonArrayForHexDatas(cRespArr, count, txids, hexDataPtrs)) != CW_OK) { goto cleanup; }
 	
 	hexDataAll[0] = 0;
 	for (int i=0; i<count; i++) { strncat(hexDataAll, hexDataPtrs[i], TX_DATA_CHARS); }
@@ -260,24 +250,73 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char **txids, int
 /*
  * fetches hex data (from MongoDB populated by BitDB) at specified txids and copies (in order of txids) to specified location in memory 
  */
-static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, const char **txids, int count) {
-	if (mongodbCli == NULL) { fprintf(stderr, "MongoDB address not set; problem with cashgettools implementation\n");
-				 return CWG_SYS_ERR; }
-
+static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbCli, const char **txids, int count) {
+	if (count < 1) { return CWG_FETCH_NO; }
+	CW_STATUS status = CW_OK;
 	
+	hexDataAll[0] = 0;
+	mongoc_collection_t *colls[2] = { mongoc_client_get_collection(mongodbCli, "bitdb", "confirmed"), 
+					  mongoc_client_get_collection(mongodbCli, "bitdb", "unconfirmed") };
+	bson_t *query;
+	bson_t *opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
+	mongoc_cursor_t *cursor;
+	bson_error_t error;
+	const bson_t *res;
+	char *resStr;
+	json_t *resJson;
+	json_error_t jsonError;
+	const char *hexData;
+	int hexPrefixLen = strlen(MONGODB_STR_HEX_PREFIX);
+	bool matched;
+	for (int i=0; i<count; i++) { 
+		matched = false;
+		query = BCON_NEW("tx.h", txids[i]);
+		for (int c=0; c<sizeof(colls)/sizeof(colls[0]); c++) {
+			cursor = mongoc_collection_find_with_opts(colls[c], query, opts, NULL);
+			if (!mongoc_cursor_next(cursor, &res)) {
+				if (mongoc_cursor_error(cursor, &error)) {
+					fprintf(stderr, "ERROR: MongoDB query failed\nMessage: %s\n", error.message);
+					status = CWG_FETCH_ERR;
+				} 
+				mongoc_cursor_destroy(cursor);
+				if (status != CW_OK) { break; } else { continue; } 
+			}
+			resStr = bson_as_canonical_extended_json(res, NULL);
+			resJson = json_loads(resStr, JSON_ALLOW_NUL, &jsonError);
+			bson_free(resStr);
+			mongoc_cursor_destroy(cursor);
+			if (resJson == NULL) {
+				fprintf(stderr, "jansson error in parsing result from MongoDB query: %s\nResponse:\n%s\n", jsonError.text, resStr);
+				status = CWG_SYS_ERR;
+				break;
+			}
+			// gets json array at key 'out' -> json object at array index 0 -> json object at key 'str' (.out[0].str)
+			hexData = json_string_value(json_object_get(json_array_get(json_object_get(resJson, "out"), 0), "str"));
+			if (strncmp(hexData, MONGODB_STR_HEX_PREFIX, hexPrefixLen) == 0) {
+				strncat(hexDataAll, hexData+hexPrefixLen, TX_DATA_CHARS);
+				matched = true;
+			} else { status = CWG_FILE_ERR; }
+			break;
+		}
+		bson_destroy(query);
+		if (!matched) { status = status == CW_OK ? CWG_FETCH_NO : status; break; }
+	}
+	bson_destroy(opts);
+
+	return status;
 }
 
-static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count) {
-	if (mongodbCli) { return fetchHexDataMongoDB(hexDataAll, txids, count); }
-	else if (bitdbNode) { return fetchHexDataBitDBNode(hexDataAll, txids, count); }
+static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count, struct cwGetParams *params) {
+	if (params->mongodbCli) { return fetchHexDataMongoDB(hexDataAll, params->mongodbCli, txids, count); }
+	else if (params->bitdbNode) { return fetchHexDataBitDBNode(hexDataAll, params->bitdbNode, params->bitdbRequestLimit, txids, count); }
 	else {
-		fprintf(stderr, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set for cashgettools\n");
+		fprintf(stderr, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set in cashgettools implementation\n");
 		return CWG_SYS_ERR;
 	}
 }
 
 static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[], int suffixLen, int depth,
-			    struct cwFileMetadata *md, int fd) {
+			    	  struct cwGetParams *params, struct cwFileMetadata *md, int fd) {
 
 	char *partialTxid;
 	int partialTxidFill = partialTxids != NULL && (partialTxid = popFront(partialTxids[0])) != NULL ?
@@ -316,7 +355,7 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 
 	char *hexDataAll = malloc(TX_DATA_CHARS*txidsCount + 1);
 	if (hexDataAll == NULL) { perror("malloc failed"); status =  CWG_SYS_ERR; goto cleanup; }
-	if ((status = fetchHexData(hexDataAll, (const char **)txids, txidsCount)) == CW_OK) { 
+	if ((status = fetchHexData(hexDataAll, (const char **)txids, txidsCount, params)) == CW_OK) { 
 		if (partialTxids != NULL) {
 			char *partialTxidN = malloc(TXID_CHARS+1);
 			if (partialTxidN == NULL) { perror("malloc failed"); status = CWG_SYS_ERR; goto cleanup; }
@@ -325,7 +364,7 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 		}
 
 		if (depth+1 < md->depth) {
-			status = traverseFileTree(hexDataAll, partialTxids, 0, depth+1, md, fd);
+			status = traverseFileTree(hexDataAll, partialTxids, 0, depth+1, params, md, fd);
 		} else {
 			if ((status = writeHexDataStr(hexDataAll, 0, fd)) != CW_OK) { goto cleanup; }
 			free(hexDataAll);
@@ -344,7 +383,7 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 		return status;
 }
 
-static CW_STATUS traverseFileChain(const char *hexDataStart, struct cwFileMetadata *md, int fd) {
+static CW_STATUS traverseFileChain(const char *hexDataStart, struct cwGetParams *params, struct cwFileMetadata *md, int fd) {
 	char hexData[TX_DATA_CHARS+1];
 	strcpy(hexData, hexDataStart);
 	char *hexDataNext = malloc(TX_DATA_CHARS+1);
@@ -376,7 +415,7 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct cwFileMetada
 		if (!end) {
 			strncpy(txidNext, hexData+(strlen(hexData) - suffixLen), TXID_CHARS);
 			txidNext[TXID_CHARS] = 0;
-			if ((status = fetchHexData(hexDataNext, (const char **)&txidNext, 1)) == CWG_FETCH_NO) {
+			if ((status = fetchHexData(hexDataNext, (const char **)&txidNext, 1, params)) == CWG_FETCH_NO) {
 				status = CWG_FILE_LEN_ERR;	
 				goto cleanup;
 			} else if (status != CW_OK) { goto cleanup; }
@@ -385,7 +424,7 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct cwFileMetada
 		if (!md->depth) {
 			if ((status = writeHexDataStr(hexData, suffixLen, fd)) != CW_OK) { goto cleanup; }
 		} else {
-			if ((status = traverseFileTree(hexData, partialTxids, suffixLen, 0, md, fd)) != CW_OK) {
+			if ((status = traverseFileTree(hexData, partialTxids, suffixLen, 0, params, md, fd)) != CW_OK) {
 				goto cleanup;
 			}
 		} 
@@ -399,9 +438,9 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct cwFileMetada
 		return status;
 }
 
-static inline CW_STATUS traverseFile(const char *hexDataStart, struct cwFileMetadata *md, int fd) {
-	return md->length > 0 || md->depth == 0 ? traverseFileChain(hexDataStart, md, fd)
-						: traverseFileTree(hexDataStart, NULL, CW_METADATA_CHARS, 0, md, fd);
+static inline CW_STATUS traverseFile(const char *hexDataStart, struct cwGetParams *params, struct cwFileMetadata *md, int fd) {
+	return md->length > 0 || md->depth == 0 ? traverseFileChain(hexDataStart, params, md, fd)
+						: traverseFileTree(hexDataStart, NULL, CW_METADATA_CHARS, 0, params, md, fd);
 }
 
 static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int fd) {
@@ -410,7 +449,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int
 	struct cwFileMetadata md;
 
 	CW_STATUS status;
-	if ((status = fetchHexData(hexDataStart, (const char **)&txid, 1)) != CW_OK) { goto foundhandler; }
+	if ((status = fetchHexData(hexDataStart, (const char **)&txid, 1, params)) != CW_OK) { goto foundhandler; }
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }
 	protocolCheck(md.pVer);
 	if (params->dirPath && md.type == CW_T_DIR) {
@@ -418,7 +457,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int
 		if ((dirFp = params->saveDirFp) == NULL &&
 		    (dirFp = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CWG_SYS_ERR; goto foundhandler; }
 
-		if ((status = traverseFile(hexDataStart, &md, fileno(dirFp))) != CW_OK) { goto foundhandler; }		
+		if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) { goto foundhandler; }		
 		rewind(dirFp);
 
 		char pathTxid[TXID_CHARS+1];
@@ -438,14 +477,14 @@ static CW_STATUS getFileByTxid(const char *txid, struct cwGetParams *params, int
 	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); }
 	if (status != CW_OK) { goto cleanup; }
 
-	status = traverseFile(hexDataStart, &md, fd);
+	status = traverseFile(hexDataStart, params, &md, fd);
 	
 	cleanup:
 		free(hexDataStart);
 		return status;
 }
 
-static CW_STATUS initGlobals(struct cwGetParams *params) {
+static CW_STATUS initParams(struct cwGetParams *params) {
 	if (params->mongodb) {
 		mongoc_init();
 		bson_error_t error;	
@@ -454,31 +493,33 @@ static CW_STATUS initGlobals(struct cwGetParams *params) {
 			fprintf(stderr, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
 			return CWG_SYS_ERR;
 		}
-		mongodbCli = mongoc_client_new_from_uri(uri);
+		params->mongodbCli = mongoc_client_new_from_uri(uri);
 		mongoc_uri_destroy(uri);	
-		if (!mongodbCli) {
+		if (!params->mongodbCli) {
 			fprintf(stderr, "ERROR: cashgettools failed to establish client with MongoDB\n");
 			return CWG_FETCH_ERR;
 		}
-		mongoc_client_set_appname(mongodbCli, "cashgettools");
+		mongoc_client_set_appname(params->mongodbCli, "cashgettools");
 	} 
 	else if (params->bitdbNode) {
 		curl_global_init(CURL_GLOBAL_DEFAULT);
-		bitdbNode = params->bitdbNode;
-		bitdbRequestLimit = params->bitdbRequestLimit;
+		if (params->bitdbRequestLimit) { srandom(time(NULL)); }
 	}	
-	else { fprintf(stderr, "ERROR: cashgettools requires either MongoDB or BitDB Node address to be specified\n"); return CWG_SYS_ERR; }
-	if (bitdbNode && bitdbRequestLimit) { srandom(time(NULL)); }
+	else if (!params->mongodbCli)  {
+		fprintf(stderr, "ERROR: cashgettools requires either MongoDB or BitDB Node address to be specified\n");
+		return CWG_SYS_ERR;
+	}
 
 	return CW_OK;
 }
 
-static void cleanupGlobals() {
-	if (mongodbCli) {
-		mongoc_client_destroy(mongodbCli);
+static void cleanupParams(struct cwGetParams *params) {
+	if (params->mongodb && params->mongodbCli) {
+		mongoc_client_destroy(params->mongodbCli);
+		params->mongodbCli = NULL;
 		mongoc_cleanup();
 	} 
-	if (bitdbNode) {
+	else if (params->bitdbNode) {
 		curl_global_cleanup();
 	}
 }
@@ -488,11 +529,11 @@ static void cleanupGlobals() {
  */
 CW_STATUS getFile(const char *txid, struct cwGetParams *params, int fd) {
 	CW_STATUS status;
-	if ((status = initGlobals(params)) != CW_OK) { return status; } 
+	if ((status = initParams(params)) != CW_OK) { return status; } 
 
 	status = getFileByTxid(txid, params, fd);
 	
-	cleanupGlobals();
+	cleanupParams(params);
 	return status;
 }
 

@@ -21,6 +21,8 @@
 
 /*
  * mongodb: MongoDB address (assumed to be populated by BitDB Node); only specify if not using the latter
+ * mongodbCli: Optionally initialize/set mongoc client yourself (do NOT set mongodb if this is the case), but this probably isn't necessary;
+ * 	       is included for internal management by cashgettools
  * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
  * bitdbRequestLimit: Specify whether or not BitDB Node has request limit
  * dirPath: Specify path if requesting a directory
@@ -31,6 +33,7 @@
  */
 struct cwGetParams {
 	const char *mongodb;
+	mongoc_client_t *mongodbCli;
 	const char *bitdbNode;
 	bool bitdbRequestLimit;
 	char *dirPath;
@@ -42,7 +45,7 @@ struct cwGetParams {
 
 /*
  * either MongoDB or BitDB HTTP endpoint address must be specified on init
- * if both specified, will default to MongoDB
+ * if both specified, will default to MongoDB within cashgettools
  */ 
 static inline void initCwGetParams(struct cwGetParams *cgp, const char *mongodb, const char *bitdbNode) {
 	if (!mongodb && !bitdbNode) {
@@ -50,6 +53,7 @@ static inline void initCwGetParams(struct cwGetParams *cgp, const char *mongodb,
 		die(NULL);
 	} 
 	cgp->mongodb = mongodb;
+	cgp->mongodbCli = NULL;
 	cgp->bitdbNode = bitdbNode;
 	cgp->bitdbRequestLimit = true;
 	cgp->dirPath = NULL;
@@ -61,6 +65,7 @@ static inline void initCwGetParams(struct cwGetParams *cgp, const char *mongodb,
 
 static inline void copyCwGetParams(struct cwGetParams *dest, struct cwGetParams *source) {
 	dest->mongodb = source->mongodb;
+	dest->mongodbCli = source->mongodbCli;
 	dest->bitdbNode = source->bitdbNode;
 	dest->dirPath = source->dirPath;
 	dest->saveDirFp = source->saveDirFp;
