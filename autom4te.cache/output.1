@@ -4033,9 +4033,13 @@ fi
 
 # Checks for libraries/corresponding header files.
 
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing curl_easy_init" >&5
-$as_echo_n "checking for library containing curl_easy_init... " >&6; }
-if ${ac_cv_search_curl_easy_init+:} false; then :
+CFLAGS="$(pkg-config --cflags libmongoc-1.0) ${CFLAGS}"
+LDFLAGS="$(pkg-config --libs libmongoc-1.0) ${LDFLAGS}"
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing mongoc_init" >&5
+$as_echo_n "checking for library containing mongoc_init... " >&6; }
+if ${ac_cv_search_mongoc_init+:} false; then :
   $as_echo_n "(cached) " >&6
 else
   ac_func_search_save_LIBS=$LIBS
@@ -4048,16 +4052,16 @@ cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 #ifdef __cplusplus
 extern "C"
 #endif
-char curl_easy_init ();
+char mongoc_init ();
 int
 main ()
 {
-return curl_easy_init ();
+return mongoc_init ();
   ;
   return 0;
 }
 _ACEOF
-for ac_lib in '' curl; do
+for ac_lib in '' mongoc-1.0; do
   if test -z "$ac_lib"; then
     ac_res="none required"
   else
@@ -4065,31 +4069,91 @@ for ac_lib in '' curl; do
     LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
   fi
   if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_curl_easy_init=$ac_res
+  ac_cv_search_mongoc_init=$ac_res
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext
-  if ${ac_cv_search_curl_easy_init+:} false; then :
+  if ${ac_cv_search_mongoc_init+:} false; then :
   break
 fi
 done
-if ${ac_cv_search_curl_easy_init+:} false; then :
+if ${ac_cv_search_mongoc_init+:} false; then :
   
 else
-  ac_cv_search_curl_easy_init=no
+  ac_cv_search_mongoc_init=no
 fi
 rm conftest.$ac_ext
 LIBS=$ac_func_search_save_LIBS
 fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_curl_easy_init" >&5
-$as_echo "$ac_cv_search_curl_easy_init" >&6; }
-ac_res=$ac_cv_search_curl_easy_init
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_mongoc_init" >&5
+$as_echo "$ac_cv_search_mongoc_init" >&6; }
+ac_res=$ac_cv_search_mongoc_init
 if test "$ac_res" != no; then :
   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
   
 else
   
-  as_fn_error $? "unable to find curl; please install this library with your package manager, and try again" "$LINENO" 5
+  as_fn_error $? "unable to find mongoc; please install this library with your package manager, and try again" "$LINENO" 5
+
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing bson_destroy" >&5
+$as_echo_n "checking for library containing bson_destroy... " >&6; }
+if ${ac_cv_search_bson_destroy+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char bson_destroy ();
+int
+main ()
+{
+return bson_destroy ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' bson-1.0; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_bson_destroy=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_bson_destroy+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_bson_destroy+:} false; then :
+  
+else
+  ac_cv_search_bson_destroy=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_bson_destroy" >&5
+$as_echo "$ac_cv_search_bson_destroy" >&6; }
+ac_res=$ac_cv_search_bson_destroy
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+  
+else
+  
+  as_fn_error $? "unable to find bson; please install this library with your package manager (should come included with mongoc), and try again" "$LINENO" 5
 
 fi
 
@@ -4490,6 +4554,76 @@ fi
 done
 
 
+ac_fn_c_check_header_mongrel "$LINENO" "mongoc.h" "ac_cv_header_mongoc_h" "$ac_includes_default"
+if test "x$ac_cv_header_mongoc_h" = xyes; then :
+  
+else
+  
+  as_fn_error $? "unable to find header mongoc.h, please verify mongoc library installation and try again" "$LINENO" 5
+
+fi
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing curl_easy_init" >&5
+$as_echo_n "checking for library containing curl_easy_init... " >&6; }
+if ${ac_cv_search_curl_easy_init+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char curl_easy_init ();
+int
+main ()
+{
+return curl_easy_init ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' curl; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_curl_easy_init=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_curl_easy_init+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_curl_easy_init+:} false; then :
+  
+else
+  ac_cv_search_curl_easy_init=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_curl_easy_init" >&5
+$as_echo "$ac_cv_search_curl_easy_init" >&6; }
+ac_res=$ac_cv_search_curl_easy_init
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+  
+else
+  
+  as_fn_error $? "unable to find curl; please install this library with your package manager, and try again" "$LINENO" 5
+
+fi
+
 ac_fn_c_check_header_mongrel "$LINENO" "curl/curl.h" "ac_cv_header_curl_curl_h" "$ac_includes_default"
 if test "x$ac_cv_header_curl_curl_h" = xyes; then :
   
@@ -4568,6 +4702,7 @@ else
   as_fn_error $? "unable to find header jansson.h; please verify jansson library installation and try again" "$LINENO" 5
 
 fi
+
 
 
 if test "x$with_cashserver" != xno; then :
@@ -4663,6 +4798,7 @@ fi
 
 	
 fi
+
 if test "x$with_cashsend" != xno; then :
   	
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing uuid_generate_random" >&5

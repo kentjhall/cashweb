@@ -32,8 +32,8 @@ AC_SEARCH_LIBS([mongoc_init], [mongoc-1.0], [], [
 AC_SEARCH_LIBS([bson_destroy], [bson-1.0], [], [
   AC_MSG_ERROR([unable to find bson; please install this library with your package manager (should come included with mongoc), and try again])
 ])
-AC_CHECK_HEADER([mongoc/mongoc.h], [], [
-  AC_MSG_ERROR([unable to find header mongoc/mongoc.h, please verify mongoc library installation and try again])
+AC_CHECK_HEADER([mongoc.h], [], [
+  AC_MSG_ERROR([unable to find header mongoc.h, please verify mongoc library installation and try again])
 ])
 AC_SEARCH_LIBS([curl_easy_init], [curl], [], [
   AC_MSG_ERROR([unable to find curl; please install this library with your package manager, and try again])
