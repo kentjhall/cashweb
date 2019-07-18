@@ -9,27 +9,31 @@
 #include <math.h>
 #include <time.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <jansson.h>
 
-#define CW_OK 0
 typedef int CW_STATUS;
+#define CW_OK 0
+#define CW_SYS_ERR 1
 
-// #defines protocol version specific specifiers
+// #defines protocol version specifics
 #define CW_P_VER 0
 
+typedef uint16_t CW_TYPE;
 #define CW_T_FILE 0
 #define CW_T_DIR 1
+#define CW_T_MIMESET 2
 
 struct CW_file_metadata {
 	uint32_t length;
 	uint32_t depth;
-	uint16_t type;
+	CW_TYPE type;
 	uint16_t pVer;
 };
 
-static inline void init_CW_file_metadata(struct CW_file_metadata *md, uint16_t cwFType) {
+static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cwFType) {
 	md->length = 0;
 	md->depth = 0;
 	md->type = cwFType;
@@ -56,11 +60,6 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, uint16_t c
 #define TXID_CHARS HEX_CHARS(TXID_BYTES)
 
 /*
- * reports system error + custom message and exits; for internal use
- */
-static inline void die(char *e) { perror(e); exit(1); }
-
-/*
  * reports file size of file at given descriptor; for internal use
  */
 static inline long fileSize(int fd) {
@@ -82,8 +81,11 @@ static inline void initDynamicMemory(struct DynamicMemory *dm) {
 	dm->size = 0;
 }
 
+/*
+ * sets data pointer to NULL on failure
+ */
 static inline void resizeDynamicMemory(struct DynamicMemory *dm, size_t newSize) {
-	if ((dm->data = realloc(dm->data, newSize)) == NULL) { free(dm->data); die("realloc failed"); }
+	if ((dm->data = realloc(dm->data, newSize)) == NULL) { perror("realloc failed"); free(dm->data); dm->data = NULL; }
 	dm->size = newSize;
 }
 

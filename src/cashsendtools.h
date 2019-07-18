@@ -1,23 +1,39 @@
 #ifndef __CASHSENDTOOLS_H__
 #define __CASHSENDTOOLS_H__
 
-#include <sys/stat.h>
+#include "cashwebuni.h"
 #include <fts.h>
 #include <libbitcoinrpc/bitcoinrpc.h>
-#include "cashwebuni.h"
 
-#define CWS_RPC_NO 1
-#define CWS_CONFIRMS_NO 2
-#define CWS_FEE_NO 3
-#define CWS_FUNDS_NO 4
-#define CWS_RPC_ERR 5
+#define CWS_RPC_NO 2
+#define CWS_CONFIRMS_NO 3
+#define CWS_FEE_NO 4
+#define CWS_FUNDS_NO 5
+#define CWS_RPC_ERR 6
 
-// send file to blockchain
-// specify maxTreeDepth, will be chained at top level
-char *sendFile(const char *filePath, int cwType, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff);
+struct CWS_params {
+	const char *rpcServer;
+	unsigned short rpcPort;
+	const char *rpcUser;
+	const char *rpcPass;
+	int maxTreeDepth;
+	CW_TYPE cwType;
+};
 
-// send directory to blockchain
-// specify maxTreeDepth for all files
-char *sendDir(const char *dirPath, int maxTreeDepth, bitcoinrpc_cl_t *rpcCli, double *balanceDiff);
+inline void init_CWS_params(struct CWS_params *csp,
+				   const char *rpcServer, unsigned short rpcPort, const char *rpcUser, const char *rpcPass) {
+	csp->rpcServer = rpcServer;
+	csp->rpcPort = rpcPort;
+	csp->rpcUser = rpcUser;
+	csp->rpcPass = rpcPass;
+	csp->maxTreeDepth = -1;
+	csp->cwType = CW_T_FILE;
+}
+
+CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *balanceDiff, char *resTxid);
+
+CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *balanceDiff, char *resTxid);
+
+CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params,  double *balanceDiff, char *resTxid);
 
 #endif

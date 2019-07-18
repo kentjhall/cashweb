@@ -61,7 +61,7 @@ static CW_STATUS netHexStrToInt(const char *hex, int numBytes, void *uintPtr) {
 			break;
 		default:
 			fprintf(stderr, "unsupported number of bytes read for network integer value; probably problem with cashgettools\n");
-			return CWG_SYS_ERR;
+			return CW_SYS_ERR;
 	}
 
 	char byteData[numBytes];
@@ -136,7 +136,7 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		BITDB_API_VER, txidQuery, BITDB_QUERY_DATA_TAG, BITDB_QUERY_TXID_TAG);
 	char *queryB64;
 	if ((queryB64 = b64_encode((const unsigned char *)query, strlen(query))) == NULL) { perror("b64 encode failed");
-											    curl_easy_cleanup(curl); return CWG_SYS_ERR; }
+											    curl_easy_cleanup(curl); return CW_SYS_ERR; }
 	char url[strlen(bitdbNode) + strlen(queryB64) + 1 + 1];
 
 	// construct url from query
@@ -151,7 +151,7 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 
 	// send curl request
 	FILE *respFp = tmpfile();
-	if (respFp == NULL) { perror("tmpfile() failed"); curl_easy_cleanup(curl); return CWG_SYS_ERR; }
+	if (respFp == NULL) { perror("tmpfile() failed"); curl_easy_cleanup(curl); return CW_SYS_ERR; }
 	struct curl_slist *headers = NULL;
 	if (bitdbRequestLimit) { // this bit is to trick a server's request limit, although won't necessarily work with every server
 		char buf[BITDB_HEADER_BUF_SZ];
@@ -196,7 +196,7 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		}
 		else {
 			fprintf(stderr, "jansson error in parsing response from BitDB node: %s\nResponse:\n%s\n", jsonError.text, respMsg);
-			status = CWG_SYS_ERR;
+			status = CW_SYS_ERR;
 			goto cleanup;
 		}
 	}
@@ -285,7 +285,7 @@ static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbC
 			mongoc_cursor_destroy(cursor);
 			if (resJson == NULL) {
 				fprintf(stderr, "jansson error in parsing result from MongoDB query: %s\nResponse:\n%s\n", jsonError.text, resStr);
-				status = CWG_SYS_ERR;
+				status = CW_SYS_ERR;
 				break;
 			}
 			// gets json array at key 'out' -> json object at array index 0 -> json object at key 'str' (.out[0].str)
@@ -309,7 +309,7 @@ static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int c
 	else if (params->bitdbNode) { return fetchHexDataBitDBNode(hexDataAll, params->bitdbNode, params->bitdbRequestLimit, txids, count); }
 	else {
 		fprintf(stderr, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set in cashgettools implementation\n");
-		return CWG_SYS_ERR;
+		return CW_SYS_ERR;
 	}
 }
 
@@ -328,7 +328,7 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 
 	char *txids[txidsCount];
 	for (int i=0; i<txidsCount; i++) {
-		if ((txids[i] = malloc(TXID_CHARS+1)) == NULL) { perror("malloc failed"); status  = CWG_SYS_ERR; }
+		if ((txids[i] = malloc(TXID_CHARS+1)) == NULL) { perror("malloc failed"); status  = CW_SYS_ERR; }
 	}
 	if (status != CW_OK) { goto cleanup; }
 
@@ -352,11 +352,11 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 	if (depth > 0) { free((char *)treeHexData); }
 
 	char *hexDataAll = malloc(TX_DATA_CHARS*txidsCount + 1);
-	if (hexDataAll == NULL) { perror("malloc failed"); status =  CWG_SYS_ERR; goto cleanup; }
+	if (hexDataAll == NULL) { perror("malloc failed"); status =  CW_SYS_ERR; goto cleanup; }
 	if ((status = fetchHexData(hexDataAll, (const char **)txids, txidsCount, params)) == CW_OK) { 
 		if (partialTxids != NULL) {
 			char *partialTxidN = malloc(TXID_CHARS+1);
-			if (partialTxidN == NULL) { perror("malloc failed"); status = CWG_SYS_ERR; goto cleanup; }
+			if (partialTxidN == NULL) { perror("malloc failed"); status = CW_SYS_ERR; goto cleanup; }
 			strcpy(partialTxidN, partialTemp);
 			addFront(partialTxids[1], partialTxidN);
 		}
@@ -385,9 +385,9 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *
 	char hexData[TX_DATA_CHARS+1];
 	strcpy(hexData, hexDataStart);
 	char *hexDataNext = malloc(TX_DATA_CHARS+1);
-	if (hexDataNext == NULL) { perror("malloc failed"); return CWG_SYS_ERR; }
+	if (hexDataNext == NULL) { perror("malloc failed"); return CW_SYS_ERR; }
 	char *txidNext = malloc(TXID_CHARS+1);
-	if (txidNext == NULL) { perror("malloc failed"); free(hexDataNext); return CWG_SYS_ERR; }
+	if (txidNext == NULL) { perror("malloc failed"); free(hexDataNext); return CW_SYS_ERR; }
 
 	List partialTxidsO; List partialTxidsN;
 	List *partialTxids[2] = { &partialTxidsO, &partialTxidsN };
@@ -445,7 +445,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 	CW_STATUS status;
 
 	char *hexDataStart = malloc(TX_DATA_CHARS+1);
-	if (hexDataStart == NULL) { perror("malloc failed"); status = CWG_SYS_ERR; goto foundhandler; }
+	if (hexDataStart == NULL) { perror("malloc failed"); status = CW_SYS_ERR; goto foundhandler; }
 	struct CW_file_metadata md;
 
 	if ((status = fetchHexData(hexDataStart, (const char **)&txid, 1, params)) != CW_OK) { goto foundhandler; }
@@ -454,7 +454,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 	if (params->dirPath && md.type == CW_T_DIR) {
 		FILE *dirFp;
 		if ((dirFp = params->saveDirFp) == NULL &&
-		    (dirFp = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CWG_SYS_ERR; goto foundhandler; }
+		    (dirFp = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }
 
 		if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) { goto foundhandler; }		
 		rewind(dirFp);
@@ -490,7 +490,7 @@ static CW_STATUS initParams(struct CWG_params *params) {
 		mongoc_uri_t *uri;
 		if (!(uri = mongoc_uri_new_with_error(params->mongodb, &error))) {
 			fprintf(stderr, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
-			return CWG_SYS_ERR;
+			return CW_SYS_ERR;
 		}
 		params->mongodbCli = mongoc_client_new_from_uri(uri);
 		mongoc_uri_destroy(uri);	
@@ -506,7 +506,7 @@ static CW_STATUS initParams(struct CWG_params *params) {
 	}	
 	else if (!params->mongodbCli)  {
 		fprintf(stderr, "ERROR: cashgettools requires either MongoDB or BitDB Node address to be specified\n");
-		return CWG_SYS_ERR;
+		return CW_SYS_ERR;
 	}
 
 	return CW_OK;
@@ -545,6 +545,7 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 	struct DynamicMemory line;
 	initDynamicMemory(&line);
 	resizeDynamicMemory(&line, DIR_LINE_BUF);
+	if (line.data == NULL) { return CW_SYS_ERR; }
 	bzero(line.data, line.size);
 
 	bool found = false;
@@ -556,6 +557,7 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 		if (line.data[lineLen-1] != '\n' && !feof(dirFp)) {
 			offset = lineLen;
 			resizeDynamicMemory(&line, line.size*2);
+			if (line.data == NULL) { return CW_SYS_ERR; }
 			bzero(line.data+offset, line.size-offset);
 			continue;
 		}
@@ -572,12 +574,12 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 			}
 		}
 	}
-	if (ferror(dirFp)) { perror("error reading dirFp in CWG_dir_path_to_identifier()"); status = CWG_SYS_ERR; }
+	if (ferror(dirFp)) { perror("fgets() error in CWG_dir_path_to_identifier()"); status = CW_SYS_ERR; }
 	if (status != CW_OK) { goto cleanup; }
 
 	if (count > 0) {
-		if (fseek(dirFp, TXID_BYTES*(count-1), SEEK_CUR) < 0) { perror("fseek() SEEK_CUR failed"); status = CWG_SYS_ERR; goto cleanup; }
-		if (fread(pathTxidBytes, TXID_BYTES, 1, dirFp) < 1) { perror("fread() failed on dirFp"); status = CWG_SYS_ERR; goto cleanup; }
+		if (fseek(dirFp, TXID_BYTES*(count-1), SEEK_CUR) < 0) { perror("fseek() SEEK_CUR failed"); status = CW_SYS_ERR; goto cleanup; }
+		if (fread(pathTxidBytes, TXID_BYTES, 1, dirFp) < 1) { perror("fread() failed on dirFp"); status = CW_SYS_ERR; goto cleanup; }
 		byteArrToHexStr(pathTxidBytes, TXID_BYTES, pathTxid);
 	} else { status = CWG_IN_DIR_NO; }
 
@@ -588,6 +590,8 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 
 const char *CWG_errno_to_msg(int errNo) {
 	switch (errNo) {
+		case CW_SYS_ERR:
+			return "There was an unexpected system error; may be problem with cashgettools";
 		case CWG_IN_DIR_NO:
 			return "Requested file doesn't exist in specified directory";
 		case CWG_IS_DIR_NO:
@@ -595,9 +599,7 @@ const char *CWG_errno_to_msg(int errNo) {
 		case CWG_FETCH_NO:
 			return "Requested file doesn't exist, check identifier";
 		case CWG_METADATA_NO:
-			return "Requested file's metadata is invalid or nonexistent, check identifier";
-		case CWG_SYS_ERR:
-			return "There was an unexpected system error; may be problem with cashgettools";
+			return "Requested file's metadata is invalid or nonexistent, check identifier";	
 		case CWG_FETCH_ERR:
 			return "There was an unexpected error in querying the blockchain";
 		case CWG_WRITE_ERR:

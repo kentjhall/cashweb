@@ -4,45 +4,54 @@
 #define RPC_PASS_DEFAULT "bitcoin"
 #define RPC_SERVER_DEFAULT "127.0.0.1"
 #define RPC_PORT_DEFAULT 8332
+#define MAX_TREE_DEPTH_DEFAULT -1
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
-		fprintf(stderr, "usage: %s <file-path> <max-tree-depth, optional> [OPTIONS]\n", argv[0]);
+		fprintf(stderr, "usage: %s <path> [OPTIONS]\n", argv[0]);
 		exit(1);
 	}
 
-	char *rpcUser = RPC_USER_DEFAULT;
-	char *rpcPass = RPC_PASS_DEFAULT;
-	char *rpcServer = RPC_SERVER_DEFAULT;
+	const char *rpcUser = RPC_USER_DEFAULT;
+	const char *rpcPass = RPC_PASS_DEFAULT;
+	const char *rpcServer = RPC_SERVER_DEFAULT;
 	unsigned short rpcPort = RPC_PORT_DEFAULT;
+	int maxTreeDepth = MAX_TREE_DEPTH_DEFAULT;
+	CW_TYPE cwType = CW_T_FILE;
 
-	int opc = 0;
 	for (int i=2; i<argc; i++) {
-		if (strncmp("--rpc-user=", argv[i], 11) == 0) { rpcUser = argv[i]+11; ++opc; }
-		if (strncmp("--rpc-pass=", argv[i], 11) == 0) { rpcPass = argv[i]+11; ++opc; }
-		if (strncmp("--rpc-server=", argv[i], 13) == 0) { rpcServer = argv[i]+13; ++opc; }
-		if (strncmp("--rpc-port=", argv[i], 11) == 0) { rpcPort = atoi(argv[i]+11); ++opc; }
+		if (strncmp("--rpc-user=", argv[i], 11) == 0) { rpcUser = argv[i]+11; }
+		if (strncmp("--rpc-pass=", argv[i], 11) == 0) { rpcPass = argv[i]+11; }
+		if (strncmp("--rpc-server=", argv[i], 13) == 0) { rpcServer = argv[i]+13; }
+		if (strncmp("--rpc-port=", argv[i], 11) == 0) { rpcPort = atoi(argv[i]+11); }
+		if (strncmp("--max-tree-depth=", argv[i], 17) == 0) { maxTreeDepth = atoi(argv[i]+17); }
+		if (strncmp("--mime-set", argv[i], 10) == 0) { cwType = CW_T_MIMESET; }
 	}
 
-	char *filePath = argv[1];
-	int maxTreeDepth = argc-opc < 3 ? -1 : atoi(argv[2]); // -1 signifies no max tree depth
-
-	bitcoinrpc_global_init();
-	bitcoinrpc_cl_t *rpcClient = bitcoinrpc_cl_init_params(rpcUser, rpcPass, rpcServer, rpcPort);
-	if (!rpcClient) { die("bitcoinrpc_cl_init_params() failed"); };
+	char *path = argv[1];
 
 	double balanceDiff;
+	char txid[TXID_CHARS+1];
+	struct CWS_params params;
+	init_CWS_params(&params, rpcServer, rpcPort, rpcUser, rpcPass);
+	params.maxTreeDepth = maxTreeDepth; params.cwType = cwType;
 
-	char *txid;
-	struct stat st;
-	if (stat(filePath, &st) != 0) { die("stat() failed"); }
-	txid = S_ISDIR(st.st_mode) ? sendDir(filePath, maxTreeDepth, rpcClient, &balanceDiff) : sendFile(filePath, CW_T_FILE, maxTreeDepth, rpcClient, &balanceDiff);
+	CW_STATUS status;
+	if (strcmp(path, "-") == 0) {
+		status = CWS_send_from_stream(stdin, &params, &balanceDiff, txid);
+	} else {
+		struct stat st;
+		if (stat(path, &st) != 0) { perror("stat() failed"); exit(1); }
+		status = S_ISDIR(st.st_mode) ? CWS_send_dir_from_path(path, &params, &balanceDiff, txid)
+					     : CWS_send_from_path(path, &params, &balanceDiff, txid);
+	}
+	if (status != CW_OK) {
+		fprintf(stderr, "ERROR: send failed, error code %d\n", status);
+		exit(1);
+	}
 
 	printf("%s", txid);
 	fprintf(stderr, "\nSend cost: %.8f\n", balanceDiff);
 
-	free(txid);
-	bitcoinrpc_cl_free(rpcClient);
-	bitcoinrpc_global_cleanup();
 	return 0;
 }

@@ -35,7 +35,7 @@ static char *cashStatusToResponseMsg(CS_CW_STATUS status) {
 			return "200 OK";
 		case CWG_FETCH_ERR:
 		case CWG_WRITE_ERR:
-		case CWG_SYS_ERR:
+		case CW_SYS_ERR:
 			return "500 Internal Server Error";
 		case CS_REQUEST_NO:
 			return "400 Bad Request";
@@ -185,8 +185,6 @@ static int requestHandler(void *cls,
 	if (strcmp(method, "GET") != 0) { return MHD_NO;  }
 	if (*upload_data_size != 0) { return MHD_NO; }
 
-	if (bitdbNode == NULL) { fprintf(stderr, "cashserver error: bitdbNode not set\n"); die(NULL); }
-
 	const union MHD_ConnectionInfo *info_fd = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CONNECTION_FD);
 	const union MHD_ConnectionInfo *info_addr = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS);
 	const char *clntip = inet_ntoa(((struct sockaddr_in *) info_addr->client_addr)->sin_addr);
@@ -216,7 +214,7 @@ int main(int argc, char **argv) {
 				  NULL,
 				  &requestHandler,
 				  NULL,
-				  MHD_OPTION_END)) == NULL) { die("MHD_start_daemon() failed"); }
+				  MHD_OPTION_END)) == NULL) { perror("MHD_start_daemon() failed"); exit(1); }
 	fprintf(stderr, "Starting cashserver on port %u... (source is %s at %s)\n", port, mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : bitdbNode);
 	(void) getc (stdin);
 	MHD_stop_daemon(d);

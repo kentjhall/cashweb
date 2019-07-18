@@ -27,7 +27,8 @@ int main(int argc, char **argv) {
 	CW_STATUS status = CW_OK;
 	if ((status = CWG_get_by_txid(txid, &params, STDOUT_FILENO)) != CW_OK) { 
 		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, CWG_errno_to_msg(status));
+		exit(1);
 	}
 
-	return status;
+	return 0;
 }
