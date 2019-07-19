@@ -1,13 +1,13 @@
 #ifndef __CASHGETTOOLS_H__
 #define __CASHGETTOOLS_H__
 
+#include "cashwebuni.h"
 #include <curl/curl.h>
 #include <mongoc.h>
 #include <b64/b64.h>
 #include <mylist/mylist.h>
-#include "cashwebuni.h"
 
-// #defines error codes
+/* cashgettools error codes */
 #define CWG_IN_DIR_NO 2
 #define CWG_IS_DIR_NO 3
 #define CWG_FETCH_NO 4
@@ -19,6 +19,7 @@
 #define CWG_FILE_DEPTH_ERR 10
 
 /*
+ * params for getting
  * mongodb: MongoDB address (assumed to be populated by BitDB Node); only specify if not using the latter
  * mongodbCli: Optionally initialize/set mongoc client yourself (do NOT set mongodb if this is the case), but this probably isn't necessary;
  * 	       is included for internal management by cashgettools

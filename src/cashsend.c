@@ -19,6 +19,9 @@ int main(int argc, char **argv) {
 	int maxTreeDepth = MAX_TREE_DEPTH_DEFAULT;
 	CW_TYPE cwType = CW_T_FILE;
 
+	if (CWS_determine_cw_mime_type_by_extension(argv[1], "./hello", &cwType) != CW_OK) { exit(1); }
+	fprintf(stderr, "CW Type: %u\n", cwType); exit(1);
+
 	for (int i=2; i<argc; i++) {
 		if (strncmp("--rpc-user=", argv[i], 11) == 0) { rpcUser = argv[i]+11; }
 		if (strncmp("--rpc-pass=", argv[i], 11) == 0) { rpcPass = argv[i]+11; }
@@ -31,7 +34,7 @@ int main(int argc, char **argv) {
 	char *path = argv[1];
 
 	double balanceDiff;
-	char txid[TXID_CHARS+1];
+	char txid[CW_TXID_CHARS+1];
 	struct CWS_params params;
 	init_CWS_params(&params, rpcServer, rpcPort, rpcUser, rpcPass);
 	params.maxTreeDepth = maxTreeDepth; params.cwType = cwType;
@@ -46,7 +49,7 @@ int main(int argc, char **argv) {
 					     : CWS_send_from_path(path, &params, &balanceDiff, txid);
 	}
 	if (status != CW_OK) {
-		fprintf(stderr, "ERROR: send failed, error code %d\n", status);
+		fprintf(stderr, "\nSend failed, error code %d: %s.\n", status, CWS_errno_to_msg(status));
 		exit(1);
 	}
 

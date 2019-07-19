@@ -18,8 +18,18 @@ AC_ARG_WITH([cashsend],
 	[with_cashsend=yes])
 
 # Checks for programs.
+AC_PROG_CXX
+AC_PROG_AWK
 AC_PROG_CC
+AC_PROG_CPP
+AC_PROG_INSTALL
+AC_PROG_LN_S
+AC_PROG_MAKE_SET
 AC_PROG_RANLIB
+
+# Allows datadir to be specified
+dnl Defined in the file ac_define_dir.m4 (needs to be listed in acinclude.m4)
+AC_DEFINE_DIR([DATADIR], [datadir], [Directory for data files.])
 
 # Checks for libraries/corresponding header files.
 
@@ -81,11 +91,13 @@ AC_CHECK_HEADERS([arpa/inet.h stdlib.h stdint.h string.h unistd.h])
 AC_CHECK_HEADER_STDBOOL
 AC_C_INLINE
 AC_TYPE_SIZE_T
+AC_TYPE_UINT16_T
+AC_TYPE_UINT32_T
 AC_TYPE_UINT8_T
 
 # Checks for library functions.
 AC_FUNC_MALLOC
 AC_FUNC_REALLOC
-AC_CHECK_FUNCS([inet_ntoa memset strstr strtoul])
+AC_CHECK_FUNCS([bzero inet_ntoa memset strdup strrchr strstr strtoul])
 
-AC_OUTPUT(Makefile src/Makefile)
+AC_OUTPUT(Makefile src/Makefile data/Makefile)

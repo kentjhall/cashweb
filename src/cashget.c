@@ -4,7 +4,7 @@
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
 
 int main(int argc, char **argv) {
-	if (argc < 2 || strlen(argv[1]) > TXID_CHARS) {
+	if (argc < 2 || strlen(argv[1]) > CW_TXID_CHARS) {
 		fprintf(stderr, "usage: %s <txid> [OPTIONS]\n", argv[0]);
 		exit(1);
 	}
@@ -18,15 +18,15 @@ int main(int argc, char **argv) {
 		if (strncmp("--bitdb=", argv[i], 8) == 0) { bitdbNode = argv[i]+8; }
 	}
 
-	char txid[TXID_CHARS+1];
-	strncpy(txid, argv[1], TXID_CHARS);
-	txid[TXID_CHARS] = 0;
+	char txid[CW_TXID_CHARS+1];
+	strncpy(txid, argv[1], CW_TXID_CHARS);
+	txid[CW_TXID_CHARS] = 0;
 
 	struct CWG_params params;
 	init_CWG_params(&params, mongodb, bitdbNode);
 	CW_STATUS status = CW_OK;
 	if ((status = CWG_get_by_txid(txid, &params, STDOUT_FILENO)) != CW_OK) { 
-		fprintf(stderr, "\nGet failed, error code %d:  %s\n", status, CWG_errno_to_msg(status));
+		fprintf(stderr, "\nGet failed, error code %d: %s.\n", status, CWG_errno_to_msg(status));
 		exit(1);
 	}
 

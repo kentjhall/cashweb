@@ -1,8 +1,9 @@
 #ifndef __CASHWEBUNI_H__
 #define __CASHWEBUNI_H__
 
-#include <stdio.h>
+#include <config.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -14,18 +15,26 @@
 #include <unistd.h>
 #include <jansson.h>
 
+#define CW_P_VER 0
+
+// general status codes
 typedef int CW_STATUS;
 #define CW_OK 0
 #define CW_SYS_ERR 1
 
-// #defines protocol version specifics
-#define CW_P_VER 0
-
+// cashweb file types; MIMESET indicates that mimetype is to be interpreted
 typedef uint16_t CW_TYPE;
 #define CW_T_FILE 0
 #define CW_T_DIR 1
 #define CW_T_MIMESET 2
 
+/*
+ * file metadata to be stored in starting tx
+ * length: file chain length
+ * depth: file tree depth
+ * type: file's CW type
+ * pVer: protocol version under which file was sent
+ */
 struct CW_file_metadata {
 	uint32_t length;
 	uint32_t depth;
@@ -33,6 +42,10 @@ struct CW_file_metadata {
 	uint16_t pVer;
 };
 
+/*
+ * initialize struct CW_file_metadata
+ * file's cashweb type is required
+ */
 static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cwFType) {
 	md->length = 0;
 	md->depth = 0;
@@ -40,89 +53,28 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cw
 	md->pVer = CW_P_VER;
 }
 
-#define CW_MD_BYTES(md) sizeof(((struct CW_file_metadata *)0)->md)
+// calculates number of bytes for file metadata (single field and whole)
+#define CW_MD_BYTES(md_field) sizeof(((struct CW_file_metadata *)0)->md_field)
 #define CW_METADATA_BYTES (CW_MD_BYTES(length)+\
 			   CW_MD_BYTES(depth)+\
 			   CW_MD_BYTES(type)+\
 			   CW_MD_BYTES(pVer))
 
-// #defines based on network rules
-#define TX_RAW_DATA_BYTES 222
-#define TX_DATA_BYTES (TX_RAW_DATA_BYTES-2)
-#define TXID_BYTES 32
+// network rules constants
+#define CW_TX_RAW_DATA_BYTES 222
+#define CW_TX_DATA_BYTES (CW_TX_RAW_DATA_BYTES-2)
+#define CW_TXID_BYTES 32
 
-// #defines _CHARS for number of hex data chars
+// data directory paths
+#define CW_DATADIR_PATH DATADIR"/"PACKAGE
+#define CW_DATADIR_MIMETYPES_PATH "CW_mimetypes/"
+
+// _CHARS for number of chars in hex str
 #define HEX_CHARS(bytes) (bytes*2)
-#define CW_MD_CHARS(md) HEX_CHARS(CW_MD_BYTES(md))
+#define CW_MD_CHARS(md_field) HEX_CHARS(CW_MD_BYTES(md_field))
 #define CW_METADATA_CHARS HEX_CHARS(CW_METADATA_BYTES)
-#define TX_RAW_DATA_CHARS HEX_CHARS(TX_RAW_DATA_BYTES)
-#define TX_DATA_CHARS HEX_CHARS(TX_DATA_BYTES)
-#define TXID_CHARS HEX_CHARS(TXID_BYTES)
-
-/*
- * reports file size of file at given descriptor; for internal use
- */
-static inline long fileSize(int fd) {
-	struct stat st;
-	if (fstat(fd, &st) != 0) { return -1; }
-	return st.st_size;
-}
-
-/*
- * struct/functions for dynamically sized heap-allocated memory; for internal use
- */
-struct DynamicMemory {
-	char *data;
-	size_t size;
-};
-
-static inline void initDynamicMemory(struct DynamicMemory *dm) {
-	dm->data = NULL;
-	dm->size = 0;
-}
-
-/*
- * sets data pointer to NULL on failure
- */
-static inline void resizeDynamicMemory(struct DynamicMemory *dm, size_t newSize) {
-	if ((dm->data = realloc(dm->data, newSize)) == NULL) { perror("realloc failed"); free(dm->data); dm->data = NULL; }
-	dm->size = newSize;
-}
-
-static inline void freeDynamicMemory(struct DynamicMemory *dm) {
-	if (dm->data) { free(dm->data); }
-	initDynamicMemory(dm);
-}
-
-/*
- * converts byte array of n bytes to hex str of len 2n, and writes to specified memory loc
- */
-static inline void byteArrToHexStr(const char *fileBytes, int n, char *hex) {
-	for (int i=0; i<n; i++) {
-		hex[i*2]   = "0123456789abcdef"[((uint8_t)fileBytes[i]) >> 4];
-		hex[i*2+1] = "0123456789abcdef"[((uint8_t)fileBytes[i]) & 0x0F];
-	}
-	hex[n*2] = 0;
-}
-
-/*
- * converts hex str to byte array, accounting for possible suffix to omit, and writes to specified memory loc
- * returns number of bytes read, or -1 on failure
- */
-static inline int hexStrToByteArr(const char *hexData, int suffixLen, char *byteData) {
-	int hexDataLen = strlen(hexData);
-	if (hexDataLen % 2 != 0) { return -1; }
-
-	char hexByte[2+1];
-	hexByte[2] = 0;
-	int bytesRead = 0;
-	for (int i=0; i<hexDataLen-suffixLen; i+=2) { 
-		strncpy(hexByte, hexData+i, 2);
-		byteData[i/2] = (char)strtoul(hexByte, NULL, 16);
-		++bytesRead;
-	}
-
-	return bytesRead;
-}
+#define CW_TX_RAW_DATA_CHARS HEX_CHARS(CW_TX_RAW_DATA_BYTES)
+#define CW_TX_DATA_CHARS HEX_CHARS(CW_TX_DATA_BYTES)
+#define CW_TXID_CHARS HEX_CHARS(CW_TXID_BYTES)
 
 #endif

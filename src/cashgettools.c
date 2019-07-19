@@ -1,33 +1,200 @@
 #include "cashgettools.h"
+#include "cashwebutils.h"
 
-// MongoDB #defines
+/* general constants */
+#define LINE_BUF 250
+
+/* MongoDB constants */
 #define MONGODB_STR_HEX_PREFIX "OP_RETURN "
 
-// BitDB HTTP #defines
+/* BitDB HTTP constants */
 #define BITDB_API_VER 3
 #define BITDB_QUERY_LEN (71+strlen(BITDB_QUERY_DATA_TAG)+strlen(BITDB_QUERY_TXID_TAG))
-#define BITDB_TXID_QUERY_LEN (12+TXID_CHARS)
+#define BITDB_TXID_QUERY_LEN (12+CW_TXID_CHARS)
 #define BITDB_HEADER_BUF_SZ 40
 #define BITDB_QUERY_DATA_TAG "data"
 #define BITDB_RESPONSE_DATA_TAG "\""BITDB_QUERY_DATA_TAG"\":\""
 #define BITDB_QUERY_TXID_TAG "txid"
 #define BITDB_RESPONSE_TXID_TAG "\""BITDB_QUERY_TXID_TAG"\":\""
 
-#define DIR_LINE_BUF 500
-
 /* 
  * currently, simply reports a warning if given protocol version is newer than one in use
  * may be made more robust in the future
  */
+static void protocolCheck(int pVer);
+
+/*
+ * translates given hex string to byte data and writes to file descriptor
+ */
+static CW_STATUS writeHexDataStr(const char *hexDataStr, int suffixLen, int fd);
+
+/* 
+ * resolves array of bytes into a network byte order (big-endian) unsigned integer,
+ * and then converts to host byte order
+ * must make sure void* is appropriate unsigned integer type (uint16_t or uint32_t),
+ * and passed hex must be appropriate length
+ */
+static CW_STATUS netHexStrToInt(const char *hex, int numBytes, void *uintPtr);
+
+/*
+ * resolves file metadata from given hex data string according to protocol format,
+ * and save to given struct pointer
+ */
+static CW_STATUS hexResolveMetadata(const char *hexData, struct CW_file_metadata *md);
+
+/*
+ * writes curl response to specified file stream
+ */
+static size_t writeResponseToFile(void *data, size_t size, size_t nmemb, FILE *respFp);
+
+/*
+ * fetches hex data (from BitDB HTTP endpoint) at specified txids and copies (in order of txids) to specified location in memory 
+ */
+static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, bool bitdbRequestLimit, const char **txids, int count);
+
+/*
+ * fetches hex data (from MongoDB populated by BitDB) at specified txids and copies (in order of txids) to specified location in memory 
+ */
+static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbCli, const char **txids, int count);
+
+/*
+ * wrapper for choosing between MongoDB query or BitDB HTTP request
+ */
+static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count, struct CWG_params *params);
+	
+/*
+ * recursively traverse file tree from root hexdata
+ * partialTxids Lists are for keeping track of partials in chained tree (between linked root hexdatas)
+ * stops at depth specified in md
+ */
+static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[], int suffixLen, int depth,
+			    	  struct CWG_params *params, struct CW_file_metadata *md, int fd);
+
+/*
+ * traverse file chain from starting hexdata
+ * stops at length specified in md
+ */
+static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *params, struct CW_file_metadata *md, int fd);
+
+/*
+ * wrapper for determining whether to traverse file as chain or tree
+ */
+static inline CW_STATUS traverseFile(const char *hexDataStart, struct CWG_params *params, struct CW_file_metadata *md, int fd);
+
+/*
+ * fetches/traverses file at given txid and writes to specified file descriptor
+ */
+static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int fd);
+
+/*
+ * initializes either MongoC or Curl depending on whether mongodb or bitdbNode is specified in params
+ * should only be called from public functions that will get
+ */
+static CW_STATUS initFetcher(struct CWG_params *params);
+
+/*
+ * cleans up either MongoC or Curl depending on whether mongodb or bitdbNode is specified in params
+ * should only be called from public functions that have called initFetcher()
+ */
+static void cleanupFetcher(struct CWG_params *params);
+
+/* ------------------------------------- PUBLIC ------------------------------------- */
+
+CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd) {
+	CW_STATUS status;
+	if ((status = initFetcher(params)) != CW_OK) { return status; } 
+
+	status = getFileByTxid(txid, params, fd);
+	
+	cleanupFetcher(params);
+	return status;
+}
+
+CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathTxid) {
+	CW_STATUS status = CWG_IN_DIR_NO;
+
+	char pathTxidBytes[CW_TXID_BYTES];
+	memset(pathTxidBytes, 0, CW_TXID_BYTES);
+
+	struct DynamicMemory line;
+	initDynamicMemory(&line);
+	resizeDynamicMemory(&line, LINE_BUF);
+	if (line.data == NULL) { return CW_SYS_ERR; }
+	bzero(line.data, line.size);
+
+	bool found = false;
+	int count = 0;
+	int lineLen;
+	int offset = 0;
+	while (fgets(line.data+offset, line.size-1-offset, dirFp) != NULL) {
+		lineLen = strlen(line.data);
+		if (line.data[lineLen-1] != '\n' && !feof(dirFp)) {
+			offset = lineLen;
+			resizeDynamicMemory(&line, line.size*2);
+			if (line.data == NULL) { return CW_SYS_ERR; }
+			bzero(line.data+offset, line.size-offset);
+			continue;
+		}
+		else if (offset > 0) { offset = 0; }
+		line.data[lineLen-1] = 0;
+
+		if (strlen(line.data) < 1) { break; }
+				
+		if (!found) {
+			++count;
+			if (strcmp(line.data, dirPath) == 0) {
+				found = true;
+				status = CW_OK;
+			}
+		}
+	}
+	if (ferror(dirFp)) { perror("fgets() error in CWG_dir_path_to_identifier()"); status = CW_SYS_ERR; }
+	if (status != CW_OK) { goto cleanup; }
+
+	if (count > 0) {
+		if (fseek(dirFp, CW_TXID_BYTES*(count-1), SEEK_CUR) < 0) { perror("fseek() SEEK_CUR failed"); status = CW_SYS_ERR; goto cleanup; }
+		if (fread(pathTxidBytes, CW_TXID_BYTES, 1, dirFp) < 1) { perror("fread() failed on dirFp"); status = CW_SYS_ERR; goto cleanup; }
+		byteArrToHexStr(pathTxidBytes, CW_TXID_BYTES, pathTxid);
+	} else { status = CWG_IN_DIR_NO; }
+
+	cleanup:
+		freeDynamicMemory(&line);
+		return status;
+}
+
+const char *CWG_errno_to_msg(int errNo) {
+	switch (errNo) {
+		case CW_SYS_ERR:
+			return "There was an unexpected system error. This may be problem with cashgettools";
+		case CWG_IN_DIR_NO:
+			return "Requested file doesn't exist in specified directory";
+		case CWG_IS_DIR_NO:
+			return "Requested file isn't a directory";
+		case CWG_FETCH_NO:
+			return "Requested file doesn't exist, check identifier";
+		case CWG_METADATA_NO:
+			return "Requested file's metadata is invalid or nonexistent, check identifier";	
+		case CWG_FETCH_ERR:
+			return "There was an unexpected error in querying the blockchain";
+		case CWG_WRITE_ERR:
+			return "There was an unexpected error in writing the file";
+		case CWG_FILE_LEN_ERR:
+		case CWG_FILE_DEPTH_ERR:
+		case CWG_FILE_ERR:
+			return "There was an unexpected error in interpreting the file. The file may be encoded incorrectly (i.e. inaccurate metadata/structuring), or there is a problem with cashgettools";
+		default:
+			return "Unexpected error code. This is likely an issue with cashgettools";
+	}
+}
+
+/* ---------------------------------------------------------------------------------- */
+
 static void protocolCheck(int pVer) {
 	if (pVer > CW_P_VER) {
 		fprintf(stderr, "WARNING: requested file signals a newer cashweb protocol version than this client uses (client: CWP %d, file: CWP %d).\nWill attempt to read anyway, in case this is inaccurate or the protocol upgrade is trivial.\nIf there is a new protocol version available, it is recommended you upgrade.\n", CW_P_VER, pVer);
 	}
 }
 
-/*
- * translates given hex string to byte data and writes to file descriptor
- */
 static CW_STATUS writeHexDataStr(const char *hexDataStr, int suffixLen, int fd) {
 	char fileByteData[strlen(hexDataStr)/2];
 	int bytesToWrite;
@@ -43,12 +210,6 @@ static CW_STATUS writeHexDataStr(const char *hexDataStr, int suffixLen, int fd) 
 	return CW_OK;
 }
 
-/* 
- * resolves array of bytes into a network byte order (big-endian) unsigned integer,
- * and then converts to host byte order
- * must make sure void* is appropriate unsigned integer type (uint16_t or uint32_t),
- * and passed hex must be appropriate length
- */
 static CW_STATUS netHexStrToInt(const char *hex, int numBytes, void *uintPtr) {
 	if (numBytes != strlen(hex)/2) { return CWG_FILE_ERR; }
 	uint16_t uint16 = 0; uint32_t uint32 = 0;
@@ -76,10 +237,6 @@ static CW_STATUS netHexStrToInt(const char *hex, int numBytes, void *uintPtr) {
 	return CW_OK;
 }
 
-/*
- * resolves file metadata from given hex data string according to protocol format,
- * and save to given struct pointer
- */
 static CW_STATUS hexResolveMetadata(const char *hexData, struct CW_file_metadata *md) {
 	int hexDataLen = strlen(hexData);
 	if (hexDataLen < CW_METADATA_CHARS) { return CWG_METADATA_NO; }
@@ -107,16 +264,10 @@ static CW_STATUS hexResolveMetadata(const char *hexData, struct CW_file_metadata
 	return CW_OK;
 }
 
-/*
- * writes curl response to specified file stream
- */
 static size_t writeResponseToFile(void *data, size_t size, size_t nmemb, FILE *respFp) {
 	return fwrite(data, size, nmemb, respFp)*size;
 }
 
-/*
- * fetches hex data (from BitDB HTTP endpoint) at specified txids and copies (in order of txids) to specified location in memory 
- */
 static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, bool bitdbRequestLimit, const char **txids, int count) {
 	if (count < 1) { return CWG_FETCH_NO; }
 
@@ -205,6 +356,7 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 	json_t *jsonArrs[2] = { json_object_get(respJson, "c"), json_object_get(respJson, "u") };
 	size_t index;
 	json_t *dataJson;
+	char *jsonDump;
 	const char *dataTxid;
 	const char *dataHex;
 	bool matched;
@@ -213,7 +365,9 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		matched = false;
 		for (int a=0; a<sizeof(jsonArrs)/sizeof(jsonArrs[0]); a++) {
 			if (!jsonArrs[a]) {
-				fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", json_dumps(respJson, 0));
+				jsonDump = json_dumps(respJson, 0);
+				fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
+				free(jsonDump);
 				status = CWG_FETCH_ERR;
 				goto cleanup;
 			}
@@ -221,7 +375,9 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 			json_array_foreach(jsonArrs[a], index, dataJson) {
 				if ((dataTxid = json_string_value(json_object_get(dataJson, BITDB_QUERY_TXID_TAG))) == NULL ||
 				    (dataHex = json_string_value(json_object_get(dataJson, BITDB_QUERY_DATA_TAG))) == NULL) {
-					fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", json_dumps(jsonArrs[a], 0));
+				    	jsonDump = json_dumps(jsonArrs[a], 0);
+					fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
+					free(jsonDump);
 					status = CWG_FETCH_ERR; goto cleanup;
 				}
 				if (!added[i] && strcmp(txids[i], dataTxid) == 0) {
@@ -237,7 +393,7 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 	}
 	
 	hexDataAll[0] = 0;
-	for (int i=0; i<count; i++) { strncat(hexDataAll, hexDataPtrs[i], TX_DATA_CHARS); }
+	for (int i=0; i<count; i++) { strncat(hexDataAll, hexDataPtrs[i], CW_TX_DATA_CHARS); }
 
 	cleanup:
 		json_decref(respJson);	
@@ -245,9 +401,6 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		return status;
 }
 
-/*
- * fetches hex data (from MongoDB populated by BitDB) at specified txids and copies (in order of txids) to specified location in memory 
- */
 static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbCli, const char **txids, int count) {
 	if (count < 1) { return CWG_FETCH_NO; }
 	CW_STATUS status = CW_OK;
@@ -291,7 +444,7 @@ static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbC
 			// gets json array at key 'out' -> json object at array index 0 -> json object at key 'str' (.out[0].str)
 			hexData = json_string_value(json_object_get(json_array_get(json_object_get(resJson, "out"), 0), "str"));
 			if (strncmp(hexData, MONGODB_STR_HEX_PREFIX, hexPrefixLen) == 0) {
-				strncat(hexDataAll, hexData+hexPrefixLen, TX_DATA_CHARS);
+				strncat(hexDataAll, hexData+hexPrefixLen, CW_TX_DATA_CHARS);
 				matched = true;
 			} else { status = CWG_FILE_ERR; }
 			break;
@@ -318,17 +471,17 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 
 	char *partialTxid;
 	int partialTxidFill = partialTxids != NULL && (partialTxid = popFront(partialTxids[0])) != NULL ?
-			      TXID_CHARS-strlen(partialTxid) : 0;	
+			      CW_TXID_CHARS-strlen(partialTxid) : 0;	
 	
 	int numChars = strlen(treeHexData+partialTxidFill)-suffixLen;
-	int txidsCount = numChars/TXID_CHARS + (partialTxidFill ? 1 : 0);
+	int txidsCount = numChars/CW_TXID_CHARS + (partialTxidFill ? 1 : 0);
 	if (txidsCount < 1) { return CW_OK; }
 
 	CW_STATUS status = CW_OK;
 
 	char *txids[txidsCount];
 	for (int i=0; i<txidsCount; i++) {
-		if ((txids[i] = malloc(TXID_CHARS+1)) == NULL) { perror("malloc failed"); status  = CW_SYS_ERR; }
+		if ((txids[i] = malloc(CW_TXID_CHARS+1)) == NULL) { perror("malloc failed"); status  = CW_SYS_ERR; }
 	}
 	if (status != CW_OK) { goto cleanup; }
 
@@ -341,21 +494,21 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 	int sTxidsCount = (partialTxidFill ? 1 : 0);
 	if (txidsCount < sTxidsCount) { status = CWG_FILE_ERR; goto cleanup; }
 	for (int i=sTxidsCount; i<txidsCount; i++) {
-		strncpy(txids[i], txidPtr, TXID_CHARS);
-		txids[i][TXID_CHARS] = 0;
-		txidPtr += TXID_CHARS;
+		strncpy(txids[i], txidPtr, CW_TXID_CHARS);
+		txids[i][CW_TXID_CHARS] = 0;
+		txidPtr += CW_TXID_CHARS;
 	}
-	char partialTemp[TXID_CHARS+1]; partialTemp[0] = 0;
+	char partialTemp[CW_TXID_CHARS+1]; partialTemp[0] = 0;
 	strncat(partialTemp, txidPtr, numChars-(txidPtr-(treeHexData+partialTxidFill)));
 
 	// frees the tree hex data if in recursive call
 	if (depth > 0) { free((char *)treeHexData); }
 
-	char *hexDataAll = malloc(TX_DATA_CHARS*txidsCount + 1);
+	char *hexDataAll = malloc(CW_TX_DATA_CHARS*txidsCount + 1);
 	if (hexDataAll == NULL) { perror("malloc failed"); status =  CW_SYS_ERR; goto cleanup; }
 	if ((status = fetchHexData(hexDataAll, (const char **)txids, txidsCount, params)) == CW_OK) { 
 		if (partialTxids != NULL) {
-			char *partialTxidN = malloc(TXID_CHARS+1);
+			char *partialTxidN = malloc(CW_TXID_CHARS+1);
 			if (partialTxidN == NULL) { perror("malloc failed"); status = CW_SYS_ERR; goto cleanup; }
 			strcpy(partialTxidN, partialTemp);
 			addFront(partialTxids[1], partialTxidN);
@@ -382,11 +535,11 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 }
 
 static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *params, struct CW_file_metadata *md, int fd) {
-	char hexData[TX_DATA_CHARS+1];
+	char hexData[CW_TX_DATA_CHARS+1];
 	strcpy(hexData, hexDataStart);
-	char *hexDataNext = malloc(TX_DATA_CHARS+1);
+	char *hexDataNext = malloc(CW_TX_DATA_CHARS+1);
 	if (hexDataNext == NULL) { perror("malloc failed"); return CW_SYS_ERR; }
-	char *txidNext = malloc(TXID_CHARS+1);
+	char *txidNext = malloc(CW_TXID_CHARS+1);
 	if (txidNext == NULL) { perror("malloc failed"); free(hexDataNext); return CW_SYS_ERR; }
 
 	List partialTxidsO; List partialTxidsN;
@@ -399,20 +552,20 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *
 	for (int i=0; i <= md->length; i++) {
 		if (i == 0) {
 			suffixLen = CW_METADATA_CHARS;
-			if (i < md->length) { suffixLen += TXID_CHARS; } else { end = true; }
+			if (i < md->length) { suffixLen += CW_TXID_CHARS; } else { end = true; }
 		}
 		else if (i == md->length) {
 			suffixLen = 0;
 			end = true;
 		}
 		else {
-			suffixLen = TXID_CHARS;
+			suffixLen = CW_TXID_CHARS;
 		}
 	
 		if (strlen(hexData) < suffixLen) { status = CWG_FILE_ERR; goto cleanup; }
 		if (!end) {
-			strncpy(txidNext, hexData+(strlen(hexData) - suffixLen), TXID_CHARS);
-			txidNext[TXID_CHARS] = 0;
+			strncpy(txidNext, hexData+(strlen(hexData) - suffixLen), CW_TXID_CHARS);
+			txidNext[CW_TXID_CHARS] = 0;
 			if ((status = fetchHexData(hexDataNext, (const char **)&txidNext, 1, params)) == CWG_FETCH_NO) {
 				status = CWG_FILE_LEN_ERR;	
 				goto cleanup;
@@ -444,7 +597,7 @@ static inline CW_STATUS traverseFile(const char *hexDataStart, struct CWG_params
 static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 
-	char *hexDataStart = malloc(TX_DATA_CHARS+1);
+	char *hexDataStart = malloc(CW_TX_DATA_CHARS+1);
 	if (hexDataStart == NULL) { perror("malloc failed"); status = CW_SYS_ERR; goto foundhandler; }
 	struct CW_file_metadata md;
 
@@ -459,7 +612,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 		if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) { goto foundhandler; }		
 		rewind(dirFp);
 
-		char pathTxid[TXID_CHARS+1];
+		char pathTxid[CW_TXID_CHARS+1];
 		if ((status = CWG_dir_path_to_identifier(dirFp, params->dirPath, pathTxid)) != CW_OK) { goto foundhandler; }
 
 		struct CWG_params dirFileParams;
@@ -483,7 +636,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 		return status;
 }
 
-static CW_STATUS initParams(struct CWG_params *params) {
+static CW_STATUS initFetcher(struct CWG_params *params) {
 	if (params->mongodb) {
 		mongoc_init();
 		bson_error_t error;	
@@ -512,7 +665,7 @@ static CW_STATUS initParams(struct CWG_params *params) {
 	return CW_OK;
 }
 
-static void cleanupParams(struct CWG_params *params) {
+static void cleanupFetcher(struct CWG_params *params) {
 	if (params->mongodb && params->mongodbCli) {
 		mongoc_client_destroy(params->mongodbCli);
 		params->mongodbCli = NULL;
@@ -520,95 +673,5 @@ static void cleanupParams(struct CWG_params *params) {
 	} 
 	else if (params->bitdbNode) {
 		curl_global_cleanup();
-	}
-}
-
-/*
- * see non-static function descriptions in header file
- */
-CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd) {
-	CW_STATUS status;
-	if ((status = initParams(params)) != CW_OK) { return status; } 
-
-	status = getFileByTxid(txid, params, fd);
-	
-	cleanupParams(params);
-	return status;
-}
-
-CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathTxid) {
-	CW_STATUS status = CWG_IN_DIR_NO;
-
-	char pathTxidBytes[TXID_BYTES];
-	memset(pathTxidBytes, 0, TXID_BYTES);
-
-	struct DynamicMemory line;
-	initDynamicMemory(&line);
-	resizeDynamicMemory(&line, DIR_LINE_BUF);
-	if (line.data == NULL) { return CW_SYS_ERR; }
-	bzero(line.data, line.size);
-
-	bool found = false;
-	int count = 0;
-	int lineLen;
-	int offset = 0;
-	while (fgets(line.data+offset, line.size-1-offset, dirFp) != NULL) {
-		lineLen = strlen(line.data);
-		if (line.data[lineLen-1] != '\n' && !feof(dirFp)) {
-			offset = lineLen;
-			resizeDynamicMemory(&line, line.size*2);
-			if (line.data == NULL) { return CW_SYS_ERR; }
-			bzero(line.data+offset, line.size-offset);
-			continue;
-		}
-		else if (offset > 0) { offset = 0; }
-		line.data[lineLen-1] = 0;
-
-		if (strlen(line.data) < 1) { break; }
-				
-		if (!found) {
-			++count;
-			if (strcmp(line.data, dirPath) == 0) {
-				found = true;
-				status = CW_OK;
-			}
-		}
-	}
-	if (ferror(dirFp)) { perror("fgets() error in CWG_dir_path_to_identifier()"); status = CW_SYS_ERR; }
-	if (status != CW_OK) { goto cleanup; }
-
-	if (count > 0) {
-		if (fseek(dirFp, TXID_BYTES*(count-1), SEEK_CUR) < 0) { perror("fseek() SEEK_CUR failed"); status = CW_SYS_ERR; goto cleanup; }
-		if (fread(pathTxidBytes, TXID_BYTES, 1, dirFp) < 1) { perror("fread() failed on dirFp"); status = CW_SYS_ERR; goto cleanup; }
-		byteArrToHexStr(pathTxidBytes, TXID_BYTES, pathTxid);
-	} else { status = CWG_IN_DIR_NO; }
-
-	cleanup:
-		freeDynamicMemory(&line);
-		return status;
-}
-
-const char *CWG_errno_to_msg(int errNo) {
-	switch (errNo) {
-		case CW_SYS_ERR:
-			return "There was an unexpected system error; may be problem with cashgettools";
-		case CWG_IN_DIR_NO:
-			return "Requested file doesn't exist in specified directory";
-		case CWG_IS_DIR_NO:
-			return "Requested file isn't a directory";
-		case CWG_FETCH_NO:
-			return "Requested file doesn't exist, check identifier";
-		case CWG_METADATA_NO:
-			return "Requested file's metadata is invalid or nonexistent, check identifier";	
-		case CWG_FETCH_ERR:
-			return "There was an unexpected error in querying the blockchain";
-		case CWG_WRITE_ERR:
-			return "There was an unexpected error in writing the file";
-		case CWG_FILE_LEN_ERR:
-		case CWG_FILE_DEPTH_ERR:
-		case CWG_FILE_ERR:
-			return "There was an unexpected error in interpreting the file. The file may be encoded incorrectly (i.e. inaccurate metadata/structuring), or there is a problem with cashgettools";
-		default:
-			return "Received unexpected error code. This is likely an issue with cashgettools";
 	}
 }

@@ -1,8 +1,12 @@
 #include "cashsendtools.h"
+#include "cashwebutils.h"
 
+/* general constants */
+#define LINE_BUF 250
 #define ERR_WAIT_CYCLE 5
+#define ERR_MSG_BUF 40
 
-// rpc method #defines
+/* rpc method identifiers */
 #define RPC_M_GETBALANCE 0
 #define RPC_M_GETUNCONFIRMEDBALANCE 1
 #define RPC_M_LISTUNSPENT 2
@@ -14,7 +18,7 @@
 #define RPC_M_SENDRAWTRANSACTION 8
 #define RPC_METHODS_COUNT 9
 
-// send data #defines
+/* tx sending constants */
 #define B_ERR_MSG_BUF 50
 #define B_ADDRESS_BUF 75
 #define B_AMNT_STR_BUF 32
@@ -27,110 +31,324 @@
 #define TX_OUTPUT_SZ 34
 #define TX_DATA_BASE_SZ 10
 
+/*
+ * struct for carrying initialized bitcoinrpc_cl_t and bitcoinrpc_methods
+ * cli: RPC client struct
+ * methods: array of RPC method structs; contains only methods to be used by cashsendtools
+ */
 struct CWS_rpc_pack {
 	bitcoinrpc_cl_t *cli;
 	struct bitcoinrpc_method *methods[RPC_METHODS_COUNT];
+	char errMsg[ERR_MSG_BUF];
 };
 
 /*
+ * attempts an RPC call via given struct CWS_rpc_pack with specified RPC method identifier and params
+ * copies json response pointer to jsonResult; this needs to be freed by json_decref()
+ */
+static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params, json_t **jsonResult);
+
+/*
+ * wrapper for rpcCallAttempt() to wait on connection error
+ * will return appropriate status on any other error
+ */
+static CW_STATUS rpcCall(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params, json_t **jsonResult);
+
+/*
+ * check balance of wallet via RPC and writes to balance 
+ */
+static CW_STATUS checkBalance(struct CWS_rpc_pack *rp, double *balance);
+
+/*
+ * calculates data size in tx for data of length hexDataLen by accounting for extra opcodes
+ * writes true/false to extraByte for whether or not an extra byte was needed
+ */
+static int txDataSize(int hexDataLen, bool *extraByte);
+
+/*
+ * attempts to send tx with OP_RETURN data as per hexDatas (can be multiple pushdatas) via RPC
+ * specify useUnconfirmed for whether or not 0-conf unspents are to be used
+ * writes resultant txid to resTxid
+ */
+static CW_STATUS sendTxAttempt(const char **hexDatas, int hexDatasC, struct CWS_rpc_pack *rp, bool useUnconfirmed, char *resTxid);
+
+/*
+ * wrapper for sendTxAttempt() to handle errors involving insufficient balance, confirmations, and fees
+ * will return appropriate status on any other error
+ */
+static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pack *rp, char *resTxid);
+
+/*
  * puts int to network byte order (big-endian) and converts to hex string, written to passed memory location
+ * must make sure that type of uintPtr matches numBytes (e.g. uint16_t -> 2 bytes), and that hexStr has sufficient space
  * supports 2 and 4 byte integers
  */
-static CW_STATUS intToNetHexStr(void *uintPtr, int numBytes, char *hex) {
-	unsigned char bytes[numBytes];
+static CW_STATUS intToNetHexStr(void *uintPtr, int numBytes, char *hexStr);
+
+/*
+ * appends struct CW_file_metadata values to given hex string
+ */
+static void hexAppendMetadata(struct CW_file_metadata *md, char *hexStr);
+
+/*
+ * sends file from stream fp as chain of TXs via RPC and writes resultant txid to resTxid
+ * constructs/appends appropriate file metadata with cwType and treeDepth
+ */
+static CW_STATUS sendFileChain(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwType, int treeDepth, char *resTxid);
+
+/*
+ * sends layer of file tree (i.e. all TXs at same depth) from stream fp via RPC; writes all txids to treeFp
+ * if only one TX is sent, determines that this is root and constructs/appends appropriate file metadata with cwType and depth
+ * writes number of TXs sent to numTxs
+ */
+static CW_STATUS sendFileTreeLayer(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwType, int depth, int *numTxs, FILE *treeFp);
+
+/*
+ * sends file from stream fp as tree of TXs via RPC and writes resultant txid to resTxid
+ * cwType is passed to ultimately be included in file metadata
+ * if maxDepth is reached, will divert to sendFileChain() for sending as a chain of tree root TXs
+ */
+static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwType, int maxDepth, int depth, char *resTxid);
+
+/*
+ * sends file from stream (in accordance with params) via RPC and writes resultant txid to resTxid
+ */
+static inline CW_STATUS sendFileFromStream(FILE *stream, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, char *resTxid);
+
+/*
+ * sends file at given path (in accordance with params) via RPC and writes resultant txid to resTxid
+ */
+static CW_STATUS sendFileFromPath(const char *path, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, char *resTxid);
+
+/*
+ * recursively scans directory to determine the number of sendable files and writes to count
+ */
+static CW_STATUS scanDirFileCount(char const *ftsPathArg[], int *count);
+
+/*
+ * initializes RPC environment, RPC client (as per credentials in params), and necessary RPC methods
+ * RPC client pointer is copied to rpcPack->cli, and RPC methods pointer is copied to rpcPack->methods
+ * should only be called from public functions that will send
+ */
+static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack);
+
+/*
+ * cleans up RPC environment, as well as RPC client/methods in rpcPack (if present)
+ * should only be called from public functions that have called initRpc()
+ */
+static void cleanupRpc(struct CWS_rpc_pack *rpcPack);
+
+/* ------------------------------------- PUBLIC ------------------------------------- */
+
+CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *balanceDiff, char *resTxid) {
+	CW_STATUS status;
+	struct CWS_rpc_pack rpcPack;
+	if ((status = initRpc(params, &rpcPack)) != CW_OK) { goto cleanup; }
+
+	double bal;
+	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
+
+	status = sendFileFromStream(stream, &rpcPack, params, resTxid);	
 	
-	uint16_t uint16 = 0; uint32_t uint32 = 0;
-	bool isShort = false;
-	switch (numBytes) {
-		case sizeof(uint16_t):
-			isShort = true;
-			uint16 = htons(*(uint16_t *)uintPtr);
-			break;
-		case sizeof(uint32_t):
-			uint32 = htonl(*(uint32_t *)uintPtr);
-			break;
+	double balN;
+	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
+
+	cleanup:
+		cleanupRpc(&rpcPack);
+		return status;
+}
+
+CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *balanceDiff, char *resTxid) {
+	CW_STATUS status;
+	struct CWS_rpc_pack rpcPack;
+	if ((status = initRpc(params, &rpcPack)) != CW_OK) { goto cleanup; }
+
+	double bal;
+	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
+
+	status = sendFileFromPath(path, &rpcPack, params, resTxid);	
+	
+	double balN;
+	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
+
+	cleanup:
+		cleanupRpc(&rpcPack);
+		return status;
+}
+
+CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, double *balanceDiff, char *resTxid) {
+	CW_STATUS status;
+	struct CWS_rpc_pack rpcPack;
+	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
+
+	char const *ftsPathArg[] = { path, NULL };
+	int numFiles;
+	if ((status = scanDirFileCount(ftsPathArg, &numFiles)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
+
+	// initializing variable-length array before goto statements
+	char txidsByteData[numFiles*CW_TXID_BYTES];
+
+	FTS *ftsp;
+	int fts_options = FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR;
+	if ((ftsp = fts_open((char * const *)ftsPathArg, fts_options, NULL)) == NULL) {
+		perror("fts_open() failed");
+		status = CW_SYS_ERR;
+		goto cleanuprpc;
+	}
+	int pathLen = strlen(path);
+
+	FILE *tmpDirFp;
+	if ((tmpDirFp = tmpfile()) == NULL) {
+		perror("tmpfile() failed");
+		fts_close(ftsp);
+		status = CW_SYS_ERR;
+		goto cleanuprpc;
+	}
+
+	double bal;
+	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
+
+	char txid[CW_TXID_CHARS+1];
+
+	int count = 0;
+	FTSENT *p;
+	while ((p = fts_read(ftsp)) != NULL && count < numFiles) {
+		if (p->fts_info == FTS_F && strncmp(p->fts_path, path, pathLen) == 0) {
+			fprintf(stderr, "Sending %s", p->fts_path+pathLen);
+
+			if ((status = sendFileFromPath(p->fts_path, &rpcPack, params, txid)) != CW_OK) { goto cleanup; }
+			fprintf(stderr, "%s\n", txid);
+			if (hexStrToByteArr(txid, 0, txidsByteData+(count*CW_TXID_BYTES)) != CW_TXID_BYTES) {
+				fprintf(stderr, "invalid txid from sendFile(); problem with cashsendtools\n");
+				status = CW_SYS_ERR;
+				goto cleanup;
+			}
+			++count;
+
+			if (fprintf(tmpDirFp, "%s\n", p->fts_path+pathLen) < 0) {
+				perror("fprintf() to tmpDirFp failed");
+				status = CW_SYS_ERR;
+				goto cleanup;
+			}
+		}
+	}
+	if (fprintf(tmpDirFp, "\n") < 0) { perror("fprintf() to tmpDirFp failed"); status = CW_SYS_ERR; goto cleanup; }
+	if (fwrite(txidsByteData, CW_TXID_BYTES, numFiles, tmpDirFp) < numFiles) { perror("fwrite() to tmpDirFp failed");
+										   status = CW_SYS_ERR; goto cleanup; }
+
+	rewind(tmpDirFp);
+	fprintf(stderr, "Sending root directory file");
+	if ((status = sendFileFromStream(tmpDirFp, &rpcPack, params, resTxid)) != CW_OK) { goto cleanup; }
+
+	double balN;
+	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
+
+	cleanup:
+		fclose(tmpDirFp);
+		fts_close(ftsp);
+	cleanuprpc:
+		cleanupRpc(&rpcPack);
+		return status;	
+}
+
+CW_STATUS CWS_determine_cw_mime_type_by_extension(const char *fname, const char *dataDirPath, CW_TYPE *cwType) {
+	CW_STATUS status = CW_OK;
+	bool matched = false;
+
+	// copies extension from fname to memory
+	char extension[strlen(fname)+1]; extension[0] = 0;
+	char *fnamePtr;
+	if ((fnamePtr = strrchr(fname, '.')) == NULL) { strcat(extension, fname); } else { strcat(extension, fnamePtr+1); }
+	
+	// determine mime.types filename by cashweb protocol version and set path
+	const char *dataPath = dataDirPath ? dataDirPath : CW_DATADIR_PATH;
+	int dataPathLen = strlen(dataPath);
+	bool appendSlash = dataPath[dataPathLen-1] != '/';
+	char mtFilePath[dataPathLen + 1 + strlen(CW_DATADIR_MIMETYPES_PATH) + strlen("CW65535_mime.types") + 1];
+	snprintf(mtFilePath, sizeof(mtFilePath), "%s%s%sCW%u_mime.types", dataPath, appendSlash ? "/" : "", CW_DATADIR_MIMETYPES_PATH, CW_P_VER);
+
+	// initialize data/file pointers before goto statements
+	FILE *mimeTypes = NULL;
+	struct DynamicMemory line;
+	initDynamicMemory(&line);
+	resizeDynamicMemory(&line, LINE_BUF);
+	if (line.data == NULL) { status = CW_SYS_ERR; goto cleanup; }
+	bzero(line.data, line.size);
+
+	// checks for mime.types in data directory; will default to CW_T_FILE if not accessible
+	if (dataDirPath == NULL && access(mtFilePath, R_OK) == -1) {
+		fprintf(stderr, "unable to access cashweb mime.types; data directory may be missing/inaccurate, ensure cashwebtools is properly installed on system\n");
+		status = CW_SYS_ERR;
+		goto cleanup;
+	}
+
+	// open protocol-specific mime.types file
+	if ((mimeTypes = fopen(mtFilePath, "r")) == NULL) {
+		fprintf(stderr, "fopen() failed on path %s; unable to open cashweb mime.types\n", mtFilePath);
+		perror(NULL);
+		status = CW_SYS_ERR;
+		goto cleanup;
+	}	
+
+	// read mime.types file to match extension	
+	char *lineDataStart;
+	char *lineDataToken;
+	int lineLen = 0;
+	int offset = 0;
+	CW_TYPE type = CW_T_MIMESET;	
+	while (fgets(line.data+offset, line.size-1-offset, mimeTypes) != NULL) {
+		lineLen = strlen(line.data);
+		if (line.data[lineLen-1] != '\n' && !feof(mimeTypes)) {
+			offset = lineLen;
+			resizeDynamicMemory(&line, line.size*2);
+			if (line.data == NULL) { status = CW_SYS_ERR; goto cleanup; }
+			bzero(line.data+offset, line.size-offset);
+			continue;
+		}
+		else if (offset > 0) { offset = 0; }
+		line.data[lineLen-1] = 0;
+
+		if (line.data[0] == '#') { continue; }
+		++type;
+		
+		lineDataStart = line.data;
+		while ((lineDataToken = strsep(&line.data, "\t ")) != NULL) {
+			if (strcmp(lineDataToken, extension) == 0) {
+				matched = true;
+				*cwType = type;
+				break;
+			}
+		}
+		line.data = lineDataStart;
+		if (matched) { break; }
+	}
+
+	// defaults to CW_T_FILE if extension not matched
+	if (!matched) {
+		fprintf(stderr, "cashsendtools failed to match '%s' to anything in mime.types; defaults to CW_T_FILE\n", fname);
+		*cwType = CW_T_FILE;
+	}
+
+	cleanup:
+		freeDynamicMemory(&line);
+		if (mimeTypes) { fclose(mimeTypes); }
+		return status;
+}
+
+const char *CWS_errno_to_msg(int errNo) {
+	switch (errNo) {
+		case CW_SYS_ERR:
+			return "There was an unexpected system error. This may be problem with cashsendtools";
+		case CWS_RPC_NO:
+			return "Received an unexpected RPC response error";
+		case CWS_RPC_ERR:
+			return "Failed to connect via RPC. Please ensure bitcoind is running at specified address, port is open, and credentials are correct";
 		default:
-			fprintf(stderr, "invalid numBytes specified for nIntToHexStr, int must be 2 or 4 bytes; problem with cashsendtools\n");
-			return CW_SYS_ERR;
+			return "Unexpected error code. This is likely an issue with cashsendtools";
 	}
-
-	for (int i=0; i<numBytes; i++) {
-		bytes[i] = ((isShort ? uint16 : uint32) >> i*8) & 0xFF;
-	}
-
-	byteArrToHexStr((const char *)bytes, numBytes, hex);
-	return CW_OK;
 }
 
-static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack) {
-	bitcoinrpc_global_init();
-	rpcPack->cli = bitcoinrpc_cl_init_params(params->rpcUser, params->rpcPass, params->rpcServer, params->rpcPort);
-	if (rpcPack->cli == NULL) { perror("bitcoinrpc_cl_init_params() failed"); return CWS_RPC_ERR;  }	
-
-	BITCOINRPC_METHOD method;
-	json_t *mParams;
-	char *nonStdName;
-	for (int i=0; i<RPC_METHODS_COUNT; i++) {
-		rpcPack->methods[i] = NULL;
-		mParams = NULL;
-		nonStdName = NULL;
-		switch (i) {
-			case RPC_M_GETBALANCE:
-				method = BITCOINRPC_METHOD_GETBALANCE;
-				break;
-			case RPC_M_GETUNCONFIRMEDBALANCE:
-				method = BITCOINRPC_METHOD_GETUNCONFIRMEDBALANCE;
-				break;
-			case RPC_M_LISTUNSPENT:
-				method = BITCOINRPC_METHOD_LISTUNSPENT;
-				break;
-			case RPC_M_LISTUNSPENT_0:
-				method = BITCOINRPC_METHOD_LISTUNSPENT;
-				if ((mParams = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
-				json_array_append_new(mParams, json_integer(0));
-				break;
-			case RPC_M_GETRAWCHANGEADDRESS:
-				method = BITCOINRPC_METHOD_GETRAWCHANGEADDRESS;
-				break;
-			case RPC_M_ESTIMATEFEE:
-				method = BITCOINRPC_METHOD_ESTIMATEFEE;
-				break;
-			case RPC_M_CREATERAWTRANSACTION:
-				method = BITCOINRPC_METHOD_CREATERAWTRANSACTION;
-				break;
-			case RPC_M_SIGNRAWTRANSACTIONWITHWALLET:
-				method = BITCOINRPC_METHOD_NONSTANDARD;
-				nonStdName = "signrawtransactionwithwallet";
-				break;
-			case RPC_M_SENDRAWTRANSACTION:
-				method = BITCOINRPC_METHOD_SENDRAWTRANSACTION;
-				break;
-			default:
-				fprintf(stderr, "initRpcMethods() reached unexpected identifier; rpc method #defines probably incorrect in cashsendtools\n");
-				continue;
-		}
-
-		rpcPack->methods[i] = bitcoinrpc_method_init_params(method, mParams);
-		if (mParams != NULL) { json_decref(mParams); }
-		if (rpcPack->methods[i] == NULL) {
-			fprintf(stderr, "bitcoinrpc_method_init() failed for rpc method %d\n", i);
-			perror(NULL);
-			return CW_SYS_ERR;
-		}
-		if (nonStdName != NULL) { bitcoinrpc_method_set_nonstandard(rpcPack->methods[i], nonStdName); }
-	}
-
-	return CW_OK;
-}
-
-static void cleanupRpc(struct CWS_rpc_pack *rpcPack) {
-	if (rpcPack->cli) {
-		bitcoinrpc_cl_free(rpcPack->cli);
-		for (int i=0; i<RPC_METHODS_COUNT; i++) { if (rpcPack->methods[i]) { bitcoinrpc_method_free(rpcPack->methods[i]); } }
-	}
-	
-	bitcoinrpc_global_cleanup();
-}
+/* ---------------------------------------------------------------------------------- */
 
 static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params, json_t **jsonResult) {
 	bitcoinrpc_resp_t *bResponse = bitcoinrpc_resp_init();
@@ -155,6 +373,8 @@ static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, int rpcMethodI, json_t 
 	if (json_is_null(*jsonResult)) {
 		json_decref(*jsonResult);
 		*jsonResult = json_object_get(jsonResponse, "error");
+		rp->errMsg[0] = 0;
+		strncat(rp->errMsg, json_string_value(json_object_get(*jsonResult, "message")), ERR_MSG_BUF-1);
 		status = CWS_RPC_NO;
 	} 
 	json_incref(*jsonResult);
@@ -170,13 +390,11 @@ static CW_STATUS rpcCall(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params
 	CW_STATUS status;
 	while ((status = rpcCallAttempt(rp, rpcMethodI, params, jsonResult)) == CWS_RPC_ERR) {
 		if (!printed) {
-			fprintf(stderr, "\nRPC request failed, please ensure bitcoind is running and configured correctly; retrying...");
+			fprintf(stderr, "\nRPC request failed, please ensure bitcoind is running and configured correctly; retrying...\n");
 			printed = true;
 		}
 		sleep(ERR_WAIT_CYCLE);
-		fprintf(stderr, ".");
 	}
-	if (printed) { fprintf(stderr, "\n"); }
 	return status;
 }
 
@@ -238,7 +456,7 @@ static CW_STATUS sendTxAttempt(const char **hexDatas, int hexDatasC, struct CWS_
 
 	// calculate tx data size and prepare datas if more than one pushdata
 	int txDataSz = 0;
-	char txHexData[TX_RAW_DATA_CHARS+1]; txHexData[0] = 0;
+	char txHexData[CW_TX_RAW_DATA_CHARS+1]; txHexData[0] = 0;
 	int hexLen; int dataSz; bool extraByte; uint8_t szByte[1]; char szHex[2];
 	for (int i=0; i<hexDatasC; i++) {
 		txDataSz += txDataSize((hexLen = strlen(hexDatas[i])), &extraByte);
@@ -262,18 +480,18 @@ static CW_STATUS sendTxAttempt(const char **hexDatas, int hexDatasC, struct CWS_
 	double fee = 0.00000001; // arbitrary
 	double changeAmnt = 0;	
 
-	char txid[TXID_CHARS+1];
+	char txid[CW_TXID_CHARS+1];
 	int vout;
 	if ((inputParams = json_array()) == NULL) { perror("json_array() failed"); json_decref(jsonResult); return CW_SYS_ERR; }
 	
 	// iterate through unspent utxos
-	for (int i=numUnspents-1; i>=0; i--) {
+	for (int i=0; i<numUnspents; i++) {
 		// pull utxo data
 		utxo = json_array_get(jsonResult, i);
 
 		// copy txid from utxo data to memory
 		txid[0] = 0;
-		strncat(txid, json_string_value(json_object_get(utxo, "txid")), TXID_CHARS);
+		strncat(txid, json_string_value(json_object_get(utxo, "txid")), CW_TXID_CHARS);
 
 		// copy vout from utxo data to memory
 		vout = json_integer_value(json_object_get(utxo, "vout"));
@@ -420,10 +638,10 @@ static CW_STATUS sendTxAttempt(const char **hexDatas, int hexDatasC, struct CWS_
 	status = rpcCall(rp, RPC_M_SIGNRAWTRANSACTIONWITHWALLET, params, &jsonResult);
 	json_decref(params);
 	if (status == CWS_RPC_NO) {
-		fprintf(stderr, "error occurred in signing raw transaction; problem with cashsendtools\n\nraw tx:\n%s\n\nerror:\n%s",
-			rawTx, json_dumps(jsonResult, 0));
-		free(rawTx);
 		json_decref(jsonResult);
+		fprintf(stderr, "error occurred in signing raw transaction; problem with cashsendtools\n\nraw tx:\n%s\n\n",
+			rawTx);
+		free(rawTx);
 		return status;
 	} else if (status != CW_OK) {
 		free(rawTx);
@@ -448,14 +666,12 @@ static CW_STATUS sendTxAttempt(const char **hexDatas, int hexDatasC, struct CWS_
 		const char *msg = json_string_value(json_object_get(jsonResult, "message"));
 		if (strstr(msg, "too-long-mempool-chain")) { status = CWS_CONFIRMS_NO; }
 		else if (strstr(msg, "insufficient priority")) { status = CWS_FEE_NO; }
-		else { fprintf(stderr, "unhandled sendrawtransaction error (%s); problem with cashsendtools\n", msg); }
-		fprintf(stderr, "\n");
+		else { fprintf(stderr, "unhandled sendrawtransaction RPC error (%s)\n", msg); }
 	} else if (status == CW_OK) {
-		strncpy(resTxid, json_string_value(jsonResult), TXID_CHARS);
-		resTxid[TXID_CHARS] = 0;
+		strncpy(resTxid, json_string_value(jsonResult), CW_TXID_CHARS);
+		resTxid[CW_TXID_CHARS] = 0;
 		fprintf(stderr, "-");
 	} else {
-		fprintf(stderr, "unhandled error (identifier %d) returned on rpcCall(); problem with cashsendtools\n", status);
 		if (jsonResult) { json_decref(jsonResult); }
 		return status;
 	}
@@ -497,6 +713,9 @@ static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pac
 					fprintf(stderr, ".");
 				}
 				break;
+			case CWS_RPC_NO:
+				fprintf(stderr, "RPC response error: %s\n", rp->errMsg);
+				return status;
 			default:
 				return status;
 		}
@@ -506,7 +725,33 @@ static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pac
 	return status;
 }
 
-static void hexAppendMetadata(char *hexData, struct CW_file_metadata *md) {	
+static CW_STATUS intToNetHexStr(void *uintPtr, int numBytes, char *hexStr) {
+	unsigned char bytes[numBytes];
+	
+	uint16_t uint16 = 0; uint32_t uint32 = 0;
+	bool isShort = false;
+	switch (numBytes) {
+		case sizeof(uint16_t):
+			isShort = true;
+			uint16 = htons(*(uint16_t *)uintPtr);
+			break;
+		case sizeof(uint32_t):
+			uint32 = htonl(*(uint32_t *)uintPtr);
+			break;
+		default:
+			fprintf(stderr, "invalid numBytes specified for nIntToHexStr, int must be 2 or 4 bytes; problem with cashsendtools\n");
+			return CW_SYS_ERR;
+	}
+
+	for (int i=0; i<numBytes; i++) {
+		bytes[i] = ((isShort ? uint16 : uint32) >> i*8) & 0xFF;
+	}
+
+	byteArrToHexStr((const char *)bytes, numBytes, hexStr);
+	return CW_OK;
+}
+
+static void hexAppendMetadata(struct CW_file_metadata *md, char *hexStr) {	
 	char chainLenHex[CW_MD_CHARS(length)+1]; char treeDepthHex[CW_MD_CHARS(depth)+1];
 	char fTypeHex[CW_MD_CHARS(type)+1]; char pVerHex[CW_MD_CHARS(pVer)+1];
 
@@ -515,16 +760,16 @@ static void hexAppendMetadata(char *hexData, struct CW_file_metadata *md) {
 	intToNetHexStr(&md->type, CW_MD_BYTES(type), fTypeHex);
 	intToNetHexStr(&md->pVer, CW_MD_BYTES(pVer), pVerHex);
 
-	strcat(hexData, chainLenHex);
-	strcat(hexData, treeDepthHex);
-	strcat(hexData, fTypeHex);
-	strcat(hexData, pVerHex);
+	strcat(hexStr, chainLenHex);
+	strcat(hexStr, treeDepthHex);
+	strcat(hexStr, fTypeHex);
+	strcat(hexStr, pVerHex);
 }
 
-static CW_STATUS sendFileChain(FILE *fp, struct CWS_rpc_pack *rp, int cwFType, int treeDepth, char *resTxid) { 
-	char hexChunk[TX_DATA_CHARS + 1]; char *hexChunkPtr = hexChunk;
-	char txid[TXID_CHARS+1];
-	char buf[treeDepth ? TX_DATA_CHARS : TX_DATA_BYTES];
+static CW_STATUS sendFileChain(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwType, int treeDepth, char *resTxid) { 
+	char hexChunk[CW_TX_DATA_CHARS + 1]; const char *hexChunkPtr = hexChunk;
+	char txid[CW_TXID_CHARS+1]; txid[0] = 0;
+	char buf[treeDepth ? CW_TX_DATA_CHARS : CW_TX_DATA_BYTES];
 	int metadataLen = treeDepth ? CW_METADATA_CHARS : CW_METADATA_BYTES;
 	int readSz = treeDepth ? 2 : 1;
 	long size = fileSize(fileno(fp));
@@ -533,7 +778,7 @@ static CW_STATUS sendFileChain(FILE *fp, struct CWS_rpc_pack *rp, int cwFType, i
 	bool begin = true; bool end = size+metadataLen <= sizeof(buf);
 	CW_STATUS sendTxStatus;
 	struct CW_file_metadata md;
-	init_CW_file_metadata(&md, cwFType);
+	init_CW_file_metadata(&md, cwType);
 	md.depth = treeDepth;
 	int loc = 0;
 
@@ -548,11 +793,11 @@ static CW_STATUS sendFileChain(FILE *fp, struct CWS_rpc_pack *rp, int cwFType, i
 			}
 		} else { hexChunk[0] = 0; }
 		strcat(hexChunk, txid);
-		if (end) { hexAppendMetadata(hexChunk, &md); }
-		if ((sendTxStatus = sendTx((const char **)&hexChunkPtr, 1, rp, txid)) != CW_OK) { return sendTxStatus; }
+		if (end) { hexAppendMetadata(&md, hexChunk); }
+		if ((sendTxStatus = sendTx(&hexChunkPtr, 1, rp, txid)) != CW_OK) { return sendTxStatus; }
 		if (end) { break; }
 		++md.length;
-		if (begin) { toRead -= treeDepth ? TXID_CHARS : TXID_BYTES; begin = false; }
+		if (begin) { toRead -= treeDepth ? CW_TXID_CHARS : CW_TXID_BYTES; begin = false; }
 		if ((loc = ftell(fp))-read < toRead) {
 			if (loc-read < toRead-metadataLen) { end = true; }
 			toRead = loc-read;
@@ -561,14 +806,15 @@ static CW_STATUS sendFileChain(FILE *fp, struct CWS_rpc_pack *rp, int cwFType, i
 	}
 	if (ferror(fp)) { perror("file error on fread()"); return CW_SYS_ERR; }
 
-	strncpy(resTxid, txid, TXID_CHARS); resTxid[TXID_CHARS] = 0;
+	strncpy(resTxid, txid, CW_TXID_CHARS); resTxid[CW_TXID_CHARS] = 0;
 	return CW_OK;
 }
 
-static CW_STATUS sendFileTreeLayer(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwFType, int depth, int *numTxs, FILE *treeFp, char *resTxid) {
-	char hexChunk[TX_DATA_CHARS + 1]; char *hexChunkPtr = hexChunk;
+static CW_STATUS sendFileTreeLayer(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwType, int depth, int *numTxs, FILE *treeFp) {
+	char hexChunk[CW_TX_DATA_CHARS + 1]; const char *hexChunkPtr = hexChunk;
+	char txid[CW_TXID_CHARS+1]; txid[0] = 0;
 	int metadataLen = depth ? CW_METADATA_CHARS : CW_METADATA_BYTES;
-	int dataLen = depth ? TX_DATA_CHARS : TX_DATA_BYTES;
+	int dataLen = depth ? CW_TX_DATA_CHARS : CW_TX_DATA_BYTES;
 	char buf[dataLen];
 	*numTxs = 0;
 	CW_STATUS sendTxStatus;
@@ -590,23 +836,23 @@ static CW_STATUS sendFileTreeLayer(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cw
 			rootCheck = true;
 			if (n+metadataLen <= dataLen) {
 				struct CW_file_metadata md;
-				init_CW_file_metadata(&md, cwFType);
+				init_CW_file_metadata(&md, cwType);
 				md.depth = depth;
-				hexAppendMetadata(hexChunk, &md);
+				hexAppendMetadata(&md, hexChunk);
 			} else { ++*numTxs; }
 		}
 
-		if ((sendTxStatus = sendTx((const char **)&hexChunkPtr, 1, rp, resTxid)) != CW_OK) { return sendTxStatus; }
+		if ((sendTxStatus = sendTx(&hexChunkPtr, 1, rp, txid)) != CW_OK) { return sendTxStatus; }
 		++*numTxs;	
-		if (fputs(resTxid, treeFp) == EOF) { perror("fputs() failed"); return CW_SYS_ERR; }
+		if (fputs(txid, treeFp) == EOF) { perror("fputs() failed"); return CW_SYS_ERR; }
 	}
 	if (ferror(fp)) { perror("file error on fread()"); return CW_SYS_ERR; }
 
 	return CW_OK;
 }
 
-static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwFType, int maxDepth, int depth, char *resTxid) {
-	if (maxDepth >= 0 && depth >= maxDepth) { return sendFileChain(fp, rp, cwFType, depth, resTxid); }
+static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwType, int maxDepth, int depth, char *resTxid) {
+	if (maxDepth >= 0 && depth >= maxDepth) { return sendFileChain(fp, rp, cwType, depth, resTxid); }
 
 	FILE *tfp;
 	if ((tfp = tmpfile()) == NULL) { perror("tmpfile() failed"); return CW_SYS_ERR; }
@@ -614,17 +860,17 @@ static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwFType
 	CW_STATUS status;
 
 	int numTxs;
-	char txidF[TXID_CHARS+1];
-	if ((status = sendFileTreeLayer(fp, rp, cwFType, depth, &numTxs, tfp, txidF)) != CW_OK) { goto cleanup; }
+	if ((status = sendFileTreeLayer(fp, rp, cwType, depth, &numTxs, tfp)) != CW_OK) { goto cleanup; }
+	rewind(tfp);
+
 	if (numTxs < 2) {
-		strncpy(resTxid, txidF, TXID_CHARS);
-		resTxid[TXID_CHARS] = 0;
+		fgets(resTxid, CW_TXID_CHARS+1, tfp);
+		if (ferror(tfp)) { perror("fgets() failed in sendFileTree()"); status = CW_SYS_ERR; goto cleanup; }
 		status = CW_OK;
 		goto cleanup;
 	}
 
-	rewind(tfp);
-	status = sendFileTree(tfp, rp, cwFType, maxDepth, depth+1, resTxid);
+	status = sendFileTree(tfp, rp, cwType, maxDepth, depth+1, resTxid);
 
 	cleanup:
 		fclose(tfp);
@@ -660,113 +906,73 @@ static CW_STATUS scanDirFileCount(char const *ftsPathArg[], int *count) {
 	return CW_OK;
 }
 
-CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *balanceDiff, char *resTxid) {
-	CW_STATUS status;
-	struct CWS_rpc_pack rpcPack;
-	if ((status = initRpc(params, &rpcPack)) != CW_OK) { goto cleanup; }
+static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack) {
+	bitcoinrpc_global_init();
+	rpcPack->cli = bitcoinrpc_cl_init_params(params->rpcUser, params->rpcPass, params->rpcServer, params->rpcPort);
+	if (rpcPack->cli == NULL) { perror("bitcoinrpc_cl_init_params() failed"); return CWS_RPC_ERR;  }	
 
-	double bal;
-	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
-
-	status = sendFileFromStream(stream, &rpcPack, params, resTxid);	
-	
-	double balN;
-	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
-
-	cleanup:
-		cleanupRpc(&rpcPack);
-		return status;
-}
-
-CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *balanceDiff, char *resTxid) {
-	CW_STATUS status;
-	struct CWS_rpc_pack rpcPack;
-	if ((status = initRpc(params, &rpcPack)) != CW_OK) { goto cleanup; }
-
-	double bal;
-	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
-
-	status = sendFileFromPath(path, &rpcPack, params, resTxid);	
-	
-	double balN;
-	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
-
-	cleanup:
-		cleanupRpc(&rpcPack);
-		return status;
-}
-
-CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, double *balanceDiff, char *resTxid) {
-	CW_STATUS status;
-	struct CWS_rpc_pack rpcPack;
-	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
-
-	char const *ftsPathArg[] = { path, NULL };
-	int numFiles;
-	if ((status = scanDirFileCount(ftsPathArg, &numFiles)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
-
-	// initializing variable-length array before goto statements
-	char txidsByteData[numFiles*TXID_BYTES];
-
-	FTS *ftsp;
-	int fts_options = FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR;
-	if ((ftsp = fts_open((char * const *)ftsPathArg, fts_options, NULL)) == NULL) {
-		perror("fts_open() failed");
-		status = CW_SYS_ERR;
-		goto cleanuprpc;
-	}
-	int pathLen = strlen(path);
-
-	FILE *tmpDirFp;
-	if ((tmpDirFp = tmpfile()) == NULL) {
-		perror("tmpfile() failed");
-		fts_close(ftsp);
-		status = CW_SYS_ERR;
-		goto cleanuprpc;
-	}
-
-	double bal;
-	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
-
-	char txid[TXID_CHARS+1];
-
-	int count = 0;
-	FTSENT *p;
-	while ((p = fts_read(ftsp)) != NULL && count < numFiles) {
-		if (p->fts_info == FTS_F && strncmp(p->fts_path, path, pathLen) == 0) {
-			fprintf(stderr, "Sending %s", p->fts_path+pathLen);
-
-			if ((status = sendFileFromPath(p->fts_path, &rpcPack, params, txid)) != CW_OK) { goto cleanup; }
-			fprintf(stderr, "%s\n", txid);
-			if (hexStrToByteArr(txid, 0, txidsByteData+(count*TXID_BYTES)) != TXID_BYTES) {
-				fprintf(stderr, "invalid txid from sendFile(); problem with cashsendtools\n");
-				status = CW_SYS_ERR;
-				goto cleanup;
-			}
-			++count;
-
-			if (fprintf(tmpDirFp, "%s\n", p->fts_path+pathLen) < 0) {
-				perror("fprintf() to tmpDirFp failed");
-				status = CW_SYS_ERR;
-				goto cleanup;
-			}
+	BITCOINRPC_METHOD method;
+	json_t *mParams;
+	char *nonStdName;
+	for (int i=0; i<RPC_METHODS_COUNT; i++) {
+		rpcPack->methods[i] = NULL;
+		mParams = NULL;
+		nonStdName = NULL;
+		switch (i) {
+			case RPC_M_GETBALANCE:
+				method = BITCOINRPC_METHOD_GETBALANCE;
+				break;
+			case RPC_M_GETUNCONFIRMEDBALANCE:
+				method = BITCOINRPC_METHOD_GETUNCONFIRMEDBALANCE;
+				break;
+			case RPC_M_LISTUNSPENT:
+				method = BITCOINRPC_METHOD_LISTUNSPENT;
+				break;
+			case RPC_M_LISTUNSPENT_0:
+				method = BITCOINRPC_METHOD_LISTUNSPENT;
+				if ((mParams = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
+				json_array_append_new(mParams, json_integer(0));
+				break;
+			case RPC_M_GETRAWCHANGEADDRESS:
+				method = BITCOINRPC_METHOD_GETRAWCHANGEADDRESS;
+				break;
+			case RPC_M_ESTIMATEFEE:
+				method = BITCOINRPC_METHOD_ESTIMATEFEE;
+				break;
+			case RPC_M_CREATERAWTRANSACTION:
+				method = BITCOINRPC_METHOD_CREATERAWTRANSACTION;
+				break;
+			case RPC_M_SIGNRAWTRANSACTIONWITHWALLET:
+				method = BITCOINRPC_METHOD_NONSTANDARD;
+				nonStdName = "signrawtransactionwithwallet";
+				break;
+			case RPC_M_SENDRAWTRANSACTION:
+				method = BITCOINRPC_METHOD_SENDRAWTRANSACTION;
+				break;
+			default:
+				fprintf(stderr, "initRpcMethods() reached unexpected identifier; rpc method #defines probably incorrect in cashsendtools\n");
+				continue;
 		}
+
+		rpcPack->methods[i] = bitcoinrpc_method_init_params(method, mParams);
+		if (mParams != NULL) { json_decref(mParams); }
+		if (rpcPack->methods[i] == NULL) {
+			fprintf(stderr, "bitcoinrpc_method_init() failed for rpc method %d\n", i);
+			perror(NULL);
+			return CW_SYS_ERR;
+		}
+		if (nonStdName != NULL) { bitcoinrpc_method_set_nonstandard(rpcPack->methods[i], nonStdName); }
 	}
-	if (fprintf(tmpDirFp, "\n") < 0) { perror("fprintf() to tmpDirFp failed"); status = CW_SYS_ERR; goto cleanup; }
-	if (fwrite(txidsByteData, TXID_BYTES, numFiles, tmpDirFp) < numFiles) { perror("fwrite() to tmpDirFp failed");
-										status = CW_SYS_ERR; goto cleanup; }
+	rpcPack->errMsg[0] = 0;
 
-	rewind(tmpDirFp);
-	fprintf(stderr, "Sending root directory file");
-	if ((status = sendFileFromStream(tmpDirFp, &rpcPack, params, resTxid)) != CW_OK) { goto cleanup; }
+	return CW_OK;
+}
 
-	double balN;
-	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
-
-	cleanup:
-		fclose(tmpDirFp);
-		fts_close(ftsp);
-	cleanuprpc:
-		cleanupRpc(&rpcPack);
-		return status;	
+static void cleanupRpc(struct CWS_rpc_pack *rpcPack) {
+	if (rpcPack->cli) {
+		bitcoinrpc_cl_free(rpcPack->cli);
+		for (int i=0; i<RPC_METHODS_COUNT; i++) { if (rpcPack->methods[i]) { bitcoinrpc_method_free(rpcPack->methods[i]); } }
+	}
+	
+	bitcoinrpc_global_cleanup();
 }
