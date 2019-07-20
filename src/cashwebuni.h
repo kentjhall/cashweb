@@ -20,7 +20,8 @@
 // general status codes
 typedef int CW_STATUS;
 #define CW_OK 0
-#define CW_SYS_ERR 1
+#define CW_DATADIR_NO 1
+#define CW_SYS_ERR 2
 
 // cashweb file types; MIMESET indicates that mimetype is to be interpreted
 typedef uint16_t CW_TYPE;
@@ -66,7 +67,7 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cw
 #define CW_TXID_BYTES 32
 
 // data directory paths
-#define CW_DATADIR_PATH DATADIR"/"PACKAGE
+#define CW_INSTALL_DATADIR_PATH DATADIR"/"PACKAGE
 #define CW_DATADIR_MIMETYPES_PATH "CW_mimetypes/"
 
 // _CHARS for number of chars in hex str

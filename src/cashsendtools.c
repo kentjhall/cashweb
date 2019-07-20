@@ -146,7 +146,7 @@ CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *
 	if ((status = initRpc(params, &rpcPack)) != CW_OK) { goto cleanup; }
 
 	double bal;
-	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
+	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }	
 
 	status = sendFileFromStream(stream, &rpcPack, params, resTxid);	
 	
@@ -166,7 +166,7 @@ CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double
 	double bal;
 	if (balanceDiff && (status = checkBalance(&rpcPack, &bal)) != CW_OK) { goto cleanup; }
 
-	status = sendFileFromPath(path, &rpcPack, params, resTxid);	
+	if ((status = sendFileFromPath(path, &rpcPack, params, resTxid)) != CW_OK) { goto cleanup; }
 	
 	double balN;
 	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
@@ -181,6 +181,7 @@ CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, do
 	struct CWS_rpc_pack rpcPack;
 	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
 
+	// get directory file count in advance, for memory allocation purposes
 	char const *ftsPathArg[] = { path, NULL };
 	int numFiles;
 	if ((status = scanDirFileCount(ftsPathArg, &numFiles)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
@@ -210,14 +211,21 @@ CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, do
 
 	char txid[CW_TXID_CHARS+1];
 
+	// find and send all files in directory
 	int count = 0;
 	FTSENT *p;
 	while ((p = fts_read(ftsp)) != NULL && count < numFiles) {
 		if (p->fts_info == FTS_F && strncmp(p->fts_path, path, pathLen) == 0) {
 			fprintf(stderr, "Sending %s", p->fts_path+pathLen);
 
-			if ((status = sendFileFromPath(p->fts_path, &rpcPack, params, txid)) != CW_OK) { goto cleanup; }
-			fprintf(stderr, "%s\n", txid);
+			// create a clean copy of params for every file, as they may be altered during send
+			struct CWS_params fileParams;
+			copy_CWS_params(&fileParams, params);
+
+			if ((status = sendFileFromPath(p->fts_path, &rpcPack, &fileParams, txid)) != CW_OK) { goto cleanup; }
+			fprintf(stderr, "%s\n\n", txid);
+
+			// txids are stored as byte data (rather than hex string) in txidsByteData
 			if (hexStrToByteArr(txid, 0, txidsByteData+(count*CW_TXID_BYTES)) != CW_TXID_BYTES) {
 				fprintf(stderr, "invalid txid from sendFile(); problem with cashsendtools\n");
 				status = CW_SYS_ERR;
@@ -225,6 +233,7 @@ CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, do
 			}
 			++count;
 
+			// write file path to directory index
 			if (fprintf(tmpDirFp, "%s\n", p->fts_path+pathLen) < 0) {
 				perror("fprintf() to tmpDirFp failed");
 				status = CW_SYS_ERR;
@@ -232,13 +241,19 @@ CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, do
 			}
 		}
 	}
+	// necessary empty line between path information and txid byte data
 	if (fprintf(tmpDirFp, "\n") < 0) { perror("fprintf() to tmpDirFp failed"); status = CW_SYS_ERR; goto cleanup; }
+	// write txid byte data to directory index
 	if (fwrite(txidsByteData, CW_TXID_BYTES, numFiles, tmpDirFp) < numFiles) { perror("fwrite() to tmpDirFp failed");
 										   status = CW_SYS_ERR; goto cleanup; }
 
+	// send directory index
 	rewind(tmpDirFp);
-	fprintf(stderr, "Sending root directory file");
-	if ((status = sendFileFromStream(tmpDirFp, &rpcPack, params, resTxid)) != CW_OK) { goto cleanup; }
+	fprintf(stderr, "Sending directory index");
+	struct CWS_params dirIndexParams;
+	copy_CWS_params(&dirIndexParams, params);
+	dirIndexParams.cwType = CW_T_DIR;
+	if ((status = sendFileFromStream(tmpDirFp, &rpcPack, &dirIndexParams, resTxid)) != CW_OK) { goto cleanup; }
 
 	double balN;
 	if (balanceDiff && (status = checkBalance(&rpcPack, &balN)) == CW_OK) { *balanceDiff = bal - balN; }
@@ -251,7 +266,9 @@ CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, do
 		return status;	
 }
 
-CW_STATUS CWS_determine_cw_mime_type_by_extension(const char *fname, const char *dataDirPath, CW_TYPE *cwType) {
+CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params *csp) {
+	if (csp->datadir == NULL) { csp->datadir = CW_INSTALL_DATADIR_PATH; }
+
 	CW_STATUS status = CW_OK;
 	bool matched = false;
 
@@ -260,12 +277,11 @@ CW_STATUS CWS_determine_cw_mime_type_by_extension(const char *fname, const char 
 	char *fnamePtr;
 	if ((fnamePtr = strrchr(fname, '.')) == NULL) { strcat(extension, fname); } else { strcat(extension, fnamePtr+1); }
 	
-	// determine mime.types filename by cashweb protocol version and set path
-	const char *dataPath = dataDirPath ? dataDirPath : CW_DATADIR_PATH;
-	int dataPathLen = strlen(dataPath);
-	bool appendSlash = dataPath[dataPathLen-1] != '/';
-	char mtFilePath[dataPathLen + 1 + strlen(CW_DATADIR_MIMETYPES_PATH) + strlen("CW65535_mime.types") + 1];
-	snprintf(mtFilePath, sizeof(mtFilePath), "%s%s%sCW%u_mime.types", dataPath, appendSlash ? "/" : "", CW_DATADIR_MIMETYPES_PATH, CW_P_VER);
+	// determine mime.types full path by cashweb protocol version and set datadir path
+	int dataDirPathLen = strlen(csp->datadir);
+	bool appendSlash = csp->datadir[dataDirPathLen-1] != '/';
+	char mtFilePath[dataDirPathLen + 1 + strlen(CW_DATADIR_MIMETYPES_PATH) + strlen("CW65535_mime.types") + 1];
+	snprintf(mtFilePath, sizeof(mtFilePath), "%s%s%sCW%u_mime.types", csp->datadir, appendSlash ? "/" : "", CW_DATADIR_MIMETYPES_PATH, CW_P_VER);
 
 	// initialize data/file pointers before goto statements
 	FILE *mimeTypes = NULL;
@@ -275,10 +291,9 @@ CW_STATUS CWS_determine_cw_mime_type_by_extension(const char *fname, const char 
 	if (line.data == NULL) { status = CW_SYS_ERR; goto cleanup; }
 	bzero(line.data, line.size);
 
-	// checks for mime.types in data directory; will default to CW_T_FILE if not accessible
-	if (dataDirPath == NULL && access(mtFilePath, R_OK) == -1) {
-		fprintf(stderr, "unable to access cashweb mime.types; data directory may be missing/inaccurate, ensure cashwebtools is properly installed on system\n");
-		status = CW_SYS_ERR;
+	// checks for mime.types in data directory
+	if (access(mtFilePath, R_OK) == -1) {
+		status = CW_DATADIR_NO;
 		goto cleanup;
 	}
 
@@ -315,18 +330,19 @@ CW_STATUS CWS_determine_cw_mime_type_by_extension(const char *fname, const char 
 		while ((lineDataToken = strsep(&line.data, "\t ")) != NULL) {
 			if (strcmp(lineDataToken, extension) == 0) {
 				matched = true;
-				*cwType = type;
+				csp->cwType = type;
 				break;
 			}
 		}
 		line.data = lineDataStart;
 		if (matched) { break; }
 	}
+	if (ferror(mimeTypes)) { perror("fgets() failed on mime.types"); status = CW_SYS_ERR; goto cleanup; }
 
 	// defaults to CW_T_FILE if extension not matched
 	if (!matched) {
-		fprintf(stderr, "cashsendtools failed to match '%s' to anything in mime.types; defaults to CW_T_FILE\n", fname);
-		*cwType = CW_T_FILE;
+		fprintf(stderr, "\ncashsendtools failed to match '%s' to anything in mime.types; defaults to CW_T_FILE\n", fname);
+		csp->cwType = CW_T_FILE;
 	}
 
 	cleanup:
@@ -337,6 +353,8 @@ CW_STATUS CWS_determine_cw_mime_type_by_extension(const char *fname, const char 
 
 const char *CWS_errno_to_msg(int errNo) {
 	switch (errNo) {
+		case CW_DATADIR_NO:
+			return "Unable to find proper cashwebtools data directory";
 		case CW_SYS_ERR:
 			return "There was an unexpected system error. This may be problem with cashsendtools";
 		case CWS_RPC_NO:
@@ -719,7 +737,6 @@ static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pac
 			default:
 				return status;
 		}
-		if (printed) { fprintf(stderr, "\n"); }
 	} while (status != CW_OK);
 
 	return status;
@@ -878,6 +895,11 @@ static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cwType,
 }
 
 static inline CW_STATUS sendFileFromStream(FILE *stream, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, char *resTxid) {
+	if (params->cwType == CW_T_MIMESET) {
+		fprintf(stderr, "WARNING: params specified type CW_T_MIMESET, but cashsendtools cannot determine mimetype when sending from stream;\n"
+				 "defaulting to CW_T_FILE\n");
+		params->cwType = CW_T_FILE;
+	}
 	CW_STATUS status = sendFileTree(stream, rpcPack, params->cwType, params->maxTreeDepth, 0, resTxid);
 	fprintf(stderr, "\n");
 	return status;
@@ -887,10 +909,17 @@ static CW_STATUS sendFileFromPath(const char *path, struct CWS_rpc_pack *rpcPack
 	FILE *fp;
 	if ((fp = fopen(path, "rb")) == NULL) { perror("fopen() failed"); return CW_SYS_ERR; }	
 
-	CW_STATUS status = sendFileFromStream(fp, rpcPack, params, resTxid);
+	CW_STATUS status;	
 
-	fclose(fp);
-	return status;
+	if (params->cwType == CW_T_MIMESET) {
+		if ((status = CWS_set_cw_mime_type_by_extension(path, params)) != CW_OK) { goto cleanup; }
+	}
+
+	status = sendFileFromStream(fp, rpcPack, params, resTxid);
+
+	cleanup:
+		fclose(fp);
+		return status;
 }
 
 static CW_STATUS scanDirFileCount(char const *ftsPathArg[], int *count) {

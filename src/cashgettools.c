@@ -3,6 +3,7 @@
 
 /* general constants */
 #define LINE_BUF 250
+#define MIME_STR_DEFAULT "application/octet-stream"
 
 /* MongoDB constants */
 #define MONGODB_STR_HEX_PREFIX "OP_RETURN "
@@ -21,7 +22,13 @@
  * currently, simply reports a warning if given protocol version is newer than one in use
  * may be made more robust in the future
  */
-static void protocolCheck(int pVer);
+static void protocolCheck(uint16_t pVer);
+
+/*
+ * determines mime type from given cashweb type and copies to location in struct CWG_params if not NULL
+ * if unable to resolve, or if type CW_T_FILE, CW_T_DIR, or CW_T_MIMESET is provided, defaults to MIME_STR_DEFAULT
+ */
+static CW_STATUS cwTypeToMimeStr(CW_TYPE type, struct CWG_params *cgp);
 
 /*
  * translates given hex string to byte data and writes to file descriptor
@@ -164,8 +171,10 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 
 const char *CWG_errno_to_msg(int errNo) {
 	switch (errNo) {
+		case CW_DATADIR_NO:
+			return "Unable to find proper cashwebtools data directory";
 		case CW_SYS_ERR:
-			return "There was an unexpected system error. This may be problem with cashgettools";
+			return "There was an unexpected system error. This may be problem with cashgettools";	
 		case CWG_IN_DIR_NO:
 			return "Requested file doesn't exist in specified directory";
 		case CWG_IS_DIR_NO:
@@ -189,10 +198,96 @@ const char *CWG_errno_to_msg(int errNo) {
 
 /* ---------------------------------------------------------------------------------- */
 
-static void protocolCheck(int pVer) {
+static void protocolCheck(uint16_t pVer) {
 	if (pVer > CW_P_VER) {
-		fprintf(stderr, "WARNING: requested file signals a newer cashweb protocol version than this client uses (client: CWP %d, file: CWP %d).\nWill attempt to read anyway, in case this is inaccurate or the protocol upgrade is trivial.\nIf there is a new protocol version available, it is recommended you upgrade.\n", CW_P_VER, pVer);
+		fprintf(stderr, "WARNING: requested file signals a newer cashweb protocol version than this client uses (client: CWP %u, file: CWP %u).\nWill attempt to read anyway, in case this is inaccurate or the protocol upgrade is trivial.\nIf there is a new protocol version available, it is recommended you upgrade.\n", CW_P_VER, pVer);
 	}
+}
+
+static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
+	if (cgp->saveMimeStr == NULL) { return CW_OK; }
+	cgp->saveMimeStr[0] = 0;
+	if (cwType <= CW_T_MIMESET) { strcat(cgp->saveMimeStr, MIME_STR_DEFAULT); return CW_OK; }
+	if (cgp->datadir == NULL) { cgp->datadir = CW_INSTALL_DATADIR_PATH; }
+
+	CW_STATUS status = CW_OK;
+
+	// determine mime.types full path by cashweb protocol version and set datadir path
+	int dataDirPathLen = strlen(cgp->datadir);
+	bool appendSlash = cgp->datadir[dataDirPathLen-1] != '/';
+	char mtFilePath[dataDirPathLen + 1 + strlen(CW_DATADIR_MIMETYPES_PATH) + strlen("CW65535_mime.types") + 1];
+	snprintf(mtFilePath, sizeof(mtFilePath), "%s%s%sCW%u_mime.types", cgp->datadir, appendSlash ? "/" : "", CW_DATADIR_MIMETYPES_PATH, CW_P_VER);
+
+	// initialize data/file pointers before goto statements
+	FILE *mimeTypes = NULL;
+	struct DynamicMemory line;
+	initDynamicMemory(&line);
+	resizeDynamicMemory(&line, LINE_BUF);
+	if (line.data == NULL) { status = CW_SYS_ERR; goto cleanup; }
+	bzero(line.data, line.size);
+
+	// checks for mime.types in data directory
+	if (access(mtFilePath, R_OK) == -1) {
+		status = CW_DATADIR_NO;
+		goto cleanup;
+	}
+
+	// open protocol-specific mime.types file
+	if ((mimeTypes = fopen(mtFilePath, "r")) == NULL) {
+		fprintf(stderr, "fopen() failed on path %s; unable to open cashweb mime.types\n", mtFilePath);
+		perror(NULL);
+		status = CW_SYS_ERR;
+		goto cleanup;
+	}	
+
+	// read mime.types file until appropriate line
+	bool matched = false;
+	bool mimeFileBad = false;
+	char *lineDataPtr;
+	int lineLen = 0;
+	int offset = 0;
+	CW_TYPE type = CW_T_MIMESET;	
+	while (fgets(line.data+offset, line.size-1-offset, mimeTypes) != NULL) {
+		lineLen = strlen(line.data);
+		if (line.data[lineLen-1] != '\n' && !feof(mimeTypes)) {
+			offset = lineLen;
+			resizeDynamicMemory(&line, line.size*2);
+			if (line.data == NULL) { status = CW_SYS_ERR; goto cleanup; }
+			bzero(line.data+offset, line.size-offset);
+			continue;
+		}
+		else if (offset > 0) { offset = 0; }
+		line.data[lineLen-1] = 0;
+
+		if (line.data[0] == '#') { continue; }
+
+		if (++type != cwType) { continue; }
+
+		if ((lineDataPtr = strchr(line.data, '\t')) == NULL) {
+			fprintf(stderr, "unable to parse for mimetype string, mime.types may be invalid; defaults to cashgettools MIME_STR_DEFAULT\n");
+			mimeFileBad = true;
+			break;
+
+		}
+
+		lineDataPtr[0] = 0;
+		strcat(cgp->saveMimeStr, line.data);
+		matched = true;
+	}
+	if (ferror(mimeTypes)) { perror("fgets() failed on mime.types"); status = CW_SYS_ERR; goto cleanup; }
+
+	// defaults to MIME_STR_DEFAULT if type not found
+	if (!matched) {
+		if (!mimeFileBad) {
+			fprintf(stderr, "invalid cashweb type (numeric %u); defaults to MIME_STR_DEFAULT\n", cwType);
+		}
+		strcat(cgp->saveMimeStr, MIME_STR_DEFAULT);
+	}
+
+	cleanup:
+		freeDynamicMemory(&line);
+		if (mimeTypes) { fclose(mimeTypes); }
+		return status;
 }
 
 static CW_STATUS writeHexDataStr(const char *hexDataStr, int suffixLen, int fd) {
@@ -603,26 +698,36 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 
 	if ((status = fetchHexData(hexDataStart, (const char **)&txid, 1, params)) != CW_OK) { goto foundhandler; }
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }
-	protocolCheck(md.pVer);
+	protocolCheck(md.pVer);	
 	if (params->dirPath && md.type == CW_T_DIR) {
 		FILE *dirFp;
 		if ((dirFp = params->saveDirFp) == NULL &&
 		    (dirFp = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }
 
-		if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) { goto foundhandler; }		
+		if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) {
+			if (!params->saveDirFp) { fclose(dirFp); }
+			goto foundhandler;
+		}		
 		rewind(dirFp);
 
 		char pathTxid[CW_TXID_CHARS+1];
-		if ((status = CWG_dir_path_to_identifier(dirFp, params->dirPath, pathTxid)) != CW_OK) { goto foundhandler; }
+		if ((status = CWG_dir_path_to_identifier(dirFp, params->dirPath, pathTxid)) != CW_OK) {
+			if (!params->saveDirFp) { fclose(dirFp); }
+			goto foundhandler;
+		}
 
 		struct CWG_params dirFileParams;
 		copy_CWG_params(&dirFileParams, params);
 		dirFileParams.dirPath = NULL;
 		dirFileParams.saveDirFp = NULL;
 
-		status = getFileByTxid(pathTxid, &dirFileParams, fd);
+		status = getFileByTxid(pathTxid, &dirFileParams, fd);	
 		goto cleanup;
-	} else if (params->dirPath) { status = CWG_IS_DIR_NO; }
+	} else if (params->dirPath) { status = CWG_IS_DIR_NO; goto foundhandler; }
+
+	if (params->saveMimeStr) {
+		if ((status = cwTypeToMimeStr(md.type, params)) != CW_OK) { goto foundhandler; }
+	}
 
 	foundhandler:
 	if (status == params->foundSuppressErr) { status = CW_OK; }

@@ -8,7 +8,7 @@ fi
 # constants
 dust_amnt_satoshis=545
 max_outputs=2000
-base_size_bytes=158
+base_size_bytes=190
 out_size_bytes=34
 
 max_amnt=$(bc -l <<< "$1/100000000")
@@ -45,9 +45,6 @@ if [ $(bitcoin-cli listunspent 0 | jq -r 'length') -gt 0 ]; then
 		done
 		rawtx=$(bitcoin-cli createrawtransaction '''[ { "txid": "'$utxo_txid'", "vout": '$utxo_vout' } ]''' '''{ '$outputs' }''')
 		signedtx=$(bitcoin-cli signrawtransactionwithwallet $rawtx | jq -r '.hex')
-		echo
-		echo $num_outputs
-		echo $outputs
 		bitcoin-cli sendrawtransaction $signedtx > /dev/null
 		echo "" 1>&2
 	done

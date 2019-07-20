@@ -8,15 +8,15 @@
 #include <mylist/mylist.h>
 
 /* cashgettools error codes */
-#define CWG_IN_DIR_NO 2
-#define CWG_IS_DIR_NO 3
-#define CWG_FETCH_NO 4
-#define CWG_METADATA_NO 5
-#define CWG_FETCH_ERR 6
-#define CWG_WRITE_ERR 7
-#define CWG_FILE_ERR 8
-#define CWG_FILE_LEN_ERR 9
-#define CWG_FILE_DEPTH_ERR 10
+#define CWG_IN_DIR_NO 3
+#define CWG_IS_DIR_NO 4
+#define CWG_FETCH_NO 5
+#define CWG_METADATA_NO 6
+#define CWG_FETCH_ERR 7
+#define CWG_WRITE_ERR 8
+#define CWG_FILE_ERR 9
+#define CWG_FILE_LEN_ERR 10
+#define CWG_FILE_DEPTH_ERR 11
 
 /*
  * params for getting
@@ -27,9 +27,13 @@
  * bitdbRequestLimit: Specify whether or not BitDB Node has request limit
  * dirPath: Specify path if requesting a directory
  * saveDirFp: Optionally specify stream for writing directory contents if requesting a directory
+ * saveMimeStr: Optionally interpret/save file's mimetype string to this memory location;
+ 		must make sure there is enough space allocated (recommended 256 bytes for extremes)
  * foundHandler: Function to call when file is found, before writing
  * foundHandleData: Data pointer to pass to foundHandler()
  * foundSuppressErr: Specify an error code to suppress if file is found; <0 for none
+ * datadir: specify data directory path for cashwebtools;
+ 	    can be left as NULL if cashwebtools is properly installed on system with 'make install'
  */
 struct CWG_params {
 	const char *mongodb;
@@ -38,9 +42,11 @@ struct CWG_params {
 	bool bitdbRequestLimit;
 	char *dirPath;
 	FILE *saveDirFp;
+	char *saveMimeStr;
 	void (*foundHandler) (CW_STATUS, void *, int);
 	void *foundHandleData;
 	CW_STATUS foundSuppressErr;
+	const char *datadir;
 };
 
 /*
@@ -58,9 +64,11 @@ inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const c
 	cgp->bitdbRequestLimit = true;
 	cgp->dirPath = NULL;
 	cgp->saveDirFp = NULL;
+	cgp->saveMimeStr = NULL;
 	cgp->foundHandler = NULL;
 	cgp->foundHandleData = NULL;
 	cgp->foundSuppressErr = -1;
+	cgp->datadir = NULL;
 }
 
 /*
@@ -72,9 +80,11 @@ inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) 
 	dest->bitdbNode = source->bitdbNode;
 	dest->dirPath = source->dirPath;
 	dest->saveDirFp = source->saveDirFp;
+	dest->saveMimeStr = source->saveMimeStr;
 	dest->foundHandler = source->foundHandler;
 	dest->foundHandleData = source->foundHandleData;
 	dest->foundSuppressErr = source->foundSuppressErr;
+	dest->datadir = source->datadir;
 }
 
 /*

@@ -10,6 +10,7 @@ typedef int CS_CW_STATUS;
 
 #define RESP_BUF 110
 #define REQ_DESCRIPT_BUF 25
+#define MIMETYPE_BUF 256
 #define TRAILING_BACKSLASH_APPEND "index.html"
 
 static uint16_t port = CS_PORT_DEFAULT;
@@ -21,18 +22,21 @@ struct cashRequestData {
 	const char *cwId;
 	const char *path;
 	const char *clntip;
+	char *resMimeType;
 };
 
-static inline void initCashRequestData(struct cashRequestData *requestData, const char *clntip) {
+static inline void initCashRequestData(struct cashRequestData *requestData, const char *clntip, char *resMimeType) {
 	requestData->cwId = NULL;
 	requestData->path = NULL;
 	requestData->clntip = clntip;
+	requestData->resMimeType = resMimeType;	
 }
 
 static char *cashStatusToResponseMsg(CS_CW_STATUS status) {
 	switch (status) {
 		case CW_OK:
 			return "200 OK";
+		case CW_DATADIR_NO:
 		case CWG_FETCH_ERR:
 		case CWG_WRITE_ERR:
 		case CW_SYS_ERR:
@@ -56,6 +60,7 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	const char *clntip = rd && rd->clntip ? rd->clntip : NULL;
 	const char *reqCwId = rd && rd->cwId ? rd->cwId : NULL;
 	const char *reqPath = rd && rd->path ? rd->path : NULL;
+	const char *mimeType = rd && rd->resMimeType ? rd->resMimeType : NULL;
 	if (reqCwId) { reqDBufSz += strlen(reqCwId); }
 	if (reqPath) { reqDBufSz += strlen(reqPath); }
 	char reqDescript[reqDBufSz]; reqDescript[0] = 0;
@@ -64,12 +69,18 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	char respStatus[bufSz];
 	if (status == CW_OK) {
 		if (reqCwId && reqPath) {
-			fprintf(stderr, "%s: serving file at identifier %s, path %s\n", clntip ? clntip : "?", reqCwId, reqPath);
+			fprintf(stderr, "%s: serving file at identifier %s, path %s: type '%s'\n",
+					 clntip ? clntip : "?", reqCwId, reqPath, mimeType ? mimeType : "unknown");
 		} else {
-			fprintf(stderr, "%s: serving file at identifier %s\n", clntip ? clntip : "?", reqCwId ? reqCwId : "?");
+			fprintf(stderr, "%s: serving file at identifier %s: type '%s'\n",
+					 clntip ? clntip : "?", reqCwId ? reqCwId : "?", mimeType ? mimeType : "unknown");
 		}
-		snprintf(respStatus, bufSz, "HTTP/1.1 %s\r\n\r\n",
-			 cashStatusToResponseMsg(status));
+
+		char contentTypeHeader[MIMETYPE_BUF+20]; contentTypeHeader[0] = 0;
+		if (mimeType) { snprintf(contentTypeHeader, sizeof(contentTypeHeader), "\r\nContent-Type: %s", mimeType); }
+
+		snprintf(respStatus, sizeof(respStatus), "HTTP/1.1 %s%s\r\n\r\n",
+			 cashStatusToResponseMsg(status), contentTypeHeader);
 	} else {
 		char *httpErrMsg = cashStatusToResponseMsg(status);
 		if (reqCwId && reqPath) {
@@ -78,7 +89,7 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 		else if (reqCwId) { snprintf(reqDescript, reqDBufSz, " - identifier: %s", reqCwId); }
 
 		snprintf(respStatus, bufSz,
-			"HTTP/1.1 %s\r\n\r\n<html><body><h1>%s</h1><h2>%s%s</h2></body></html>\r\n",
+			"HTTP/1.1 %s\r\nContent-Type: text/html\r\n\r\n<html><body><h1>%s</h1><h2>%s%s</h2></body></html>\r\n",
 			 httpErrMsg, httpErrMsg, errMsg, reqDescript);
 	}
 
@@ -86,13 +97,17 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 }
 
 static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int sockfd) {
+	char mimeTypePtr[MIMETYPE_BUF]; mimeTypePtr[0] = 0;
+
 	struct cashRequestData rd;
-	initCashRequestData(&rd, clntip);
+	initCashRequestData(&rd, clntip, mimeTypePtr);
+
 
 	struct CWG_params getParams;
 	init_CWG_params(&getParams, mongodb, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
+	getParams.saveMimeStr = mimeTypePtr;
 
 	int urlLen = strlen(url);
 
@@ -127,13 +142,16 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(struct MHD_Connection *connecti
 	const char *host = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, "Host");
 	if (host == NULL) { cashFoundHandler(CS_REQUEST_NO, NULL, sockfd); return CS_REQUEST_NO; }
 
+	char mimeTypePtr[MIMETYPE_BUF]; mimeTypePtr[0] = 0;
+
 	struct cashRequestData rd;
-	initCashRequestData(&rd, clntip);
+	initCashRequestData(&rd, clntip, mimeTypePtr);
 
 	struct CWG_params getParams;
 	init_CWG_params(&getParams, mongodb, bitdbNode);
 	getParams.foundHandler = &cashFoundHandler;	
 	getParams.foundHandleData = &rd;
+	getParams.saveMimeStr = mimeTypePtr;
 
 	int endPos = strlen(host);
 	int counter = 0;
