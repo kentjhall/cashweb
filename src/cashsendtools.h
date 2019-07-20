@@ -38,7 +38,7 @@ struct CWS_params {
  * initializes struct CWS_params
  * rpcServer, rpcPort, rpcUser, and rpcPass are required on init
  */
-inline void init_CWS_params(struct CWS_params *csp,
+static inline void init_CWS_params(struct CWS_params *csp,
 				   const char *rpcServer, unsigned short rpcPort, const char *rpcUser, const char *rpcPass) {
 	csp->rpcServer = rpcServer;
 	csp->rpcPort = rpcPort;
@@ -52,7 +52,7 @@ inline void init_CWS_params(struct CWS_params *csp,
 /*
  * copies struct CWS_params from source to dest
  */
-inline void copy_CWS_params(struct CWS_params *dest, struct CWS_params *source) {
+static inline void copy_CWS_params(struct CWS_params *dest, struct CWS_params *source) {
 	dest->rpcServer = source->rpcServer;
 	dest->rpcPort = source->rpcPort;
 	dest->rpcUser = source->rpcUser;

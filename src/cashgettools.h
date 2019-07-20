@@ -54,7 +54,7 @@ struct CWG_params {
  * either MongoDB or BitDB HTTP endpoint address must be specified on init
  * if both specified, will default to MongoDB within cashgettools
  */ 
-inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode) {
+static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode) {
 	if (!mongodb && !bitdbNode) {
 		fprintf(stderr, "WARNING: CWG_params must be provided with address for MongoDB or BitDB HTTP endpoint on init\n");
 	} 
@@ -74,7 +74,7 @@ inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const c
 /*
  * copy struct CWG_params from source to dest
  */
-inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
+static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
 	dest->mongodb = source->mongodb;
 	dest->mongodbCli = source->mongodbCli;
 	dest->bitdbNode = source->bitdbNode;
