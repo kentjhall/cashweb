@@ -69,10 +69,10 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	char respStatus[bufSz];
 	if (status == CW_OK) {
 		if (reqCwId && reqPath) {
-			fprintf(stderr, "%s: serving file at identifier %s, path %s: type '%s'\n",
+			fprintf(stderr, "%s: serving file at identifier %s, path %s, type '%s'\n",
 					 clntip ? clntip : "?", reqCwId, reqPath, mimeType ? mimeType : "unknown");
 		} else {
-			fprintf(stderr, "%s: serving file at identifier %s: type '%s'\n",
+			fprintf(stderr, "%s: serving file at identifier %s, type '%s'\n",
 					 clntip ? clntip : "?", reqCwId ? reqCwId : "?", mimeType ? mimeType : "unknown");
 		}
 

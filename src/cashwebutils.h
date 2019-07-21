@@ -42,6 +42,39 @@ static inline void freeDynamicMemory(struct DynamicMemory *dm) {
 }
 
 /*
+ * safely read entire line from fp using struct DynamicMemory, stripping newline character if present
+ * passed struct DynamicMemory must be initialized; lineBufStart is passed for initial sizing
+ * returns READLINE_YES on success, READLINE_NO on fgets() stopping (so file error/EOF still needs to be checked), or READLINE_ERR on unrelated error
+ */
+ #define READLINE_OK 0
+ #define READLINE_NO 1
+ #define READLINE_ERR 2
+static int safeReadLine(struct DynamicMemory *line, size_t lineBufStart, FILE *fp) {
+	resizeDynamicMemory(line, lineBufStart);
+	if (line->data == NULL) { return READLINE_ERR; }
+	bzero(line->data, line->size);
+
+	int lineLen;
+	char lastChar;
+	int offset = 0;
+	while (fgets(line->data+offset, line->size-1-offset, fp) != NULL) {
+		lineLen = strlen(line->data);
+		lastChar = line->data[lineLen-1];
+		if (lastChar != '\n' && !feof(fp)) {
+			offset = lineLen;
+			resizeDynamicMemory(line, line->size*2);
+			if (line->data == NULL) { return READLINE_ERR; }
+			bzero(line->data+offset, line->size-offset);
+			continue;
+		}
+		if (lastChar == '\n') { line->data[lineLen-1] = 0; }
+		return READLINE_OK;
+	}
+
+	return READLINE_NO;
+}
+
+/*
  * converts byte array of n bytes to hex str of len 2n, and writes to specified memory location
  * must ensure hexStr has sufficient memory allocated
  */

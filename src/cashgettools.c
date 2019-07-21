@@ -2,7 +2,7 @@
 #include "cashwebutils.h"
 
 /* general constants */
-#define LINE_BUF 250
+#define LINE_BUF 150
 #define MIME_STR_DEFAULT "application/octet-stream"
 
 /* MongoDB constants */
@@ -125,26 +125,11 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 
 	struct DynamicMemory line;
 	initDynamicMemory(&line);
-	resizeDynamicMemory(&line, LINE_BUF);
-	if (line.data == NULL) { return CW_SYS_ERR; }
-	bzero(line.data, line.size);
 
 	bool found = false;
 	int count = 0;
-	int lineLen;
-	int offset = 0;
-	while (fgets(line.data+offset, line.size-1-offset, dirFp) != NULL) {
-		lineLen = strlen(line.data);
-		if (line.data[lineLen-1] != '\n' && !feof(dirFp)) {
-			offset = lineLen;
-			resizeDynamicMemory(&line, line.size*2);
-			if (line.data == NULL) { return CW_SYS_ERR; }
-			bzero(line.data+offset, line.size-offset);
-			continue;
-		}
-		else if (offset > 0) { offset = 0; }
-		line.data[lineLen-1] = 0;
-
+	int readlineStatus;
+	while ((readlineStatus = safeReadLine(&line, LINE_BUF, dirFp)) == READLINE_OK) {
 		if (strlen(line.data) < 1) { break; }
 				
 		if (!found) {
@@ -155,14 +140,25 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 			}
 		}
 	}
-	if (ferror(dirFp)) { perror("fgets() error in CWG_dir_path_to_identifier()"); status = CW_SYS_ERR; }
+	if (ferror(dirFp)) { perror("fgets() failed on directory index"); status = CW_SYS_ERR; }
+	else if (readlineStatus == READLINE_ERR) { status = CW_SYS_ERR; }
 	if (status != CW_OK) { goto cleanup; }
 
 	if (count > 0) {
-		if (fseek(dirFp, CW_TXID_BYTES*(count-1), SEEK_CUR) < 0) { perror("fseek() SEEK_CUR failed"); status = CW_SYS_ERR; goto cleanup; }
-		if (fread(pathTxidBytes, CW_TXID_BYTES, 1, dirFp) < 1) { perror("fread() failed on dirFp"); status = CW_SYS_ERR; goto cleanup; }
+		if (fseek(dirFp, CW_TXID_BYTES*(count-1), SEEK_CUR) < 0) {
+			perror("fseek() SEEK_CUR failed on directory index");
+			status = CWG_FILE_ERR;
+			goto cleanup;
+		}
+		if (fread(pathTxidBytes, CW_TXID_BYTES, 1, dirFp) < 1) {
+			if (ferror(dirFp)) {
+				perror("fread() failed on directory index");
+				status = CW_SYS_ERR;
+			} else { status = CWG_FILE_ERR; }
+			goto cleanup;
+		}
 		byteArrToHexStr(pathTxidBytes, CW_TXID_BYTES, pathTxid);
-	} else { status = CWG_IN_DIR_NO; }
+	} else { status = CWG_IN_DIR_NO; } // this probably isn't necessary to set, as status starts at this value, but just in case
 
 	cleanup:
 		freeDynamicMemory(&line);
@@ -222,9 +218,6 @@ static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 	FILE *mimeTypes = NULL;
 	struct DynamicMemory line;
 	initDynamicMemory(&line);
-	resizeDynamicMemory(&line, LINE_BUF);
-	if (line.data == NULL) { status = CW_SYS_ERR; goto cleanup; }
-	bzero(line.data, line.size);
 
 	// checks for mime.types in data directory
 	if (access(mtFilePath, R_OK) == -1) {
@@ -244,23 +237,10 @@ static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 	bool matched = false;
 	bool mimeFileBad = false;
 	char *lineDataPtr;
-	int lineLen = 0;
-	int offset = 0;
 	CW_TYPE type = CW_T_MIMESET;	
-	while (fgets(line.data+offset, line.size-1-offset, mimeTypes) != NULL) {
-		lineLen = strlen(line.data);
-		if (line.data[lineLen-1] != '\n' && !feof(mimeTypes)) {
-			offset = lineLen;
-			resizeDynamicMemory(&line, line.size*2);
-			if (line.data == NULL) { status = CW_SYS_ERR; goto cleanup; }
-			bzero(line.data+offset, line.size-offset);
-			continue;
-		}
-		else if (offset > 0) { offset = 0; }
-		line.data[lineLen-1] = 0;
-
+	int readlineStatus;
+	while ((readlineStatus = safeReadLine(&line, LINE_BUF, mimeTypes)) == READLINE_OK) {
 		if (line.data[0] == '#') { continue; }
-
 		if (++type != cwType) { continue; }
 
 		if ((lineDataPtr = strchr(line.data, '\t')) == NULL) {
@@ -275,6 +255,7 @@ static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 		matched = true;
 	}
 	if (ferror(mimeTypes)) { perror("fgets() failed on mime.types"); status = CW_SYS_ERR; goto cleanup; }
+	else if (readlineStatus == READLINE_ERR) { status = CW_SYS_ERR; goto cleanup; }
 
 	// defaults to MIME_STR_DEFAULT if type not found
 	if (!matched) {
