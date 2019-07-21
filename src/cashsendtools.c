@@ -466,7 +466,7 @@ static int txDataSize(int hexDataLen, bool *extraByte) {
 	return dataSize + added; 
 }
 
-static CW_STATUS sendTxAttempt(const char **hexDatas, int hexDatasC, struct CWS_rpc_pack *rp, bool useUnconfirmed, bool sameFee, char *resTxid) {
+static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS_rpc_pack *rp, bool useUnconfirmed, bool sameFee, char *resTxid) {
 	CW_STATUS status;
 	json_t *jsonResult = NULL;
 	json_t *params;
@@ -668,13 +668,17 @@ static CW_STATUS sendTxAttempt(const char **hexDatas, int hexDatasC, struct CWS_
 		}
 		rtEditPtr[0] = txDataSzHex[0]; rtEditPtr[1] = txDataSzHex[1];
 
+		rtEditPtr += 2 + 2;
 		int removed = rtEditPtrS - rtEditPtr;
 		if (removed < 0) {
 			fprintf(stderr, "rawTx parsing error in sendTxAttempt(), editing pointer locations wrong; problem with cashsendtools\n");
 			free(rawTx);
 			return CW_SYS_ERR;
 		}
-		strcpy(rtEditPtr, rtEditPtrS); rawTx[strlen(rawTx)-removed] = 0;
+		int initLen = strlen(rawTx);
+		char temp[strlen(rtEditPtrS)+1]; temp[0] = 0;
+		strcat(temp, rtEditPtrS);
+		strcpy(rtEditPtr, temp); rawTx[initLen-removed] = 0;
 	}
 
 	// construct params for signed tx from raw tx
