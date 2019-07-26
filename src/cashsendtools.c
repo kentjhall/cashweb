@@ -6,7 +6,6 @@
 #define ERR_WAIT_CYCLE 5
 #define ERR_MSG_BUF 40
 #define RECOVERY_INFO_BUF 15
-#define RECOVERY_DATA_BUF 1000
 
 /* rpc method identifiers */
 #define RPC_M_GETBALANCE 0
@@ -18,34 +17,51 @@
 #define RPC_M_CREATERAWTRANSACTION 6
 #define RPC_M_SIGNRAWTRANSACTIONWITHWALLET 7
 #define RPC_M_SENDRAWTRANSACTION 8
-#define RPC_METHODS_COUNT 9
+#define RPC_M_GETRAWTRANSACTION 9
+#define RPC_M_LISTLOCKUNSPENT 10
+#define RPC_M_LOCKUNSPENT 11
+#define RPC_METHODS_COUNT 12
 
 /* tx sending constants */
 #define B_ERR_MSG_BUF 50
 #define B_ADDRESS_BUF 75
 #define B_AMNT_STR_BUF 32
+#define TX_AMNT_SATOSHIS(amnt_satoshis) (double)amnt_satoshis/100000000
 #define TX_OP_RETURN "6a"
 #define TX_OP_PUSHDATA1 "4c"
 #define TX_OP_PUSHDATA1_THRESHOLD 75
-#define TX_DUST_AMNT 0.00000545
+#define TX_DUST_AMNT TX_AMNT_SATOSHIS(545)
+#define TX_AMNT_SMALLEST TX_AMNT_SATOSHIS(1);
+#define TX_MAX_0CONF_CHAIN 25
 #define TX_BASE_SZ 10
 #define TX_INPUT_SZ 148
 #define TX_OUTPUT_SZ 34
 #define TX_DATA_BASE_SZ 10
+#define TX_SZ_CAP 100000
 
 /*
- * struct for carrying initialized bitcoinrpc_cl_t and bitcoinrpc_methods
+ * struct for carrying initialized bitcoinrpc_cl_t and bitcoinrpc_methods; for internal use by cashsendtools
  * cli: RPC client struct
  * methods: array of RPC method structs; contains only methods to be used by cashsendtools
- * unspents: JSON array of wallet's unspent UTXOS
- * costAccrued: tracks how much funds have been lost
+ * txsToSend: the expected number of TXs to be send; used for proactive UTXO creation;
+ 	      if left at zero, no extra UTXOs will be created in advance
+ * createdUtxos: JSON array of UTXOs created during/for send
+ * costCount: tracks how much has been spent throughout send
+ * txCount: tracks how many TXs have been sent throughout send
+ * justCounting: set to true if just counting cost/TXs; nothing is actually to be sent
+ * justTxCounting: set to true if just counting TXs; nothing is actually to be sent
  * errMsg: carries last RPC error message
  */
 struct CWS_rpc_pack {
 	bitcoinrpc_cl_t *cli;
 	struct bitcoinrpc_method *methods[RPC_METHODS_COUNT];
-	json_t *unspents;
-	double costAccrued;
+	size_t txsToSend;
+	json_t *createdUtxos;
+	size_t createdUtxosCount;
+	double costCount;
+	size_t txCount;
+	bool justCounting;
+	bool justTxCounting;
 	char errMsg[ERR_MSG_BUF];
 };
 
@@ -131,9 +147,9 @@ static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, struct CWS_para
 /*
  * sends file from stream (in accordance with params) via RPC and writes resultant txid to resTxid,
    or in case of failure, writes the amount of funds lost (accounts for saved recovery data, so may amount to less than accrued cost)
- * depth can be specified in case of sending from recovery data
+ * starting depth (sDepth) can be specified in case of sending from recovery data
  */
-static CW_STATUS sendFileFromStream(FILE *stream, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, int depth, double *fundsLost, char *resTxid);
+static CW_STATUS sendFileFromStream(FILE *stream, int sDepth, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, double *fundsLost, char *resTxid);
 
 /*
  * sends file at given path (in accordance with params) via RPC and writes resultant txid to resTxid,
@@ -145,6 +161,18 @@ static CW_STATUS sendFileFromPath(const char *path, struct CWS_rpc_pack *rpcPack
  * recursively scans directory to determine the number of sendable files and writes to count
  */
 static CW_STATUS scanDirFileCount(char const *ftsPathArg[], int *count);
+
+/*
+ * sends directory at given path (in accordance with params) via RPC and writes resultant txid to resTxid,
+   or in case of failure, writes the amount of funds lost (accounts for saved recovery data, so may amount to less than accrued cost)
+ * all files in directory are sent with given params; will send directory index at end unless otherwise specified by params
+ */
+static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, double *fundsLost, char *resTxid);
+
+/*
+ * wrapper function for choosing between sendFileFromPath or sendDirFromPath based on specified asDir
+ */
+static inline CW_STATUS sendFromPath(const char *path, bool asDir, struct CWS_rpc_pack *rp, struct CWS_params *csp, double *fundsLost, char *resTxid);
 
 /*
  * initializes RPC environment, RPC client (as per credentials in params), and necessary RPC methods
@@ -159,7 +187,69 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
  */
 static void cleanupRpc(struct CWS_rpc_pack *rpcPack);
 
+/*
+ * struct CWS_sender stores a send function pointer and its arguments; strictly for internal use by cashsendtools
+ * really only exists to avoid some repetitive code
+ */
+struct CWS_sender {
+	CW_STATUS (*fromStream) (FILE *, int, struct CWS_rpc_pack *, struct CWS_params *, double *, char *);
+	CW_STATUS (*fromPath) (const char *, bool, struct CWS_rpc_pack *, struct CWS_params *, double *, char *);
+	FILE *stream;
+	int sDepth;
+	const char *path;
+	bool asDir;
+	struct CWS_rpc_pack *rp;
+	struct CWS_params *csp;
+};
+
+/*
+ * initializes given struct CWS_sender for a stream send
+ */
+static inline void init_CWS_sender_for_stream(struct CWS_sender *css, FILE *stream, int sDepth, struct CWS_rpc_pack *rp, struct CWS_params *csp);
+
+/*
+ * initializes given struct CWS_sender for a path send
+ */
+static inline void init_CWS_sender_for_path(struct CWS_sender *css, const char *path, bool asDir, struct CWS_rpc_pack *rp, struct CWS_params *csp);
+
+/*
+ * runs through send function specified in given struct CWS_sender without actually sending, to count both cost and txid count
+ * writes to txCount and costCount
+ */
+static CW_STATUS countBySender(struct CWS_sender *sender, size_t *txCount, double *costCount);
+
+/*
+ * sends by send function specified in given struct CWS_sender with arguments
+ * writes to both fundsLost and resTxid
+ */
+static CW_STATUS sendBySender(struct CWS_sender *sender, double *fundsLost, char *resTxid);
+
 /* ------------------------------------- PUBLIC ------------------------------------- */
+
+CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid) {
+	struct stat st;
+	if (stat(path, &st) != 0) { perror("stat() failed"); return CW_SYS_ERR; }
+
+	CW_STATUS status;
+
+	struct CWS_rpc_pack rpcPack;
+	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
+	
+	struct CWS_sender sender;
+	init_CWS_sender_for_path(&sender, path, S_ISDIR(st.st_mode), &rpcPack, params);
+
+	// analyze UTXO requirements in advance; writes to rpcPack
+	if (params->fragUtxos == 1) {
+		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+	} else { rpcPack.txsToSend = params->fragUtxos; }
+
+	status = sendBySender(&sender, fundsLost, resTxid);
+	
+	cleanup:
+		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costCount; }
+		cleanupRpc(&rpcPack);
+		return status;
+}
 
 CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid) {
 	CW_STATUS status;
@@ -167,11 +257,28 @@ CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *
 	struct CWS_rpc_pack rpcPack;
 	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
 
-	status = sendFileFromStream(stream, &rpcPack, params, 0, fundsLost, resTxid);	
+	// read stream into tmpfile to ensure it can be rewinded
+	FILE *streamCopy;
+	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
+	if (!copyStreamData(streamCopy, stream)) { status = CW_SYS_ERR; goto cleanup; }
+	rewind(streamCopy);
+
+	struct CWS_sender sender;
+	init_CWS_sender_for_stream(&sender, streamCopy, 0, &rpcPack, params);
+
+	// analyze UTXO requirements in advance; writes to rpcPack
+	if (params->fragUtxos == 1) {
+		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+	} else { rpcPack.txsToSend = params->fragUtxos; }
+	rewind(streamCopy);
+
+	status = sendBySender(&sender, fundsLost, resTxid);
 	
-	if (fundsUsed != NULL) { *fundsUsed = rpcPack.costAccrued; }
-	cleanupRpc(&rpcPack);
-	return status;
+	cleanup:
+		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costCount; }
+		if (streamCopy) { fclose(streamCopy); }
+		cleanupRpc(&rpcPack);
+		return status;
 }
 
 CW_STATUS CWS_send_from_recovery_stream(FILE *recoveryStream, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid) {
@@ -180,124 +287,140 @@ CW_STATUS CWS_send_from_recovery_stream(FILE *recoveryStream, struct CWS_params 
 	struct CWS_rpc_pack rpcPack;
 	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
 
+	FILE *streamCopy = NULL;
+
 	struct DynamicMemory line;
 	initDynamicMemory(&line);
 
+	// get data at beginning of recovery stream
 	int readlineStatus;
-	if ((readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK) { goto cleanup; }
+	if ((readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK) { status = CW_SYS_ERR; goto cleanup; }
 	params->cwType = atoi(line.data);
-	if ((readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK) { goto cleanup; }
+	if ((readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK) { status = CW_SYS_ERR; goto cleanup; }
 	params->maxTreeDepth = atoi(line.data);
-	if ((readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK) { goto cleanup; }
+	if ((readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK) { status = CW_SYS_ERR; goto cleanup; }
 	int depth = atoi(line.data);
 
-	status = sendFileFromStream(recoveryStream, &rpcPack, params, depth, fundsLost, resTxid);
+	// read stream into tmpfile to ensure it can be rewinded
+	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
+	if (!copyStreamData(streamCopy, recoveryStream)) { status = CW_SYS_ERR; goto cleanup; }
+	rewind(streamCopy);
 
+	struct CWS_sender sender;
+	init_CWS_sender_for_stream(&sender, streamCopy, depth, &rpcPack, params);
+
+	// analyze UTXO requirements in advance; writes to rpcPack
+	if (params->fragUtxos == 1) {
+		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+	} else { rpcPack.txsToSend = params->fragUtxos; }
+	rewind(streamCopy);
+
+	status = sendBySender(&sender, fundsLost, resTxid);
+		
 	cleanup:
-		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costAccrued; }
 		if (ferror(recoveryStream)) { perror("fgets() failed on recovery stream"); status = CW_SYS_ERR; }
-		else if (readlineStatus == READLINE_ERR) { status = CW_SYS_ERR; }
+		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costCount; }
+		if (streamCopy) { fclose(streamCopy); }
+		freeDynamicMemory(&line);
 		cleanupRpc(&rpcPack);
 		return status;
 }
 
-CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid) {
+CW_STATUS CWS_estimate_cost_from_path(const char *path, struct CWS_params *params, size_t *txCount, double *costEstimate) {
+	struct stat st;
+	if (stat(path, &st) != 0) { perror("stat() failed"); return CW_SYS_ERR; }
+
 	CW_STATUS status;
 
 	struct CWS_rpc_pack rpcPack;
-	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
+	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }	
 
-	status = sendFileFromPath(path, &rpcPack, params, fundsLost, resTxid);
-	
-	if (fundsUsed != NULL) { *fundsUsed = rpcPack.costAccrued; }
-	cleanupRpc(&rpcPack);
-	return status;
-}
+	struct CWS_sender sender;
+	init_CWS_sender_for_path(&sender, path, S_ISDIR(st.st_mode), &rpcPack, params);
 
-CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid) {
-	CW_STATUS status;
+	// analyze UTXO requirements in advance; writes to rpcPack
+	if (params->fragUtxos == 1) {
+		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+	} else { rpcPack.txsToSend = params->fragUtxos; }
 
-	struct CWS_rpc_pack rpcPack;
-	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
-
-	// get directory file count in advance, for memory allocation purposes
-	char const *ftsPathArg[] = { path, NULL };
-	int numFiles;
-	if ((status = scanDirFileCount(ftsPathArg, &numFiles)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
-
-	// initializing variable-length array before goto statements
-	char txidsByteData[numFiles*CW_TXID_BYTES];
-
-	// initializing these here in case of failure
-	FTS *ftsp = NULL;
-	FILE *tmpDirFp = NULL;
-
-	int fts_options = FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR;
-	if ((ftsp = fts_open((char * const *)ftsPathArg, fts_options, NULL)) == NULL) {
-		perror("fts_open() failed");
-		status = CW_SYS_ERR;
-		goto cleanup;
-	}
-	int pathLen = strlen(path);
-
-	if ((tmpDirFp = tmpfile()) == NULL) {
-		perror("tmpfile() failed");
-		status = CW_SYS_ERR;
-		goto cleanup;
-	}
-
-	char txid[CW_TXID_CHARS+1];
-
-	// find and send all files in directory
-	int count = 0;
-	FTSENT *p;
-	while ((p = fts_read(ftsp)) != NULL && count < numFiles) {
-		if (p->fts_info == FTS_F && strncmp(p->fts_path, path, pathLen) == 0) {
-			fprintf(stderr, "Sending %s", p->fts_path+pathLen);
-
-			// create a clean copy of params for every file, as they may be altered during send
-			struct CWS_params fileParams;
-			copy_CWS_params(&fileParams, params);
-
-			if ((status = sendFileFromPath(p->fts_path, &rpcPack, &fileParams, fundsLost, txid)) != CW_OK) { goto cleanup; }
-			fprintf(stderr, "%s\n\n", txid);
-
-			// txids are stored as byte data (rather than hex string) in txidsByteData
-			if (hexStrToByteArr(txid, 0, txidsByteData+(count*CW_TXID_BYTES)) != CW_TXID_BYTES) {
-				fprintf(stderr, "invalid txid from sendFile(); problem with cashsendtools\n");
-				status = CW_SYS_ERR;
-				goto cleanup;
-			}
-			++count;
-
-			// write file path to directory index
-			if (fprintf(tmpDirFp, "%s\n", p->fts_path+pathLen) < 0) {
-				perror("fprintf() to tmpDirFp failed");
-				status = CW_SYS_ERR;
-				goto cleanup;
-			}
-		}
-	}
-	// necessary empty line between path information and txid byte data
-	if (fprintf(tmpDirFp, "\n") < 0) { perror("fprintf() to tmpDirFp failed"); status = CW_SYS_ERR; goto cleanup; }
-	// write txid byte data to directory index
-	if (fwrite(txidsByteData, CW_TXID_BYTES, numFiles, tmpDirFp) < numFiles) { perror("fwrite() to tmpDirFp failed");
-										   status = CW_SYS_ERR; goto cleanup; }
-
-	// send directory index
-	rewind(tmpDirFp);
-	fprintf(stderr, "Sending directory index");
-	struct CWS_params dirIndexParams;
-	copy_CWS_params(&dirIndexParams, params);
-	dirIndexParams.cwType = CW_T_DIR;
-	if ((status = sendFileFromStream(tmpDirFp, &rpcPack, &dirIndexParams, 0, fundsLost, resTxid)) != CW_OK) { goto cleanup; }
+	status = countBySender(&sender, txCount, costEstimate);
 
 	cleanup:
-		if (tmpDirFp) { fclose(tmpDirFp); }
-		if (ftsp) { fts_close(ftsp); }
-		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costAccrued; }
 		cleanupRpc(&rpcPack);
-		return status;	
+		return status;
+}
+
+CW_STATUS CWS_estimate_cost_from_stream(FILE *stream, struct CWS_params *params, size_t *txCount, double *costEstimate) {
+	CW_STATUS status;
+
+	struct CWS_rpc_pack rpcPack;
+	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }	
+
+	// read stream into tmpfile to ensure it can be rewinded
+	FILE *streamCopy;
+	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
+	if (!copyStreamData(streamCopy, stream)) { status = CW_SYS_ERR; goto cleanup; }
+	rewind(streamCopy);
+
+	struct CWS_sender sender;
+	init_CWS_sender_for_stream(&sender, streamCopy, 0, &rpcPack, params);
+
+	// analyze UTXO requirements in advance; writes to rpcPack
+	if (params->fragUtxos == 1) {
+		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+		rewind(streamCopy);
+	} else { rpcPack.txsToSend = params->fragUtxos; }
+
+	status = countBySender(&sender, txCount, costEstimate);
+
+	cleanup:
+		if (streamCopy) { fclose(streamCopy); }
+		cleanupRpc(&rpcPack);
+		return status;
+}
+
+CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CWS_params *params, size_t *txCount, double *costEstimate) {
+	CW_STATUS status;
+
+	struct CWS_rpc_pack rpcPack;
+	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }
+
+	FILE *streamCopy = NULL;
+	struct DynamicMemory line;
+	initDynamicMemory(&line);
+
+	// read through first few lines to get to depth
+	int readlineStatus;
+	if ((readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK ||
+	    (readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK ||
+	    (readlineStatus = safeReadLine(&line, RECOVERY_INFO_BUF, recoveryStream)) != READLINE_OK) {
+		if (ferror(recoveryStream)) { perror("fgets() failed on recovery stream"); }
+		status = CW_SYS_ERR;
+		goto cleanup;
+	}
+	int depth = atoi(line.data);
+
+	// read stream into tmpfile to ensure it can be rewinded
+	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
+	if (!copyStreamData(streamCopy, recoveryStream)) { status = CW_SYS_ERR; goto cleanup; }
+	rewind(streamCopy);
+
+	struct CWS_sender sender;
+	init_CWS_sender_for_stream(&sender, streamCopy, depth, &rpcPack, params);
+
+	// analyze UTXO requirements in advance; writes to rpcPack
+	if (params->fragUtxos == 1) {
+		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+		rewind(streamCopy);
+	} else { rpcPack.txsToSend = params->fragUtxos; }
+
+	status = countBySender(&sender, txCount, costEstimate);
+
+	cleanup:
+		if (streamCopy) { fclose(streamCopy); }
+		freeDynamicMemory(&line);
+		cleanupRpc(&rpcPack);
+		return status;
 }
 
 CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params *csp) {
@@ -360,10 +483,7 @@ CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params
 	else if (readlineStatus == READLINE_ERR) { status = CW_SYS_ERR; goto cleanup; }
 
 	// defaults to CW_T_FILE if extension not matched
-	if (!matched) {
-		fprintf(stderr, "\ncashsendtools failed to match '%s' to anything in mime.types; defaults to CW_T_FILE\n", fname);
-		csp->cwType = CW_T_FILE;
-	}
+	if (!matched) { csp->cwType = CW_T_FILE; }
 
 	cleanup:
 		freeDynamicMemory(&line);
@@ -467,7 +587,7 @@ static int txDataSize(int hexDataLen, bool *extraByte) {
 }
 
 static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS_rpc_pack *rp, bool useUnconfirmed, bool sameFee, char *resTxid) {
-	CW_STATUS status;
+	CW_STATUS status = CW_OK;
 	json_t *jsonResult = NULL;
 	json_t *params;
 	
@@ -483,18 +603,23 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS
 		jsonResult = NULL;
 	}
 
-	// get unspent utxos (may or may not include unconfirmed) if not yet present in rp;
-	// carrying these around in struct CW_rpc_pack for limiting RPC calls, as list of unspents can get rather long
-	size_t numUnspents = rp->unspents ? json_array_size(rp->unspents) : 0;
-	if (!rp->unspents || numUnspents == 0) {
-		if (rp->unspents) { json_decref(rp->unspents); rp->unspents = NULL; }
-		if ((status = rpcCall(rp, useUnconfirmed ? RPC_M_LISTUNSPENT_0 : RPC_M_LISTUNSPENT, NULL, &rp->unspents)) != CW_OK) {
-			if (rp->unspents) { json_decref(rp->unspents); rp->unspents = NULL; }
+	// get unspent utxos if createdUtxos don't already exist in rp;
+	// otherwise, use the already-created utxos
+	if (rp->createdUtxos && rp->createdUtxosCount <= 0) { json_decref(rp->createdUtxos); rp->createdUtxos = NULL; rp->createdUtxosCount = 0; }
+	json_t *unspents;
+	size_t numUnspents;
+	if (!rp->createdUtxos || rp->createdUtxosCount < rp->txsToSend) {
+		if ((status = rpcCall(rp, useUnconfirmed ? RPC_M_LISTUNSPENT_0 : RPC_M_LISTUNSPENT, NULL, &unspents)) != CW_OK) {
+			if (unspents) { json_decref(unspents); }
 			return status;
 		}
-		if ((numUnspents = json_array_size(rp->unspents)) == 0) { return useUnconfirmed ? CWS_FUNDS_NO : CWS_CONFIRMS_NO; }
-	}
-	bool usedUnspents[numUnspents]; memset(usedUnspents, 0, numUnspents);
+		if ((numUnspents = json_array_size(unspents)) == 0 && !rp->justCounting) {
+			json_decref(unspents);
+			return useUnconfirmed ? CWS_FUNDS_NO : CWS_CONFIRMS_NO;
+		}
+	} else { unspents = rp->createdUtxos; numUnspents = rp->createdUtxosCount; }
+	bool usedUnspents[numUnspents > 0 ? numUnspents : 1]; memset(usedUnspents, 0, numUnspents);
+	double inputAmnts[numUnspents > 0 ? numUnspents : 1]; memset(inputAmnts, 0, numUnspents*sizeof(inputAmnts[0]));
 
 	json_t *utxo;
 	json_t *input;
@@ -510,6 +635,8 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS
 		if (hexDatasC > 1) {
 			if ((dataSz = hexLen/2) > 255) {
 				fprintf(stderr, "sendTxAttempt() doesn't support data >255 bytes; cashsendtools may need revision if this standard has changed\n");
+				
+				if (!rp->createdUtxos) { json_decref(unspents); }	
 				return CW_SYS_ERR;
 			}
 			else if (extraByte) { strcat(txHexData, TX_OP_PUSHDATA1); }
@@ -518,23 +645,39 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS
 			strcat(txHexData, szHex);
 			strcat(txHexData, hexDatas[i]);
 		}
-	}
+	}		
 
-	int numInputs = 0;
-	int size;
+	size_t changeOutCount;
+	double reuseChangeAmnt;
+	if ((!rp->createdUtxos && rp->txsToSend >= TX_MAX_0CONF_CHAIN) || (rp->createdUtxos && rp->createdUtxosCount < rp->txsToSend)) {
+		if (useUnconfirmed && sameFee && !rp->justCounting) { fprintf(stderr, "Distributing UTXOs..."); }
+		changeOutCount = 1 + (rp->txsToSend - 1) - rp->createdUtxosCount;
+		reuseChangeAmnt = feePerByte*(TX_BASE_SZ+TX_INPUT_SZ+TX_OUTPUT_SZ+TX_DATA_BASE_SZ+CW_TX_RAW_DATA_BYTES) + TX_DUST_AMNT+TX_AMNT_SMALLEST;
+	} else {
+		changeOutCount = 1;
+		reuseChangeAmnt = 0;
+	}
+	double totalReuseChange = reuseChangeAmnt*(changeOutCount-1);
+
+	size_t size = TX_BASE_SZ + (TX_OUTPUT_SZ*changeOutCount) + TX_DATA_BASE_SZ + txDataSz;
 	double totalAmnt = 0;
-	double fee = 0.00000001; // arbitrary
+	double fee = TX_AMNT_SMALLEST; // arbitrary
 	double changeAmnt = 0;	
-	double changeLost = 0;
+	double changeLost = 0;	
+	size_t inputsCount = 0;
 
 	char txid[CW_TXID_CHARS+1];
 	int vout;
-	if ((inputParams = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
-	
+	if ((inputParams = json_array()) == NULL) {
+		perror("json_array() failed");
+		if (!rp->createdUtxos) { json_decref(unspents); }	
+		return CW_SYS_ERR;
+	}
+
 	// iterate through unspent utxos
 	for (int i=0; i<numUnspents; i++) {
 		// pull utxo data
-		utxo = json_array_get(rp->unspents, i);
+		utxo = json_array_get(unspents, i);
 
 		// copy txid from utxo data to memory
 		txid[0] = 0;
@@ -547,50 +690,91 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS
 		if ((input = json_object()) == NULL) {
 			perror("json_object() failed");
 			json_decref(inputParams);
+			if (!rp->createdUtxos) { json_decref(unspents); }
 			return CW_SYS_ERR;
 		}
 		json_object_set_new(input, "txid", json_string(txid));
 		json_object_set_new(input, "vout", json_integer(vout));
 
-		// remove used unspent from stored array
+		// set used unspent to be removed from stored array
 		usedUnspents[i] = true;
 
 		// add input to input parameters
 		json_array_append(inputParams, input);
 		json_decref(input);
-		numInputs += 1;
 	
 		// add amount from utxo data to total amount
-		totalAmnt += json_real_value(json_object_get(utxo, "amount"));
+		totalAmnt += (inputAmnts[inputsCount] = json_real_value(json_object_get(utxo, "amount")));
 
 		// calculate size, fee, and change amount
-		size = TX_BASE_SZ + (TX_INPUT_SZ*numInputs) + TX_OUTPUT_SZ + TX_DATA_BASE_SZ + txDataSz;
+		size += TX_INPUT_SZ; 
 		fee = feePerByte * size;
-		changeAmnt = totalAmnt - fee;
+		changeAmnt = totalAmnt - (totalReuseChange + fee);
+		changeAmnt = changeAmnt > 0 ? changeAmnt : 0;
 		// drop the change if less than cost of adding an additional input
 		if (changeAmnt < feePerByte*(TX_INPUT_SZ)) { fee = feePerByte*(size-TX_OUTPUT_SZ); changeLost = changeAmnt; changeAmnt = 0; }
 
-		if (totalAmnt >= fee && (changeAmnt > TX_DUST_AMNT || changeAmnt == 0)) { break; }
-	}	
-	for (int i=0; i<numUnspents; i++) { if (usedUnspents[i]) { json_array_remove(rp->unspents, i); } }
+		++inputsCount;
+
+		if (totalAmnt >= totalReuseChange + fee && (changeAmnt > TX_DUST_AMNT || changeAmnt == 0)) { break; }
+	}		
+	if (unspents != rp->createdUtxos) { json_decref(unspents); }		
 
 	// give up if insufficient funds
-	if (totalAmnt < fee) { json_decref(inputParams); return CWS_FUNDS_NO; }
+	if (totalAmnt < fee + totalReuseChange) {
+		if (!rp->justCounting) { json_decref(inputParams); return useUnconfirmed ? CWS_FUNDS_NO : CWS_CONFIRMS_NO; }
+		else {
+			// when just counting, will assume an extra input is to be added
+			size += TX_INPUT_SZ; fee = feePerByte*size; changeLost = 0;
+		}
+	}	
 
-	// get change address and copy to memory
-	char changeAddr[B_ADDRESS_BUF]; changeAddr[0] = 0;
-	if ((status = rpcCall(rp, RPC_M_GETRAWCHANGEADDRESS, NULL, &jsonResult)) != CW_OK) {
-		json_decref(inputParams);
-		if (jsonResult) { json_decref(jsonResult); }
-		return status;
+	// reduce number of extra change outputs if/while the size hits TX_SZ_CAP
+	// also removes unnecessary inputs given reduced outputs
+	if (changeOutCount > 1) {
+		bool removedIns = false;
+		while (size >= TX_SZ_CAP && --changeOutCount > 1) {
+			totalReuseChange = reuseChangeAmnt*(changeOutCount-1);
+			
+			size -= TX_OUTPUT_SZ;
+			fee = feePerByte * size;	
+
+			json_t *dummy;
+			size_t i;
+			json_array_foreach(inputParams, i, dummy) {
+				if (totalAmnt - inputAmnts[i] >= totalReuseChange + fee) {
+					json_array_set_new(inputParams, i, json_null());
+					removedIns = true;
+
+					totalAmnt -= inputAmnts[i];
+					size -= TX_INPUT_SZ;
+					fee = feePerByte * size;
+				}
+			}
+
+			changeAmnt = totalAmnt - (totalReuseChange + fee); changeAmnt = changeAmnt > 0 ? changeAmnt : 0;
+			if (changeAmnt < feePerByte*(TX_INPUT_SZ)) { fee = feePerByte*(size-TX_OUTPUT_SZ); changeLost = changeAmnt; changeAmnt = 0; }
+		}
+		if (removedIns) {
+			json_t *inputParamsN = json_array();
+			if (!inputParamsN) { perror("json_array() failed"); json_decref(inputParams); return CW_SYS_ERR; }
+
+			json_t *input;
+			size_t i;
+			json_array_foreach(inputParams, i, input) {
+				if (!json_is_null(input)) { json_array_append(inputParamsN, input); }
+			}
+
+			json_decref(inputParams);
+			inputParams = inputParamsN;
+		}
 	}
-	strncat(changeAddr, json_string_value(jsonResult), B_ADDRESS_BUF-1);
-	json_decref(jsonResult);
-	jsonResult = NULL;
-	if (strlen(changeAddr) == B_ADDRESS_BUF-1) {
-		fprintf(stderr, "B_ADDRESS_BUF may not set high enough, probably needs to be updated for a new standard; problem with cashsendtools\n");
+	
+	if (rp->justCounting) {
+		// skip unnecessary RPC calls when just counting
 		json_decref(inputParams);
-		return CW_SYS_ERR;
+		if (changeAmnt <= TX_DUST_AMNT && changeLost == 0) { changeLost = changeAmnt; }
+		goto nosend;
 	}
 
 	// construct output for data 
@@ -599,17 +783,57 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS
 		json_decref(inputParams);
 		return CW_SYS_ERR;
 	}	
-	json_object_set_new(outputParams, "data", json_string(hexDatasC > 1 ? txHexData : *hexDatas));
+	json_object_set_new(outputParams, "data", json_string(hexDatasC > 1 ? txHexData : *hexDatas));	
+
+	// create reuse change amount string
+	char reuseChangeAmntStr[B_AMNT_STR_BUF];
+	if (snprintf(reuseChangeAmntStr, B_AMNT_STR_BUF, "%.8f", reuseChangeAmnt) >= B_AMNT_STR_BUF) {
+		fprintf(stderr, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
+		json_decref(inputParams);
+		json_decref(outputParams);
+		return CW_SYS_ERR;
+	}
+
+	// construct output(s) for reuse change
+	for (int i=0; i<changeOutCount-1; i++) {
+		// get change address(es) and copy to memory
+		if ((status = rpcCall(rp, RPC_M_GETRAWCHANGEADDRESS, NULL, &jsonResult)) != CW_OK) {
+			json_decref(inputParams);
+			json_decref(outputParams);
+			if (jsonResult) { json_decref(jsonResult); }
+			return status;
+		}
+		char changeAddr[strlen(json_string_value(jsonResult))+1];
+		strcpy(changeAddr, json_string_value(jsonResult));
+		json_decref(jsonResult);
+		jsonResult = NULL;
+
+		json_object_set_new(outputParams, changeAddr, json_string(reuseChangeAmntStr));
+	}	
 
 	// construct output for change (if more than dust)	
-	if (changeAmnt > TX_DUST_AMNT) {
+	if (changeAmnt > TX_DUST_AMNT) {		
+		// create change amount string
 		char changeAmntStr[B_AMNT_STR_BUF];
-		if (snprintf(changeAmntStr, B_AMNT_STR_BUF, "%.8f", changeAmnt) > B_AMNT_STR_BUF-1) {
+		if (snprintf(changeAmntStr, B_AMNT_STR_BUF, "%.8f", changeAmnt) >= B_AMNT_STR_BUF) {
 			fprintf(stderr, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
 			json_decref(inputParams);
 			json_decref(outputParams);
 			return CW_SYS_ERR;
 		}
+
+		// get change address and copy to memory
+		if ((status = rpcCall(rp, RPC_M_GETRAWCHANGEADDRESS, NULL, &jsonResult)) != CW_OK) {
+			json_decref(inputParams);
+			json_decref(outputParams);
+			if (jsonResult) { json_decref(jsonResult); }
+			return status;
+		}
+		char changeAddr[strlen(json_string_value(jsonResult))+1];
+		strcpy(changeAddr, json_string_value(jsonResult));
+		json_decref(jsonResult);
+		jsonResult = NULL;
+
 		json_object_set_new(outputParams, changeAddr, json_string(changeAmntStr));
 	} else if (changeLost == 0) { changeLost = changeAmnt; }
 
@@ -714,8 +938,9 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS
 	// send transaction and handle potential errors
 	status = rpcCall(rp, RPC_M_SENDRAWTRANSACTION, params, &jsonResult);
 	json_decref(params);
+
 	if (status == CW_OK) {
-		rp->costAccrued += fee + changeLost;
+		rp->costCount += fee + changeLost;
 		strncpy(resTxid, json_string_value(jsonResult), CW_TXID_CHARS);
 		resTxid[CW_TXID_CHARS] = 0;
 		fprintf(stderr, "-");
@@ -730,11 +955,63 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], int hexDatasC, struct CWS
 		return status;
 	}
 	json_decref(jsonResult);
+	jsonResult = NULL;
+
+	nosend:
+	if (rp->justCounting) { rp->costCount += fee + changeLost; memset(resTxid, 'F', CW_TXID_CHARS); resTxid[CW_TXID_CHARS] = 0; }
+	if (status == CW_OK || status == CWS_INPUTS_NO) {
+		if (unspents == rp->createdUtxos) {
+			size_t count = rp->createdUtxosCount;
+			for (int i=0; i<count; i++) {
+				if (usedUnspents[i]) { json_array_remove(rp->createdUtxos, i); --rp->createdUtxosCount; }	
+			}	
+		}
+	}
+	if (status == CW_OK) {
+		if (rp->txsToSend > 0) { --rp->txsToSend; }
+		if (unspents != rp->createdUtxos) {
+			json_t *reuseUtxo;
+			if (rp->createdUtxos == NULL &&
+			   (rp->createdUtxos = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
+			for (int i=0; i<changeOutCount-1; i++) {
+				if ((reuseUtxo = json_object()) == NULL) { perror("json_object() failed"); return CW_SYS_ERR; }
+				json_object_set_new(reuseUtxo, "txid", json_string(resTxid));
+				json_object_set_new(reuseUtxo, "vout", json_integer(i+1));
+				json_object_set_new(reuseUtxo, "amount", json_real(reuseChangeAmnt));
+				json_array_append(rp->createdUtxos, reuseUtxo);
+				json_decref(reuseUtxo);
+				++rp->createdUtxosCount;
+			}
+
+			if (rp->createdUtxosCount >= rp->txsToSend && !rp->justCounting) {
+				fprintf(stderr, "Waiting on 1-conf...");
+				int confs;
+				json_t *params;
+				if ((params = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
+				json_array_append_new(params, json_string(resTxid));
+				json_array_append_new(params, json_boolean(true));
+				do {
+					if ((status = rpcCall(rp, RPC_M_GETRAWTRANSACTION, params, &jsonResult)) != CW_OK) {
+						if (jsonResult) { json_decref(jsonResult); }
+						json_decref(params);
+						return status;
+					}
+					confs = json_integer_value(json_object_get(jsonResult, "confirmations"));
+					json_decref(jsonResult);
+					jsonResult = NULL;
+				} while (confs < 1);
+				json_decref(params);
+			}
+		}
+	}
 
 	return status;
 }
 
-static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pack *rp, char *resTxid) {
+static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pack *rp, char *resTxid) {	
+	++rp->txCount;
+	if (rp->justTxCounting) { memset(resTxid, 'F', CW_TXID_CHARS); resTxid[CW_TXID_CHARS] = 0; return CW_OK; }
+
 	bool printed = false;
 	int count = 0; 
 	double balance;
@@ -751,7 +1028,6 @@ static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pac
 				do {
 					if (!printed) { fprintf(stderr, "Insufficient balance, send more funds..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
-					fprintf(stderr, ".");
 					if ((checkBalStatus = checkBalance(rp, &balanceN)) != CW_OK) { return checkBalStatus; }
 				} while (balanceN <= balance);
 				break;
@@ -759,19 +1035,17 @@ static CW_STATUS sendTx(const char **hexDatas, int hexDatasC, struct CWS_rpc_pac
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, rp, false, true, resTxid)) == CWS_CONFIRMS_NO) {
 					if (!printed) { fprintf(stderr, "Waiting on confirmations..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
-					fprintf(stderr, ".");
 				}
 				break;
 			case CWS_FEE_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, rp, true, false, resTxid)) == CWS_FEE_NO) {
 					if (!printed) { fprintf(stderr, "Fee problem, attempting to resolve..."); printed = true; }
-					fprintf(stderr, ".");
 				}
 				break;
 			case CWS_INPUTS_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, rp, true, true, resTxid)) == CWS_INPUTS_NO) {
 					if (!printed) { fprintf(stderr, "Bad UTXOS, attempting to resolve..."); printed = true; }
-					if (rp->unspents && json_array_size(rp->unspents) == 0 && ++count >= 2) { break; }
+					if (rp->createdUtxos && json_array_size(rp->createdUtxos) == 0 && ++count >= 2) { break; }
 				}
 				if (status == CWS_INPUTS_NO) { return status; }
 				break;
@@ -849,12 +1123,7 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
 
 	// write recovery data to recovery stream
 	rewind(recoveryData);
-	char buf[RECOVERY_DATA_BUF];
-	size_t n;
-	while ((n = fread(buf, 1, RECOVERY_DATA_BUF, recoveryData)) > 0) {
-		if (fwrite(buf, 1, n, params->recoveryStream) < n) { perror("fwrite() failed"); err = true; goto cleanup; }	
-	}
-	if (ferror(recoveryData)) { perror("fread() failed"); err = true; goto cleanup; }
+	if (!copyStreamData(params->recoveryStream, recoveryData)) { err = true; goto cleanup; }
 
 	cleanup:
 		freeDynamicMemory(&info);
@@ -949,7 +1218,7 @@ static CW_STATUS sendFileTreeLayer(FILE *fp, struct CWS_rpc_pack *rp, CW_TYPE cw
 
 static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, struct CWS_params *params, int depth, double *fundsLost, char *resTxid) {
 	CW_STATUS status;
-	double safeCost = rp->costAccrued;
+	double safeCost = rp->costCount;
 	bool recover = false;
 
 	FILE *tfp = NULL;
@@ -980,30 +1249,33 @@ static CW_STATUS sendFileTree(FILE *fp, struct CWS_rpc_pack *rp, struct CWS_para
 	cleanup:
 		if (tfp) { fclose(tfp); }
 		if (status != CW_OK && recover) {
-			if (fundsLost) { *fundsLost = rp->costAccrued; }
+			if (fundsLost) { *fundsLost = rp->costCount; }
 			if (depth > 0) {
 				fprintf(stderr, "\nCritical error; saving recovery data...\n");
 				if (saveRecoveryData(fp, depth, params)) {
 					fprintf(stderr, "Recovery data saved!\n");
 					if (fundsLost) { *fundsLost -= safeCost; }
 				} else { fprintf(stderr, "Failed to save recovery data; all data for this file lost\n"); }
-			} else { fprintf(stderr, "\nCritical error; all data lost\n"); }		
+			} else { fprintf(stderr, "\nCritical error; progress lost\n"); }		
 		}
 		return status;
 }
 
-static CW_STATUS sendFileFromStream(FILE *stream, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, int depth, double *fundsLost, char *resTxid) {
-	if (params->cwType == CW_T_MIMESET) {
+static CW_STATUS sendFileFromStream(FILE *stream, int sDepth, struct CWS_rpc_pack *rp, struct CWS_params *params, double *fundsLost, char *resTxid) {
+	if (params->cwType == CW_T_MIMESET && !rp->justCounting) {
 		fprintf(stderr, "WARNING: params specified type CW_T_MIMESET, but cashsendtools cannot determine mimetype when sending from stream;\n"
 				 "defaulting to CW_T_FILE\n");
 		params->cwType = CW_T_FILE;
 	}
-	CW_STATUS status = sendFileTree(stream, rpcPack, params, depth, fundsLost, resTxid);
-	fprintf(stderr, "\n");
+	CW_STATUS status;
+
+	status = sendFileTree(stream, rp, params, sDepth, fundsLost, resTxid);
+
+	if (!rp->justCounting) { fprintf(stderr, "\n"); }
 	return status;
 }
 
-static CW_STATUS sendFileFromPath(const char *path, struct CWS_rpc_pack *rpcPack, struct CWS_params *params, double *fundsLost, char *resTxid) {
+static CW_STATUS sendFileFromPath(const char *path, struct CWS_rpc_pack *rp, struct CWS_params *params, double *fundsLost, char *resTxid) {
 	FILE *fp;
 	if ((fp = fopen(path, "rb")) == NULL) { perror("fopen() failed"); return CW_SYS_ERR; }	
 
@@ -1011,9 +1283,12 @@ static CW_STATUS sendFileFromPath(const char *path, struct CWS_rpc_pack *rpcPack
 
 	if (params->cwType == CW_T_MIMESET) {
 		if ((status = CWS_set_cw_mime_type_by_extension(path, params)) != CW_OK) { goto cleanup; }
+		if (!rp->justCounting && params->cwType == CW_T_FILE) {
+			fprintf(stderr, "\ncashsendtools failed to match '%s' to anything in mime.types; defaults to CW_T_FILE\n", path);
+		}
 	}
 
-	status = sendFileFromStream(fp, rpcPack, params, 0, fundsLost, resTxid);
+	status = sendFileFromStream(fp, 0, rp, params, fundsLost, resTxid);
 
 	cleanup:
 		fclose(fp);
@@ -1031,6 +1306,101 @@ static CW_STATUS scanDirFileCount(char const *ftsPathArg[], int *count) {
 
 	fts_close(ftsp);
 	return CW_OK;
+}
+
+static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rp, struct CWS_params *params, double *fundsLost, char *resTxid) {
+	CW_STATUS status;
+
+	// get directory file count in advance, for memory allocation purposes
+	char const *ftsPathArg[] = { path, NULL };
+	int numFiles;
+	if ((status = scanDirFileCount(ftsPathArg, &numFiles)) != CW_OK) { return status; }
+
+	// initializing variable-length array before goto statements
+	char txidsByteData[numFiles*CW_TXID_BYTES];
+
+	// initializing these here in case of failure
+	FTS *ftsp = NULL;
+	FILE *dirFp = NULL;
+
+	int fts_options = FTS_COMFOLLOW | FTS_LOGICAL | FTS_NOCHDIR;
+	if ((ftsp = fts_open((char * const *)ftsPathArg, fts_options, NULL)) == NULL) {
+		perror("fts_open() failed");
+		status = CW_SYS_ERR;
+		goto cleanup;
+	}
+	int pathLen = strlen(path);
+
+	if (!params->dirOmitIndex) {
+		if ((dirFp = params->saveDirStream) == NULL &&
+		    (dirFp = tmpfile()) == NULL) {
+			perror("tmpfile() failed");
+			status = CW_SYS_ERR;
+			goto cleanup;
+		}
+	}
+
+	char txid[CW_TXID_CHARS+1];
+	struct CWS_params fileParams;
+
+	// find and send all files in directory
+	int count = 0;
+	FTSENT *p;
+	while ((p = fts_read(ftsp)) != NULL && count < numFiles) {
+		if (p->fts_info == FTS_F && strncmp(p->fts_path, path, pathLen) == 0) {
+			if (!rp->justCounting) { fprintf(stderr, "Sending %s...", p->fts_path+pathLen); }
+
+			// create a clean copy of params for every file, as they may be altered during send
+			copy_CWS_params(&fileParams, params);
+
+			if ((status = sendFileFromPath(p->fts_path, rp, &fileParams, fundsLost, txid)) != CW_OK) { goto cleanup; }
+			if (!rp->justCounting) { fprintf(stderr, "%s\n\n", txid); }
+
+			if (!params->dirOmitIndex || params->saveDirStream) {
+				// txids are stored as byte data (rather than hex string) in txidsByteData
+				if (hexStrToByteArr(txid, 0, txidsByteData+(count*CW_TXID_BYTES)) != CW_TXID_BYTES) {
+					fprintf(stderr, "invalid txid from sendFile(); problem with cashsendtools\n");
+					status = CW_SYS_ERR;
+					goto cleanup;
+				}
+				++count;
+
+				// write file path to directory index
+				if (fprintf(dirFp, "%s\n", p->fts_path+pathLen) < 0) {
+					perror("fprintf() to dirFp failed");
+					status = CW_SYS_ERR;
+					goto cleanup;
+				}
+			}
+		}
+	}
+	if (!params->dirOmitIndex || params->saveDirStream) {
+		// necessary empty line between path information and txid byte data
+		if (fprintf(dirFp, "\n") < 0) { perror("fprintf() to dirFp failed"); status = CW_SYS_ERR; goto cleanup; }
+		// write txid byte data to directory index
+		if (fwrite(txidsByteData, CW_TXID_BYTES, numFiles, dirFp) < numFiles) { perror("fwrite() to dirFp failed");
+											   status = CW_SYS_ERR; goto cleanup; }
+
+		if (!params->dirOmitIndex) {
+			// send directory index
+			rewind(dirFp);
+			if (!rp->justCounting) { fprintf(stderr, "Sending directory index..."); }
+			struct CWS_params dirIndexParams;
+			copy_CWS_params(&dirIndexParams, params);
+			dirIndexParams.cwType = CW_T_DIR;
+			if ((status = sendFileFromStream(dirFp, 0, rp, &dirIndexParams, fundsLost, resTxid)) != CW_OK) { goto cleanup; }
+		}
+	}
+
+	cleanup:
+		if (dirFp && !params->saveDirStream) { fclose(dirFp); }
+		if (ftsp) { fts_close(ftsp); }
+		return status;
+}
+
+static inline CW_STATUS sendFromPath(const char *path, bool asDir, struct CWS_rpc_pack *rp, struct CWS_params *csp, double *fundsLost, char *resTxid) {
+	CW_STATUS (*send) (const char *, struct CWS_rpc_pack *, struct CWS_params *, double *, char *) = asDir ? &sendDirFromPath : &sendFileFromPath;
+	return send(path, rp, csp, fundsLost, resTxid);
 }
 
 static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack) {
@@ -1076,6 +1446,15 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 			case RPC_M_SENDRAWTRANSACTION:
 				method = BITCOINRPC_METHOD_SENDRAWTRANSACTION;
 				break;
+			case RPC_M_GETRAWTRANSACTION:
+				method = BITCOINRPC_METHOD_GETRAWTRANSACTION;
+				break;
+			case RPC_M_LISTLOCKUNSPENT:
+				method = BITCOINRPC_METHOD_LISTLOCKUNSPENT;
+				break;
+			case RPC_M_LOCKUNSPENT:
+				method = BITCOINRPC_METHOD_LOCKUNSPENT;
+				break;
 			default:
 				fprintf(stderr, "initRpcMethods() reached unexpected identifier; rpc method #defines probably incorrect in cashsendtools\n");
 				continue;
@@ -1090,9 +1469,14 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 		}
 		if (nonStdName != NULL) { bitcoinrpc_method_set_nonstandard(rpcPack->methods[i], nonStdName); }
 	}
-	rpcPack->unspents = NULL;
-	rpcPack->costAccrued = 0;
+	rpcPack->txsToSend = 0;
+	rpcPack->createdUtxos = NULL;
+	rpcPack->createdUtxosCount = 0;
+	rpcPack->costCount = 0;
+	rpcPack->txCount = 0;
 	rpcPack->errMsg[0] = 0;
+	rpcPack->justCounting = false;
+	rpcPack->justTxCounting = false;
 
 	return CW_OK;
 }
@@ -1102,7 +1486,71 @@ static void cleanupRpc(struct CWS_rpc_pack *rpcPack) {
 		bitcoinrpc_cl_free(rpcPack->cli);
 		for (int i=0; i<RPC_METHODS_COUNT; i++) { if (rpcPack->methods[i]) { bitcoinrpc_method_free(rpcPack->methods[i]); } }
 	}
-	if (rpcPack->unspents) { json_decref(rpcPack->unspents); }
+	if (rpcPack->createdUtxos) { json_decref(rpcPack->createdUtxos); }
 	
 	bitcoinrpc_global_cleanup();
+}
+
+static inline void init_CWS_sender_for_stream(struct CWS_sender *css, FILE *stream, int sDepth, struct CWS_rpc_pack *rp, struct CWS_params *csp) {
+	css->fromStream = &sendFileFromStream;	
+	css->fromPath = NULL;
+	css->stream = stream;
+	css->sDepth = sDepth;
+	css->path = NULL;
+	css->asDir = false;
+	css->rp = rp;
+	css->csp = csp;
+}
+
+static inline void init_CWS_sender_for_path(struct CWS_sender *css, const char *path, bool asDir, struct CWS_rpc_pack *rp, struct CWS_params *csp) {
+	css->fromStream = NULL;
+	css->fromPath = &sendFromPath;
+	css->stream = NULL;
+	css->path = path;
+	css->asDir = asDir;
+	css->rp = rp;
+	css->csp = csp;
+	css->sDepth = 0;
+
+}
+
+static CW_STATUS countBySender(struct CWS_sender *sender, size_t *txCount, double *costCount) {
+	sender->rp->costCount = 0;
+	sender->rp->txCount = 0;
+	sender->rp->justCounting = true;
+	if (!costCount) { sender->rp->justTxCounting = true; }
+	char dummyTxid[CW_TXID_CHARS+1] = { 0 };
+
+	CW_STATUS status;
+	if (sender->fromStream) {
+		status = sender->fromStream(sender->stream, sender->sDepth, sender->rp, sender->csp, NULL, dummyTxid);
+	}
+	else if (sender->fromPath) {
+		status = sender->fromPath(sender->path, sender->asDir, sender->rp, sender->csp, NULL, dummyTxid);
+	}
+	else { fprintf(stderr, "no send func specified in struct CWS_sender; problem with cashsendtools"); status = CW_SYS_ERR; }
+
+	sender->rp->justTxCounting = false;
+	sender->rp->justCounting = false;
+	if (txCount) { *txCount = sender->rp->txCount; }
+	if (costCount) { *costCount = sender->rp->costCount; }
+	sender->rp->txCount = 0;
+	sender->rp->costCount = 0;
+	return status;
+}
+
+static CW_STATUS sendBySender(struct CWS_sender *sender, double *fundsLost, char *resTxid) {
+	sender->rp->costCount = 0;
+	sender->rp->txCount = 0;	
+
+	CW_STATUS status;
+	if (sender->fromStream) {
+		status = sender->fromStream(sender->stream, sender->sDepth, sender->rp, sender->csp, fundsLost, resTxid);
+	}
+	else if (sender->fromPath) {
+		status = sender->fromPath(sender->path, sender->asDir, sender->rp, sender->csp, fundsLost, resTxid);
+	}
+	else { fprintf(stderr, "no send func specified in struct CWS_sender; problem with cashsendtools"); status = CW_SYS_ERR; }
+
+	return status;
 }

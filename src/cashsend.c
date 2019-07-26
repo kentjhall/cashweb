@@ -1,4 +1,5 @@
 #include "cashsendtools.h"
+#include <getopt.h>
 
 #define RPC_SERVER_DEFAULT "127.0.0.1"
 #define RPC_PORT_DEFAULT 8332
@@ -17,16 +18,20 @@ int main(int argc, char **argv) {
 
 	struct CWS_params params;
 	init_CWS_params(&params, RPC_SERVER_DEFAULT, RPC_PORT_DEFAULT, RPC_USER_DEFAULT, RPC_PASS_DEFAULT, recoveryStream);
+	params.cwType = CW_T_MIMESET;
 	
 	bool recover = false;
+	bool estimate = false;
 	for (int i=2; i<argc; i++) {
 		if (strncmp("--recover", argv[i], 9) == 0) { recover = true; }
+		if (strncmp("--estimate", argv[i], 10) == 0) { estimate = true; }
 		if (strncmp("--rpc-user=", argv[i], 11) == 0) { params.rpcUser = argv[i]+11; }
 		if (strncmp("--rpc-pass=", argv[i], 11) == 0) { params.rpcPass = argv[i]+11; }
 		if (strncmp("--rpc-server=", argv[i], 13) == 0) { params.rpcServer = argv[i]+13; }
 		if (strncmp("--rpc-port=", argv[i], 11) == 0) { params.rpcPort = atoi(argv[i]+11); }
 		if (strncmp("--max-tree-depth=", argv[i], 17) == 0) { params.maxTreeDepth = atoi(argv[i]+17); }
-		if (strncmp("--mime-set", argv[i], 10) == 0) { params.cwType = CW_T_MIMESET; }
+		if (strncmp("--mimetype-no", argv[i], 10) == 0) { params.cwType = CW_T_FILE; }
+		if (strncmp("--no-frag", argv[i], 9) == 0) { params.fragUtxos = 0; }
 		if (strncmp("--data-dir=", argv[i], 11) == 0) { params.datadir = argv[i]+11; }
 	}
 
@@ -48,28 +53,65 @@ int main(int argc, char **argv) {
 
 	char *path = argv[1];
 
+	double costEstimate = 0;
+	size_t *txCountSave = params.fragUtxos == 1 ? &params.fragUtxos : NULL;
+
 	double totalCost = 0;
 	double lostCost = 0;
-	char txid[CW_TXID_CHARS+1];
-
-	CW_STATUS status;
-	if (recover) {
-		FILE *recoverySave;
-		if ((recoverySave = fopen(recName, "r")) == NULL) { fclose(recoveryStream); exit(1); }
-		status = CWS_send_from_recovery_stream(recoverySave, &params, &totalCost, &lostCost, txid);
-		fclose(recoverySave);
-		if (status == CW_OK) { fprintf(stderr, "\nRecovery successful; please delete %s", recName); }
-	}
-	else if (strcmp(path, "-") == 0) {
-		status = CWS_send_from_stream(stdin, &params, &totalCost, &lostCost, txid);
-	} else {
-		struct stat st;
-		if (stat(path, &st) != 0) { perror("stat() failed"); fclose(recoveryStream); exit(1); }
-		status = S_ISDIR(st.st_mode) ? CWS_send_dir_from_path(path, &params, &totalCost, &lostCost, txid)
-					     : CWS_send_from_path(path, &params, &totalCost, &lostCost, txid);
-	}
+	char txid[CW_TXID_CHARS+1]; txid[0] = 0;
 
 	int exitcode = 0;
+	CW_STATUS status = CW_OK;
+	if (estimate) {
+		if (recover) {
+			FILE *recoverySave;
+			if ((recoverySave = fopen(recName, "r")) == NULL) { perror("fopen() failed"); exitcode = 1; goto estimatecleanup; }
+
+			fprintf(stderr, "Estimating cost... ");
+			if ((status = CWS_estimate_cost_from_recovery_stream(recoverySave, &params, txCountSave, &costEstimate)) != CW_OK) {
+				exitcode = 1;
+				goto estimatecleanup;
+			}	
+			printf("%.8f", costEstimate);
+
+			fclose(recoverySave);
+		}
+		else if (strcmp(path, "-") == 0) {
+			fprintf(stderr, "Estimating cost... ");
+			if ((status = CWS_estimate_cost_from_stream(stdin, &params, txCountSave, &costEstimate)) != CW_OK) {
+				exitcode = 1;
+				goto estimatecleanup;
+			}	
+			printf("%.8f", costEstimate);
+		} else {
+			fprintf(stderr, "Estimating cost... ");
+			if ((status = CWS_estimate_cost_from_path(path, &params, txCountSave, &costEstimate)) != CW_OK) {
+				exitcode = 1;
+				goto estimatecleanup;
+			}	
+			printf("%.8f", costEstimate);
+		}
+		estimatecleanup:
+			fclose(recoveryStream);
+			if (status != CW_OK) { fprintf(stderr, "Failed to get cost estimate, error code %d: %s.\n", status, CWS_errno_to_msg(status)); }
+			return exitcode;
+	}
+	else {
+		if (recover) {
+			FILE *recoverySave;
+			if ((recoverySave = fopen(recName, "r")) == NULL) { fclose(recoveryStream); perror("fopen() failed"); exit(1); }
+		
+			status = CWS_send_from_recovery_stream(recoverySave, &params, &totalCost, &lostCost, txid);
+			fclose(recoverySave);
+			if (status == CW_OK) { fprintf(stderr, "\nRecovery successful; please delete %s", recName); }
+		}
+		else if (strcmp(path, "-") == 0) {
+			status = CWS_send_from_stream(stdin, &params, &totalCost, &lostCost, txid);
+		} else {
+			status = CWS_send_from_path(path, &params, &totalCost, &lostCost, txid);
+		}
+	}
+
 	if (status != CW_OK) {	
 		fprintf(stderr, "\nSend failed, error code %d: %s.\n", status, CWS_errno_to_msg(status));
 		if (status == CW_DATADIR_NO) {

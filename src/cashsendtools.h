@@ -23,6 +23,11 @@
  * maxTreeDepth: maximum depth for file tree (will send as chained tree if hit);
  		 determines the chunk size the file is downloaded in
  * cwType: the file's cashweb type (set to CW_T_MIMESET if the mimetype should be interpreted by extension)
+ * dirOmitIndex: if sending directory, can be specified to not send index (i.e. to send collection of files)
+ * fragUtxos: specifies the number of UTXOs to create for file send in advance; best to have this handled by CWS_estimate_cost function
+ *	       leave set at 1 to have cashsendtools calculate this, or 0 to not fragment any UTXOs
+ * saveDirStream: optionally save directory index data to specified stream;
+ 		  if dirOmitIndex is true, this will still save but will not be sent 
  * recoveryStream: where to save recovery data in case of failure
  * datadir: specify data directory path for cashwebtools;
  	    can be left as NULL if cashwebtools is properly installed on system with 'make install'
@@ -34,6 +39,9 @@ struct CWS_params {
 	const char *rpcPass;
 	int maxTreeDepth;
 	CW_TYPE cwType;
+	bool dirOmitIndex;
+	size_t fragUtxos;
+	FILE *saveDirStream;
 	FILE *recoveryStream;
 	const char *datadir;
 };
@@ -50,6 +58,9 @@ static inline void init_CWS_params(struct CWS_params *csp,
 	csp->rpcPass = rpcPass;
 	csp->maxTreeDepth = -1;
 	csp->cwType = CW_T_FILE;
+	csp->dirOmitIndex = false;
+	csp->fragUtxos = 1;
+	csp->saveDirStream = NULL;
 	csp->recoveryStream = recoveryStream;
 	csp->datadir = NULL;
 }
@@ -64,9 +75,23 @@ static inline void copy_CWS_params(struct CWS_params *dest, struct CWS_params *s
 	dest->rpcPass = source->rpcPass;
 	dest->maxTreeDepth = source->maxTreeDepth;
 	dest->cwType = source->cwType;
+	dest->dirOmitIndex = source->dirOmitIndex;
+	dest->fragUtxos = source->fragUtxos;
+	dest->saveDirStream = source->saveDirStream;
 	dest->recoveryStream = source->recoveryStream;
 	dest->datadir = source->datadir;
 }
+
+/*
+ * sends file/directory at specified path as per options set in params
+ * if directory, all contained files are sent with given params; this includes maxTreeDepth and cwType
+ * set cwType to CW_T_MIMESET for file mimetypes to be interpreted by extension
+ * if sending directory index, will always be sent as CW_T_DIR, regardless of params
+ * full cost of the send is written to fundsUsed; on failure, the cost of any irrecoverable progress is written to fundsLost;
+   if not needed, both/either can be set to NULL
+ * resultant txid is written to resTxid
+ */
+CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid);
 
 /*
  * sends file from stream as per options set in params
@@ -80,7 +105,7 @@ CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *
 
 
 /*
- * interprets recovery data from a failed send and attempts to finish the send
+ * interprets cashsendtools recovery data from a failed send and attempts to finish the send
  * params is included for RPC params, but cwType/maxTreeDepth will be ignored in favor of what is stored in recovery data
  * full cost of the send is written to fundsUsed; on failure, the cost of any irrecoverable progress is written to fundsLost;
    if not needed, both/either can be set to NULL
@@ -89,30 +114,29 @@ CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *
 CW_STATUS CWS_send_from_recovery_stream(FILE *recoveryStream, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid);
 
 /*
- * sends file at specified path as per options set in params
- * full cost of the send is written to fundsUsed; on failure, the cost of any irrecoverable progress is written to fundsLost;
-   if not needed, both/either can be set to NULL
- * resultant txid is written to resTxid
+ * estimates cost for sending file/directory from path with given params
+ * writes to costEstimate
  */
-CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid);
+CW_STATUS CWS_estimate_cost_from_path(const char *path, struct CWS_params *params, size_t *txCount, double *costEstimate);
 
 /*
- * sends directory at specified path as per options set in params
- * recursively sends all files in directory; then sends directory index
- * all files are sent with given params; this includes maxTreeDepth and cwType
- * set cwType to CW_T_MIMESET for all file mimetypes to be interpreted by extension
- * directory index will always be sent with type CW_T_DIR, regardless of params
- * full cost of the send is written to fundsUsed; on failure, the cost of any irrecoverable progress is written to fundsLost;
-   if not needed, both/either can be set to NULL
- * resultant txid is written to resTxid
+ * estimates cost for sending file from stream with given params
+ * writes to costEstimate
  */
-CW_STATUS CWS_send_dir_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid);
+CW_STATUS CWS_estimate_cost_from_stream(FILE *stream, struct CWS_params *params, size_t *txCount, double *costEstimate);
+
+/*
+ * estimates cost for sending from cashsendtools recovery data with given params
+ * writes to costEstimate
+ */
+CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CWS_params *params, size_t *txCount, double *costEstimate);
 
 /*
  * determines protocol-specific cashweb type value for given filename/extension by mimetype and copies to given struct CWS_params
  * fname can be full filename or just extension
  * this function is public in case the user wants to force a mimetype other than what matches the file extension,
    or more likely, if a mimetype needs to be set when sending from stream
+ * if type is not matched in mime.types, cwType is set to CW_T_FILE; if set mimetype is critical, this should be checked
  * uses datadir path stored in params to find cashweb protocol-specific mime.types;
    if this is NULL, will set to proper cashwebtools system install data directory
  */

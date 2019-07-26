@@ -75,6 +75,21 @@ static int safeReadLine(struct DynamicMemory *line, size_t lineBufStart, FILE *f
 }
 
 /*
+ * reads data from source and writes to dest
+ * returns true on success or false on system error
+ */
+#define FILE_DATA_BUF 1024
+static inline bool copyStreamData(FILE *dest, FILE *source) {
+	char buf[FILE_DATA_BUF];
+	int n;
+	while ((n = fread(buf, 1, FILE_DATA_BUF, source)) > 0) {
+		if (fwrite(buf, 1, n, dest) < n) { perror("fwrite() failed"); return false; }
+	}
+	if (ferror(source)) { perror("fread() failed"); return false; }
+	return true;
+}
+
+/*
  * converts byte array of n bytes to hex str of len 2n, and writes to specified memory location
  * must ensure hexStr has sufficient memory allocated
  */
