@@ -21,13 +21,21 @@
 typedef int CW_STATUS;
 #define CW_OK 0
 #define CW_DATADIR_NO 1
-#define CW_SYS_ERR 2
+#define CW_CALL_NO 2
+#define CW_SYS_ERR 3
 
 // cashweb file types; MIMESET indicates that mimetype is to be interpreted
 typedef uint16_t CW_TYPE;
 #define CW_T_FILE 0
 #define CW_T_DIR 1
 #define CW_T_MIMESET 2
+
+// cashweb nametag scripting codes
+typedef uint8_t CW_OPCODE;
+#define CW_OP_TERM (CW_OPCODE) 255
+#define CW_OP_NEXTREV (CW_OPCODE) 254
+#define CW_OP_PUSHTXID (CW_OPCODE) 253
+#define CW_OP_WRITEFROMTXID (CW_OPCODE) 252
 
 /*
  * file metadata to be stored in starting tx
@@ -60,6 +68,8 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cw
 			   CW_MD_BYTES(depth)+\
 			   CW_MD_BYTES(type)+\
 			   CW_MD_BYTES(pVer))
+
+#define CW_NAMETAG_PREFIX "~"
 
 // network rules constants
 #define CW_TX_RAW_DATA_BYTES 222

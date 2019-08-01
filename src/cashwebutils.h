@@ -95,7 +95,7 @@ static inline bool copyStreamData(FILE *dest, FILE *source) {
  */
 static inline void byteArrToHexStr(const char *byteArr, int n, char *hexStr) {
 	for (int i=0; i<n; i++) {
-		hexStr[i*2]   = "0123456789abcdef"[((uint8_t)byteArr[i]) >> 4];
+		hexStr[i*2] = "0123456789abcdef"[((uint8_t)byteArr[i]) >> 4];
 		hexStr[i*2+1] = "0123456789abcdef"[((uint8_t)byteArr[i]) & 0x0F];
 	}
 	hexStr[n*2] = 0;

@@ -6,13 +6,13 @@
 #include <libbitcoinrpc/bitcoinrpc.h>
 
 /* cashsendtools error codes */
-#define CWS_RPC_NO 3
-#define CWS_INPUTS_NO 4
-#define CWS_CONFIRMS_NO 5
-#define CWS_FEE_NO 6
-#define CWS_FUNDS_NO 7
-#define CWS_RECOVERYFILE_NO 8
-#define CWS_RPC_ERR 9
+#define CWS_RPC_NO CW_SYS_ERR+1
+#define CWS_INPUTS_NO CW_SYS_ERR+2
+#define CWS_CONFIRMS_NO CW_SYS_ERR+3
+#define CWS_FEE_NO CW_SYS_ERR+4
+#define CWS_FUNDS_NO CW_SYS_ERR+5
+#define CWS_RECOVERYFILE_NO CW_SYS_ERR+6
+#define CWS_RPC_ERR CW_SYS_ERR+7
 
 /*
  * params for sending
@@ -94,6 +94,12 @@ static inline void copy_CWS_params(struct CWS_params *dest, struct CWS_params *s
 CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid);
 
 /*
+ * estimates cost for sending file/directory from path with given params
+ * writes to costEstimate
+ */
+CW_STATUS CWS_estimate_cost_from_path(const char *path, struct CWS_params *params, size_t *txCount, double *costEstimate);
+
+/*
  * sends file from stream as per options set in params
  * cashsendtools does not ascertain mimetype when sending from stream, so if type is set to CW_T_MIMESET in params,
    will default to CW_T_FILE
@@ -103,6 +109,11 @@ CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double
  */
 CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid);
 
+/*
+ * estimates cost for sending file from stream with given params
+ * writes to costEstimate
+ */
+CW_STATUS CWS_estimate_cost_from_stream(FILE *stream, struct CWS_params *params, size_t *txCount, double *costEstimate);
 
 /*
  * interprets cashsendtools recovery data from a failed send and attempts to finish the send
@@ -114,22 +125,42 @@ CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *
 CW_STATUS CWS_send_from_recovery_stream(FILE *recoveryStream, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid);
 
 /*
- * estimates cost for sending file/directory from path with given params
- * writes to costEstimate
- */
-CW_STATUS CWS_estimate_cost_from_path(const char *path, struct CWS_params *params, size_t *txCount, double *costEstimate);
-
-/*
- * estimates cost for sending file from stream with given params
- * writes to costEstimate
- */
-CW_STATUS CWS_estimate_cost_from_stream(FILE *stream, struct CWS_params *params, size_t *txCount, double *costEstimate);
-
-/*
  * estimates cost for sending from cashsendtools recovery data with given params
  * writes to costEstimate
  */
 CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CWS_params *params, size_t *txCount, double *costEstimate);
+
+/*
+ * claim a cashweb protocol name with script
+ * recommended to check for existence of name first; cashgettools should only use earliest claim for any name
+ * immutable is specified for whether or not to create/lock tiny UTXO for future revisions (should be false if so)
+ * if not immutable, scriptStr needs to reflect this by containing CW_OP_NEXTREV (most likely first)
+ * cost of send is written to fundsUsed
+ * cwType specified in params is ignored in favor of CW_T_FILE
+ */
+CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * wrapper for CWS_send_nametag that constructs script around linking to file at specified fTxid
+ * will prepend script with CW_OP_NEXTREV if immutable is specified false
+ */
+CW_STATUS CWS_send_standard_nametag(const char *name, const char *fTxid, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+
+/*
+ * sends revision for nametag (using the appropriate UTXO specified by utxoTxid) with script
+ * immutable is specified for whether or not to create/lock tiny UTXO for future revisions (should be false if so)
+ * if not immutable, scriptStr needs to reflect this by containing CW_OP_NEXTREV (most likely first)
+ * cost of send is written to fundsUsed
+ * cwType specified in params is ignored in favor of CW_T_FILE
+ */
+CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * wrapper for CWS_send_revision that constructs script around completely replacing data with file at specified fTxid
+ * will prepend script with CW_OP_NEXTREV if immutable is specified false
+ */
+CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *fTxid, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * determines protocol-specific cashweb type value for given filename/extension by mimetype and copies to given struct CWS_params

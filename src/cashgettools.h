@@ -8,15 +8,15 @@
 #include <mylist/mylist.h>
 
 /* cashgettools error codes */
-#define CWG_IN_DIR_NO 3
-#define CWG_IS_DIR_NO 4
-#define CWG_FETCH_NO 5
-#define CWG_METADATA_NO 6
-#define CWG_FETCH_ERR 7
-#define CWG_WRITE_ERR 8
-#define CWG_FILE_ERR 9
-#define CWG_FILE_LEN_ERR 10
-#define CWG_FILE_DEPTH_ERR 11
+#define CWG_IN_DIR_NO CW_SYS_ERR+1
+#define CWG_IS_DIR_NO CW_SYS_ERR+2
+#define CWG_FETCH_NO CW_SYS_ERR+3
+#define CWG_METADATA_NO CW_SYS_ERR+4
+#define CWG_FETCH_ERR CW_SYS_ERR+5
+#define CWG_WRITE_ERR CW_SYS_ERR+6
+#define CWG_FILE_ERR CW_SYS_ERR+7
+#define CWG_FILE_LEN_ERR CW_SYS_ERR+8
+#define CWG_FILE_DEPTH_ERR CW_SYS_ERR+9
 
 /*
  * params for getting

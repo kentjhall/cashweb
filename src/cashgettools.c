@@ -169,6 +169,8 @@ const char *CWG_errno_to_msg(int errNo) {
 	switch (errNo) {
 		case CW_DATADIR_NO:
 			return "Unable to find proper cashwebtools data directory";
+		case CW_CALL_NO:
+			return "Bad call to cashgettools function; may be bad implementation";
 		case CW_SYS_ERR:
 			return "There was an unexpected system error. This may be problem with cashgettools";	
 		case CWG_IN_DIR_NO:
