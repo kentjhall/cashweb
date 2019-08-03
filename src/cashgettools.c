@@ -623,68 +623,119 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 		return status;
 }
 
-// TODO update for supporting different id types
 static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE type, mongoc_client_t *mongodbCli, char **txids, char *hexDataAll) {
 	if (count < 1) { return CWG_FETCH_NO; }
+	if (type == BY_NAMETAG && count != 1) {
+		fprintf(stderr, "current implementation doesn't allow for fetchHexData() querying more than one nametag; problem with cashgettools\n");
+		return CW_SYS_ERR;
+	}
+
 	CW_STATUS status = CW_OK;
 	
 	hexDataAll[0] = 0;
 	mongoc_collection_t *colls[2] = { mongoc_client_get_collection(mongodbCli, "bitdb", "confirmed"), 
 					  mongoc_client_get_collection(mongodbCli, "bitdb", "unconfirmed") };
-	bson_t *query;
+	bson_t *query = NULL;
 	bson_t *opts = NULL;
 	switch (type) {
 		case BY_TXID:
 			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
 			break;
 		case BY_INTXID:
-			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
+			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "in", BCON_BOOL(true), "tx", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
 			break;
 		case BY_NAMETAG:
-			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
+			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "tx", BCON_BOOL(true), "_id", BCON_BOOL(false), "}",
+					"sort", "{", "blk.i", BCON_INT32(1), "tx.h", BCON_INT32(1), "}",
+					"limit", BCON_INT64(1));
 			break;
 		default:
 			fprintf(stderr, "invalid FETCH_TYPE; problem with cashgettools\n");
 			goto cleanup;
 	}	
+
 	mongoc_cursor_t *cursor;
 	bson_error_t error;
 	const bson_t *res;
 	char *resStr;
 	json_t *resJson;
+	char  *jsonDump;
 	json_error_t jsonError;
-	const char *hexData;
-	int hexPrefixLen = strlen(MONGODB_STR_HEX_PREFIX);
+	char hexData[CW_TX_DATA_CHARS+1];
+	size_t hexDataLen;
+	const char *str;
+	const char *txid;
+	int vout;
+	size_t hexPrefixLen = strlen(MONGODB_STR_HEX_PREFIX);
 	bool matched;
 	for (int i=0; i<count; i++) { 
 		matched = false;
-		query = BCON_NEW("tx.h", ids[i]);
+		switch (type) {
+			case BY_TXID:
+				query = BCON_NEW("tx.h", ids[i]);
+				break;
+			case BY_INTXID:
+				query = BCON_NEW("in.e.h", ids[i]);
+				break;
+			case BY_NAMETAG:
+				query = BCON_NEW("out.s2", ids[i]);
+				break;
+		}
 		for (int c=0; c<sizeof(colls)/sizeof(colls[0]); c++) {
 			cursor = mongoc_collection_find_with_opts(colls[c], query, opts, NULL);
-			if (!mongoc_cursor_next(cursor, &res)) {
-				if (mongoc_cursor_error(cursor, &error)) {
-					fprintf(stderr, "ERROR: MongoDB query failed\nMessage: %s\n", error.message);
+			while (mongoc_cursor_next(cursor, &res)) { 
+				resStr = bson_as_relaxed_extended_json(res, NULL);
+				resJson = json_loads(resStr, JSON_ALLOW_NUL, &jsonError);
+				bson_free(resStr);
+				if (resJson == NULL) {
+					fprintf(stderr, "jansson error in parsing result from MongoDB query: %s\nResponse:\n%s\n", jsonError.text, resStr);
+					status = CW_SYS_ERR;
+					break;
+				}
+
+				if (type == BY_INTXID) {
+					// gets json array at key 'out' -> object at array index 0 -> object at key 'e' -> object at key 'i' (.in[0].e.i)
+					vout = json_integer_value(json_object_get(json_object_get(json_array_get(json_object_get(resJson, "in"), 0), "e"), "i"));
+					if (vout != CW_REVISION_INPUT_VOUT) { continue; }
+				}
+
+				// gets json array at key 'out' -> object at array index 0 -> object at key 'str' (.out[0].str)
+				str = json_string_value(json_object_get(json_array_get(json_object_get(resJson, "out"), 0), "str"));	
+				if (!str) {
+					jsonDump = json_dumps(resJson, 0);
+					fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
+					free(jsonDump);
 					status = CWG_FETCH_ERR;
+					break;
 				} 
-				mongoc_cursor_destroy(cursor);
-				if (status != CW_OK) { break; } else { continue; } 
-			}
-			resStr = bson_as_canonical_extended_json(res, NULL);
-			resJson = json_loads(resStr, JSON_ALLOW_NUL, &jsonError);
-			bson_free(resStr);
-			mongoc_cursor_destroy(cursor);
-			if (resJson == NULL) {
-				fprintf(stderr, "jansson error in parsing result from MongoDB query: %s\nResponse:\n%s\n", jsonError.text, resStr);
-				status = CW_SYS_ERR;
+				if (strncmp(str, MONGODB_STR_HEX_PREFIX, hexPrefixLen) != 0) { status = CWG_FILE_ERR; break; }
+
+				hexData[0] = 0; strncat(hexData, str+hexPrefixLen, CW_TX_DATA_CHARS);
+				hexDataLen = strlen(hexData);
+				for (int h=0; h<hexDataLen; h++) { if (hexData[h] == ' ') { hexData[h] = 0; } }
+
+				strncat(hexDataAll, hexData, CW_TX_DATA_CHARS);
+				if (txids) {
+					if (type == BY_TXID) { txid = ids[i]; }
+					else { txid = json_string_value(json_object_get(json_object_get(resJson, "tx"), "h")); }	
+					if (!txid) {
+						jsonDump = json_dumps(resJson, 0);
+						fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
+						free(jsonDump);
+						status = CWG_FETCH_ERR;
+						break;
+					}
+					txids[i][0] = 0; strncat(txids[i], txid, CW_TXID_CHARS);
+				}
+				matched = true;
 				break;
 			}
-			// gets json array at key 'out' -> json object at array index 0 -> json object at key 'str' (.out[0].str)
-			hexData = json_string_value(json_object_get(json_array_get(json_object_get(resJson, "out"), 0), "str"));
-			if (strncmp(hexData, MONGODB_STR_HEX_PREFIX, hexPrefixLen) == 0) {
-				strncat(hexDataAll, hexData+hexPrefixLen, CW_TX_DATA_CHARS);
-				matched = true;
-			} else { status = CWG_FILE_ERR; }
-			break;
+			if (mongoc_cursor_error(cursor, &error)) {
+				fprintf(stderr, "ERROR: MongoDB query failed\nMessage: %s\n", error.message);
+				status = CWG_FETCH_ERR;
+			} 
+			mongoc_cursor_destroy(cursor);
+			if (status != CW_OK) { break; }
 		}
 		bson_destroy(query);
 		if (!matched) { status = status == CW_OK ? CWG_FETCH_NO : status; break; }
