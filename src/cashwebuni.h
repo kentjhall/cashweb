@@ -32,10 +32,10 @@ typedef uint16_t CW_TYPE;
 
 // cashweb nametag scripting codes
 typedef uint8_t CW_OPCODE;
-#define CW_OP_TERM (CW_OPCODE) 255
-#define CW_OP_NEXTREV (CW_OPCODE) 254
-#define CW_OP_PUSHTXID (CW_OPCODE) 253
-#define CW_OP_WRITEFROMTXID (CW_OPCODE) 252
+#define CW_OP_TERM ((CW_OPCODE)255)
+#define CW_OP_NEXTREV ((CW_OPCODE)254)
+#define CW_OP_PUSHTXID ((CW_OPCODE)253)
+#define CW_OP_WRITEFROMTXID ((CW_OPCODE)252)
 
 /*
  * file metadata to be stored in starting tx
@@ -70,6 +70,8 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cw
 			   CW_MD_BYTES(pVer))
 
 #define CW_NAMETAG_PREFIX "~"
+#define CW_NAMETAG_MAX_LEN (CW_TX_DATA_BYTES-CW_METADATA_BYTES-strlen(CW_NAMETAG_PREFIX)-2)
+#define CW_REVISION_INPUT_VOUT 1
 
 // network rules constants
 #define CW_TX_RAW_DATA_BYTES 222

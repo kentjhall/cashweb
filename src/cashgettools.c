@@ -10,13 +10,21 @@
 
 /* BitDB HTTP constants */
 #define BITDB_API_VER 3
-#define BITDB_QUERY_LEN (71+strlen(BITDB_QUERY_DATA_TAG)+strlen(BITDB_QUERY_TXID_TAG))
-#define BITDB_TXID_QUERY_LEN (12+CW_TXID_CHARS)
+#define BITDB_QUERY_BUF_SZ (80+strlen(BITDB_QUERY_DATA_TAG)+strlen(BITDB_QUERY_ID_TAG))
+#define BITDB_ID_QUERY_BUF_SZ (20+CW_NAMETAG_MAX_LEN)
+#define BITDB_RESPHANDLE_QUERY_BUF_SZ (30+CW_NAMETAG_MAX_LEN)
 #define BITDB_HEADER_BUF_SZ 40
-#define BITDB_QUERY_DATA_TAG "data"
-#define BITDB_RESPONSE_DATA_TAG "\""BITDB_QUERY_DATA_TAG"\":\""
-#define BITDB_QUERY_TXID_TAG "txid"
-#define BITDB_RESPONSE_TXID_TAG "\""BITDB_QUERY_TXID_TAG"\":\""
+#define BITDB_QUERY_ID_TAG "n"
+#define BITDB_QUERY_INFO_TAG "i"
+#define BITDB_QUERY_TXID_TAG "t"
+#define BITDB_QUERY_DATA_TAG "d"
+
+/* Fetch typing */
+typedef enum FetchType {
+	BY_TXID,
+	BY_INTXID,
+	BY_NAMETAG
+} FETCH_TYPE;
 
 /* 
  * currently, simply reports a warning if given protocol version is newer than one in use
@@ -52,22 +60,26 @@ static CW_STATUS hexResolveMetadata(const char *hexData, struct CW_file_metadata
 /*
  * writes curl response to specified file stream
  */
-static size_t writeResponseToFile(void *data, size_t size, size_t nmemb, FILE *respFp);
+static size_t writeResponseToStream(void *data, size_t size, size_t nmemb, FILE *respStream);
 
 /*
- * fetches hex data (from BitDB HTTP endpoint) at specified txids and copies (in order of txids) to specified location in memory 
+ * fetches hex data (from BitDB HTTP endpoint) at specified ids and copies (in order) to specified location in memory 
+ * id type is specified by FETCH_TYPE type
+ * txids of fetched TXs can be written to txids, or can be set NULL; shouldn't be needed if type is BY_TXID
  */
-static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, bool bitdbRequestLimit, const char **txids, int count);
+static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYPE type, const char *bitdbNode, bool bitdbRequestLimit, char **txids, char *hexDataAll);
 
 /*
- * fetches hex data (from MongoDB populated by BitDB) at specified txids and copies (in order of txids) to specified location in memory 
+ * fetches hex data (from MongoDB populated by BitDB) at specified ids and copies (in order) to specified location in memory 
+ * id type is specified by FETCH_TYPE type
+ * txids of fetched TXs can be written to txids, or can be set NULL; shouldn't be needed if type is BY_TXID
  */
-static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbCli, const char **txids, int count);
+static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE type, mongoc_client_t *mongodbCli, char **txids, char *hexDataAll);
 
 /*
  * wrapper for choosing between MongoDB query or BitDB HTTP request
  */
-static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count, struct CWG_params *params);
+static inline CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE type, struct CWG_params *params, char **txids, char *hexDataAll);
 	
 /*
  * recursively traverse file tree from root hexdata
@@ -89,9 +101,43 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *
 static inline CW_STATUS traverseFile(const char *hexDataStart, struct CWG_params *params, struct CW_file_metadata *md, int fd);
 
 /*
+ * fetches/traverses script data at nametag and writes to stream
+ * writes txid of of script to txid
+ */
+static CW_STATUS getScriptByNametag(const char *name, struct CWG_params *params, char **txidPtr, FILE *stream);
+
+/*
+ * fetches/traverses script data at tx with given input txid (and vout CW_REVISION_INPUT_VOUT) and writes to stream
+ * writes txid of of script to txid
+ */
+static CW_STATUS getScriptByInTxid(const char *inTxid, struct CWG_params *params, char **txidPtr, FILE *stream);
+
+/*
+ * execute necessary action for given CW_OPCODE c
+ * may involve pushing/popping stack, reading from scriptStream, and/or writing to fd
+ * uses revTxid for executing CW_OP_NEXTREV
+ */
+static CW_STATUS execScriptCode(CW_OPCODE c, struct List *stack, FILE *scriptStream, const char *revTxid, int atRev, int maxRev, struct CWG_params *params, int fd);
+
+/*
+ * executes cashweb script from scriptStream, writing anything specified by script to file descriptor fd
+ * revTxid is used in case of CW_OP_NEXTREV
+ */
+
+static CW_STATUS execScript(FILE *scriptStream, const char *revTxid, int atRev, int maxRev, struct CWG_params *params, int fd);
+
+/*
  * fetches/traverses file at given txid and writes to specified file descriptor
+ * responsible for calling foundHandler if present in params; will be set to NULL upon call
  */
 static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int fd);
+
+/*
+ * fetches/traverses file at given nametag (according to script at nametag) and writes to specified file descriptor
+ * revision can be specified for which version to get; -1 for latest
+ * responsible for calling foundHandler if present in params; will be set to NULL upon call
+ */
+static CW_STATUS getFileByNametag(const char *name, int revision, struct CWG_params *params, int fd);
 
 /*
  * initializes either MongoC or Curl depending on whether mongodb or bitdbNode is specified in params
@@ -111,7 +157,21 @@ CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 	if ((status = initFetcher(params)) != CW_OK) { return status; } 
 
+	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
 	status = getFileByTxid(txid, params, fd);
+	params->foundHandler = savePtr;
+	
+	cleanupFetcher(params);
+	return status;
+}
+
+CW_STATUS CWG_get_by_nametag(const char *name, int revision, struct CWG_params *params, int fd) {
+	CW_STATUS status;
+	if ((status = initFetcher(params)) != CW_OK) { return status; } 
+
+	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
+	status = getFileByNametag(name, revision, params, fd);
+	params->foundHandler = savePtr;
 	
 	cleanupFetcher(params);
 	return status;
@@ -189,6 +249,10 @@ const char *CWG_errno_to_msg(int errNo) {
 		case CWG_FILE_DEPTH_ERR:
 		case CWG_FILE_ERR:
 			return "There was an unexpected error in interpreting the file. The file may be encoded incorrectly (i.e. inaccurate metadata/structuring), or there is a problem with cashgettools";
+		case CWG_SCRIPT_ERR:
+			return "Requested nametag's encoded script is either invalid or lacks a file reference";
+		case CWG_SCRIPT_NO:
+		case CWG_SCRIPT_TERM:
 		default:
 			return "Unexpected error code. This is likely an issue with cashgettools";
 	}
@@ -342,27 +406,93 @@ static CW_STATUS hexResolveMetadata(const char *hexData, struct CW_file_metadata
 	return CW_OK;
 }
 
-static size_t writeResponseToFile(void *data, size_t size, size_t nmemb, FILE *respFp) {
-	return fwrite(data, size, nmemb, respFp)*size;
+static size_t writeResponseToStream(void *data, size_t size, size_t nmemb, FILE *respStream) {
+	return fwrite(data, size, nmemb, respStream)*size;
 }
 
-static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, bool bitdbRequestLimit, const char **txids, int count) {
+static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYPE type, const char *bitdbNode, bool bitdbRequestLimit, char **txids, char *hexDataAll) {
 	if (count < 1) { return CWG_FETCH_NO; }
+	if (type == BY_NAMETAG && count != 1) {
+		fprintf(stderr, "current implementation doesn't allow for fetchHexData() querying more than one nametag; problem with cashgettools\n");
+		return CW_SYS_ERR;
+	}
 
 	CURL *curl;
 	CURLcode res;
 	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() failed\n"); return CWG_FETCH_ERR; }
 
+	int printed = 0;
 	// construct query
-	char txidQuery[(BITDB_TXID_QUERY_LEN*count)+1];
+	char *idQuery = malloc(BITDB_ID_QUERY_BUF_SZ*count); idQuery[0] = 0;
 	for (int i=0; i<count; i++) {
-		snprintf(txidQuery + (i*BITDB_TXID_QUERY_LEN), BITDB_TXID_QUERY_LEN+1, "{\"tx.h\":\"%s\"},", txids[i]);
+		switch (type) {
+			case BY_TXID:
+				printed = snprintf(idQuery+strlen(idQuery), BITDB_ID_QUERY_BUF_SZ, "{\"tx.h\":\"%s\"},", ids[i]);
+				break;
+			case BY_INTXID:
+				printed = snprintf(idQuery+strlen(idQuery), BITDB_ID_QUERY_BUF_SZ, "{\"in.e.h\":\"%s\"},", ids[i]);
+				break;
+			case BY_NAMETAG:
+				if (strlen(ids[i])-strlen(CW_NAMETAG_PREFIX) > CW_NAMETAG_MAX_LEN) {
+					fprintf(stderr, "cashgettools: nametag queried is too long\n");
+					free(idQuery);
+					curl_easy_cleanup(curl);
+					return CW_CALL_NO;
+				}
+				printed = snprintf(idQuery+strlen(idQuery), BITDB_ID_QUERY_BUF_SZ, "{\"out.s2\":\"%s\"},", ids[i]);
+				break;
+			default:
+				fprintf(stderr, "invalid FETCH_TYPE; problem with cashgettools\n");
+				free(idQuery);
+				curl_easy_cleanup(curl);
+				return CW_SYS_ERR;
+		}
+		if (printed >= BITDB_ID_QUERY_BUF_SZ) {
+			fprintf(stderr, "BITDB_ID_QUERY_BUF_SZ set too small; problem with cashgettools\n");
+			free(idQuery);
+			curl_easy_cleanup(curl);
+			return CW_SYS_ERR;
+		}
 	}
-	txidQuery[strlen(txidQuery)-1] = 0;
-	char query[BITDB_QUERY_LEN + strlen(txidQuery) + 1];
-	snprintf(query, sizeof(query), 
-	"{\"v\":%d,\"q\":{\"find\":{\"$or\":[%s]}},\"r\":{\"f\":\"[.[]|{%s:.out[0].h1,%s:.tx.h}]\"}}",
-		BITDB_API_VER, txidQuery, BITDB_QUERY_DATA_TAG, BITDB_QUERY_TXID_TAG);
+	idQuery[strlen(idQuery)-1] = 0;
+
+	// construct response handler for query
+	char respHandler[BITDB_RESPHANDLE_QUERY_BUF_SZ];
+	switch (type) {
+		case BY_TXID:
+			printed = snprintf(respHandler, sizeof(respHandler), "{%s:.out[0].h1,%s:.tx.h}", BITDB_QUERY_DATA_TAG, BITDB_QUERY_ID_TAG);
+			break;
+		case BY_INTXID:
+			printed = snprintf(respHandler, sizeof(respHandler), "{%s:.out[0].h1,%s:.in[0].e.h,%s:.in[0].e.i,%s:.tx.h}", BITDB_QUERY_DATA_TAG, BITDB_QUERY_ID_TAG, BITDB_QUERY_INFO_TAG, BITDB_QUERY_TXID_TAG);
+			break;
+		case BY_NAMETAG:
+			printed = snprintf(respHandler, sizeof(respHandler), "{%s:.out[0].h1,%s:.out[0].s2,%s:.tx.h}", BITDB_QUERY_DATA_TAG, BITDB_QUERY_ID_TAG, BITDB_QUERY_TXID_TAG);
+			break;
+		default:
+			fprintf(stderr, "invalid FETCH_TYPE; problem with cashgettools\n");
+			free(idQuery);
+			curl_easy_cleanup(curl);
+			return CW_SYS_ERR;
+	}
+	if (printed >= sizeof(respHandler)) {
+		fprintf(stderr, "BITDB_RESPHANDLE_QUERY_BUF_SZ set too small; problem with cashgettools\n");
+		free(idQuery);
+		curl_easy_cleanup(curl);
+		return CW_SYS_ERR;
+	}
+
+	char *specifiersStr = type == BY_NAMETAG ? ",\"sort\":{\"blk.i\":1,\"tx.h\":1},\"limit\":1" : "";
+	char query[BITDB_QUERY_BUF_SZ + strlen(specifiersStr) + strlen(idQuery) + strlen(respHandler) + 1];
+	printed = snprintf(query, sizeof(query), 
+		  "{\"v\":%d,\"q\":{\"find\":{\"$or\":[%s]}%s},\"r\":{\"f\":\"[.[]|%s]\"}}",
+	    	  BITDB_API_VER, idQuery, specifiersStr, respHandler);
+	free(idQuery);
+	if (printed >= sizeof(query)) {
+		fprintf(stderr, "BITDB_QUERY_BUF_SZ set too small; problem with cashgettools\n");
+		curl_easy_cleanup(curl);
+		return CW_SYS_ERR;
+	}
+
 	char *queryB64;
 	if ((queryB64 = b64_encode((const unsigned char *)query, strlen(query))) == NULL) { perror("b64 encode failed");
 											    curl_easy_cleanup(curl); return CW_SYS_ERR; }
@@ -390,7 +520,7 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 	}
 	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeResponseToFile);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeResponseToStream);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, respFp);
 	res = curl_easy_perform(curl);
 	if (headers) { curl_slist_free_all(headers); }
@@ -413,8 +543,8 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		respMsg[fread(respMsg, 1, respSz, respFp)] = 0;
 		if ((strlen(respMsg) < 1 && count > 1) || (strstr(respMsg, "URI") && strstr(respMsg, "414"))) { // catch for Request-URI Too Large or empty response body
 			int firstCount = count/2;
-			CW_STATUS status1 = fetchHexDataBitDBNode(hexDataAll, bitdbNode, bitdbRequestLimit, txids, firstCount);
-			CW_STATUS status2 = fetchHexDataBitDBNode(hexDataAll+strlen(hexDataAll), bitdbNode, bitdbRequestLimit, txids+firstCount, count-firstCount);
+			CW_STATUS status1 = fetchHexDataBitDBNode(ids, firstCount, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll);
+			CW_STATUS status2 = fetchHexDataBitDBNode(ids+firstCount, count-firstCount, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll+strlen(hexDataAll));
 			status = status1 > status2 ? status1 : status2;
 			goto cleanup;
 		}
@@ -430,13 +560,15 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		}
 	}
 
-	// parse for hex datas at matching txids within both unconfirmed and confirmed transaction json arrays
+	// parse for hex datas at matching ids within both unconfirmed and confirmed transaction json arrays
 	json_t *jsonArrs[2] = { json_object_get(respJson, "c"), json_object_get(respJson, "u") };
 	size_t index;
 	json_t *dataJson;
 	char *jsonDump;
-	const char *dataTxid;
+	const char *dataId;
 	const char *dataHex;
+	const char *dataTxid;
+	int dataVout = 0;
 	bool matched;
 	memset(added, 0, count);
 	for (int i=0; i<count; i++) {
@@ -451,15 +583,27 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 			}
 			
 			json_array_foreach(jsonArrs[a], index, dataJson) {
-				if ((dataTxid = json_string_value(json_object_get(dataJson, BITDB_QUERY_TXID_TAG))) == NULL ||
+				if ((dataId = json_string_value(json_object_get(dataJson, BITDB_QUERY_ID_TAG))) == NULL ||
 				    (dataHex = json_string_value(json_object_get(dataJson, BITDB_QUERY_DATA_TAG))) == NULL) {
 				    	jsonDump = json_dumps(jsonArrs[a], 0);
 					fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
 					free(jsonDump);
 					status = CWG_FETCH_ERR; goto cleanup;
 				}
-				if (!added[i] && strcmp(txids[i], dataTxid) == 0) {
+				if (type == BY_INTXID) { dataVout = json_integer_value(json_object_get(dataJson, BITDB_QUERY_INFO_TAG)); }
+
+				if (!added[i] && strcmp(ids[i], dataId) == 0 && (type != BY_INTXID || dataVout == CW_REVISION_INPUT_VOUT)) {
 					hexDataPtrs[i] = dataHex;	
+					if (txids) {
+						if (type == BY_TXID) { dataTxid = dataId; }
+						else if ((dataTxid = json_string_value(json_object_get(dataJson, BITDB_QUERY_TXID_TAG))) == NULL) {
+							jsonDump = json_dumps(jsonArrs[a], 0);
+							fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
+							free(jsonDump);
+							status = CWG_FETCH_ERR; goto cleanup;		
+						}
+						txids[i][0] = 0; strncat(txids[i], dataTxid, CW_TXID_CHARS);
+					}
 					added[i] = true;
 					matched = true;
 					break;
@@ -479,7 +623,8 @@ static CW_STATUS fetchHexDataBitDBNode(char *hexDataAll, const char *bitdbNode, 
 		return status;
 }
 
-static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbCli, const char **txids, int count) {
+// TODO update for supporting different id types
+static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE type, mongoc_client_t *mongodbCli, char **txids, char *hexDataAll) {
 	if (count < 1) { return CWG_FETCH_NO; }
 	CW_STATUS status = CW_OK;
 	
@@ -487,7 +632,21 @@ static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbC
 	mongoc_collection_t *colls[2] = { mongoc_client_get_collection(mongodbCli, "bitdb", "confirmed"), 
 					  mongoc_client_get_collection(mongodbCli, "bitdb", "unconfirmed") };
 	bson_t *query;
-	bson_t *opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
+	bson_t *opts = NULL;
+	switch (type) {
+		case BY_TXID:
+			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
+			break;
+		case BY_INTXID:
+			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
+			break;
+		case BY_NAMETAG:
+			opts = BCON_NEW("projection", "{", "out", BCON_BOOL(true), "_id", BCON_BOOL(false), "}");
+			break;
+		default:
+			fprintf(stderr, "invalid FETCH_TYPE; problem with cashgettools\n");
+			goto cleanup;
+	}	
 	mongoc_cursor_t *cursor;
 	bson_error_t error;
 	const bson_t *res;
@@ -499,7 +658,7 @@ static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbC
 	bool matched;
 	for (int i=0; i<count; i++) { 
 		matched = false;
-		query = BCON_NEW("tx.h", txids[i]);
+		query = BCON_NEW("tx.h", ids[i]);
 		for (int c=0; c<sizeof(colls)/sizeof(colls[0]); c++) {
 			cursor = mongoc_collection_find_with_opts(colls[c], query, opts, NULL);
 			if (!mongoc_cursor_next(cursor, &res)) {
@@ -530,17 +689,19 @@ static CW_STATUS fetchHexDataMongoDB(char *hexDataAll, mongoc_client_t *mongodbC
 		bson_destroy(query);
 		if (!matched) { status = status == CW_OK ? CWG_FETCH_NO : status; break; }
 	}
-	bson_destroy(opts);
 
-	return status;
+	cleanup:
+		if (opts) { bson_destroy(opts); }
+		for (int c=0; c<sizeof(colls)/sizeof(colls[0]); c++) { mongoc_collection_destroy(colls[c]); }
+		return status;
 }
 
-static inline CW_STATUS fetchHexData(char *hexDataAll, const char **txids, int count, struct CWG_params *params) {
-	if (params->mongodbCli) { return fetchHexDataMongoDB(hexDataAll, params->mongodbCli, txids, count); }
-	else if (params->bitdbNode) { return fetchHexDataBitDBNode(hexDataAll, params->bitdbNode, params->bitdbRequestLimit, txids, count); }
+static inline CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE type, struct CWG_params *params, char **txids, char *hexDataAll) {
+	if (params->mongodbCli) { return fetchHexDataMongoDB(ids, count, type,  params->mongodbCli, txids, hexDataAll); }
+	else if (params->bitdbNode) { return fetchHexDataBitDBNode(ids, count, type, params->bitdbNode, params->bitdbRequestLimit, txids, hexDataAll); }
 	else {
 		fprintf(stderr, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set in cashgettools implementation\n");
-		return CW_SYS_ERR;
+		return CW_CALL_NO;
 	}
 }
 
@@ -584,12 +745,17 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 
 	char *hexDataAll = malloc(CW_TX_DATA_CHARS*txidsCount + 1);
 	if (hexDataAll == NULL) { perror("malloc failed"); status =  CW_SYS_ERR; goto cleanup; }
-	if ((status = fetchHexData(hexDataAll, (const char **)txids, txidsCount, params)) == CW_OK) { 
+	if ((status = fetchHexData((const char **)txids, txidsCount, BY_TXID, params, NULL, hexDataAll)) == CW_OK) { 
 		if (partialTxids != NULL) {
 			char *partialTxidN = malloc(CW_TXID_CHARS+1);
-			if (partialTxidN == NULL) { perror("malloc failed"); status = CW_SYS_ERR; goto cleanup; }
+			if (partialTxidN == NULL) { perror("malloc failed"); free(hexDataAll); status = CW_SYS_ERR; goto cleanup; }
 			strcpy(partialTxidN, partialTemp);
-			addFront(partialTxids[1], partialTxidN);
+			if (!addFront(partialTxids[1], partialTxidN)) {
+				perror("mylist addFront() failed");
+				free(hexDataAll);
+				status = CW_SYS_ERR;
+				goto cleanup;
+			}
 		}
 
 		if (depth+1 < md->depth) {
@@ -644,7 +810,7 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *
 		if (!end) {
 			strncpy(txidNext, hexData+(strlen(hexData) - suffixLen), CW_TXID_CHARS);
 			txidNext[CW_TXID_CHARS] = 0;
-			if ((status = fetchHexData(hexDataNext, (const char **)&txidNext, 1, params)) == CWG_FETCH_NO) {
+			if ((status = fetchHexData((const char **)&txidNext, 1, BY_TXID, params, NULL, hexDataNext)) == CWG_FETCH_NO) {
 				status = CWG_FILE_LEN_ERR;	
 				goto cleanup;
 			} else if (status != CW_OK) { goto cleanup; }
@@ -672,16 +838,135 @@ static inline CW_STATUS traverseFile(const char *hexDataStart, struct CWG_params
 						: traverseFileTree(hexDataStart, NULL, CW_METADATA_CHARS, 0, params, md, fd);
 }
 
+static CW_STATUS getScriptByInTxid(const char *inTxid, struct CWG_params *params, char **txidPtr, FILE *stream) {
+	CW_STATUS status;
+
+	char hexDataStart[CW_TX_DATA_CHARS+1];
+	struct CW_file_metadata md;
+
+	if ((status = fetchHexData((const char **)&inTxid, 1, BY_INTXID, params, txidPtr, hexDataStart)) != CW_OK) { return status; }
+	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { return status; }
+	protocolCheck(md.pVer);
+
+	return traverseFile(hexDataStart, params, &md, fileno(stream));
+}
+
+static CW_STATUS getScriptByNametag(const char *name, struct CWG_params *params, char **txidPtr, FILE *stream) {
+	size_t nameLen = strlen(name);
+	if (nameLen > CW_NAMETAG_MAX_LEN) {
+		fprintf(stderr, "cashgettools: nametag specified for get is too long (maximum %lu characters)\n", CW_NAMETAG_MAX_LEN);
+		return CW_CALL_NO;
+	}
+
+	CW_STATUS status;
+
+	char hexDataStart[CW_TX_DATA_CHARS+1];
+	struct CW_file_metadata md;
+
+	char nametag[strlen(CW_NAMETAG_PREFIX) + nameLen + 1]; nametag[0] = 0;
+	strcat(nametag, CW_NAMETAG_PREFIX);
+	strcat(nametag, name);
+	char *nametagPtr = nametag;
+	if ((status = fetchHexData((const char **)&nametagPtr, 1, BY_NAMETAG, params, txidPtr, hexDataStart)) != CW_OK) { return status; }
+	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { return status; }
+	protocolCheck(md.pVer);
+
+	return traverseFile(hexDataStart, params, &md, fileno(stream));
+}
+
+static CW_STATUS execScriptCode(CW_OPCODE c, struct List *stack, FILE *scriptStream, const char *revTxid, int atRev, int maxRev, struct CWG_params *params, int fd) {
+	switch (c) {
+		case CW_OP_TERM:
+			return CWG_SCRIPT_TERM;
+		case CW_OP_NEXTREV: {
+			if (maxRev >= 0 && atRev >= maxRev) { return CWG_SCRIPT_NO; }
+			CW_STATUS status;
+			char nextRevTxid[CW_TXID_CHARS+1]; char *nextRevTxidPtr = nextRevTxid;
+			FILE *nextScriptStream = tmpfile();
+			if (nextScriptStream == NULL) { perror("tmpfile() failed"); return CW_SYS_ERR; }
+			if ((status = getScriptByInTxid(revTxid, params, &nextRevTxidPtr, nextScriptStream)) != CW_OK) {
+				fclose(nextScriptStream);
+				if (status == CWG_FETCH_NO) { return CWG_SCRIPT_NO; }
+				return status;
+			}
+			rewind(nextScriptStream);
+			status = execScript(nextScriptStream, nextRevTxid, atRev+1, maxRev, params, fd);
+			fclose(nextScriptStream);
+			return status;
+		}
+		case CW_OP_PUSHTXID: {
+			char txidBytes[CW_TXID_BYTES];
+			if (fread(txidBytes, 1, CW_TXID_BYTES, scriptStream) < CW_TXID_BYTES) {
+				if (ferror(scriptStream)) { perror("fread() failed on scriptStream"); return CW_SYS_ERR; }
+				return CWG_SCRIPT_ERR;
+			}
+			char *txid = malloc(CW_TXID_CHARS+1);
+			if (txid == NULL) { perror("malloc failed"); return CW_SYS_ERR; }
+			byteArrToHexStr(txidBytes, CW_TXID_BYTES, txid);
+			if (!addFront(stack, txid)) { perror("mylist addFront() failed"); free(txid); return CW_SYS_ERR; }
+			return CW_OK;
+		}
+		case CW_OP_WRITEFROMTXID: {
+			char *txid = popFront(stack);
+			if (!txid || strlen(txid) != CW_TXID_CHARS) { return CWG_SCRIPT_ERR; }
+			CW_STATUS status = getFileByTxid(txid, params, fd);
+			free(txid);
+			if (status == CWG_FETCH_NO) { return CWG_SCRIPT_ERR; }
+			return status;
+		}
+		default: {
+			char *pushStr = malloc((size_t)c+1);	
+			if (pushStr == NULL) { perror("malloc failed"); }
+			if (fread(pushStr, 1, c, scriptStream) < c) {
+				if (ferror(scriptStream)) { perror("fread() failed on scriptStream"); free(pushStr); return CW_SYS_ERR; }
+				return CWG_SCRIPT_ERR;
+			}
+			for (int i=0; i<c; i++) { if (pushStr[i] == 0) { free(pushStr); return CWG_SCRIPT_ERR; } }
+			pushStr[c] = 0;
+			if (!addFront(stack, pushStr)) { perror("mylist addFront() failed"); free(pushStr); return CW_SYS_ERR; }
+			return CW_OK;
+		}
+	}
+}
+
+static CW_STATUS execScript(FILE *scriptStream, const char *revTxid, int atRevision, int maxRevision, struct CWG_params *params, int fd) {
+	CW_STATUS status = CW_OK;
+
+	List stack;
+	initList(&stack);
+
+	int c;	
+	CW_OPCODE code;
+	while ((c = getc(scriptStream)) != EOF) {
+		code = (CW_OPCODE)c;
+		// if script is invalid, will attempt to replace with next revision; if it isn't there, will return CWG_SCRIPT_ERR
+		if ((status = execScriptCode(code, &stack, scriptStream, revTxid, atRevision, maxRevision, params, fd)) == CWG_SCRIPT_ERR) {
+			removeAllNodes(&stack);
+			if ((status = execScriptCode(CW_OP_NEXTREV, &stack, scriptStream, revTxid, atRevision, maxRevision, params, fd)) == CWG_SCRIPT_NO) {
+				status = CWG_SCRIPT_ERR;
+			}
+			goto cleanup;
+		}
+		else if (status == CWG_SCRIPT_NO) { status = CW_OK; continue; }
+		else if (status != CW_OK) { goto cleanup; }
+	}
+	if (ferror(scriptStream)) { perror("getc() failed on scriptStream"); status = CW_SYS_ERR; goto cleanup; }
+
+	cleanup:
+		removeAllNodes(&stack);
+		return status;
+}
+
 static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 
-	char *hexDataStart = malloc(CW_TX_DATA_CHARS+1);
-	if (hexDataStart == NULL) { perror("malloc failed"); status = CW_SYS_ERR; goto foundhandler; }
+	char hexDataStart[CW_TX_DATA_CHARS+1];
 	struct CW_file_metadata md;
 
-	if ((status = fetchHexData(hexDataStart, (const char **)&txid, 1, params)) != CW_OK) { goto foundhandler; }
+	if ((status = fetchHexData((const char **)&txid, 1, BY_TXID, params, NULL, hexDataStart)) != CW_OK) { goto foundhandler; }
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }
 	protocolCheck(md.pVer);	
+
 	if (params->dirPath && md.type == CW_T_DIR) {
 		FILE *dirFp;
 		if ((dirFp = params->saveDirFp) == NULL &&
@@ -704,8 +989,7 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 		dirFileParams.dirPath = NULL;
 		dirFileParams.saveDirFp = NULL;
 
-		status = getFileByTxid(pathTxid, &dirFileParams, fd);	
-		goto cleanup;
+		return getFileByTxid(pathTxid, &dirFileParams, fd);	
 	} else if (params->dirPath) { status = CWG_IS_DIR_NO; goto foundhandler; }
 
 	if (params->saveMimeStr) {
@@ -714,14 +998,32 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 
 	foundhandler:
 	if (status == params->foundSuppressErr) { status = CW_OK; }
-	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); }
-	if (status != CW_OK) { goto cleanup; }
+	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); params->foundHandler = NULL; }
+	if (status != CW_OK) { return status; }
 
-	status = traverseFile(hexDataStart, params, &md, fd);
-	
-	cleanup:
-		free(hexDataStart);
-		return status;
+	return traverseFile(hexDataStart, params, &md, fd);
+}
+
+static CW_STATUS getFileByNametag(const char *name, int revision, struct CWG_params *params, int fd) {	
+	CW_STATUS status;
+
+	char revTxid[CW_TXID_CHARS+1]; char *revTxidPtr = revTxid;
+	FILE *scriptStream = NULL;	
+
+	if ((scriptStream = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }	
+	if ((status = getScriptByNametag(name, params, &revTxidPtr, scriptStream)) != CW_OK) { goto foundhandler; }
+	rewind(scriptStream);
+	if ((status = execScript(scriptStream, revTxid, 0, revision, params, fd)) == CWG_SCRIPT_TERM) { status = CW_OK; }
+
+	// this should have been set NULL if anything was written from script execution; if not, it's deemed a bad script
+	if (status == CW_OK && params->foundHandler != NULL) { status = CWG_SCRIPT_ERR; }
+
+	foundhandler:
+	if (status == params->foundSuppressErr) { status = CW_OK; }
+	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); params->foundHandler = NULL; }
+
+	if (scriptStream) { fclose(scriptStream); }
+	return status;
 }
 
 static CW_STATUS initFetcher(struct CWG_params *params) {

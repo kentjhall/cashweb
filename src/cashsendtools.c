@@ -7,21 +7,6 @@
 #define ERR_MSG_BUF 40
 #define RECOVERY_INFO_BUF 15
 
-/* rpc method identifiers */
-#define RPC_M_GETBALANCE 0
-#define RPC_M_GETUNCONFIRMEDBALANCE 1
-#define RPC_M_LISTUNSPENT 2
-#define RPC_M_LISTUNSPENT_0 3
-#define RPC_M_GETRAWCHANGEADDRESS 4
-#define RPC_M_ESTIMATEFEE 5
-#define RPC_M_CREATERAWTRANSACTION 6
-#define RPC_M_SIGNRAWTRANSACTIONWITHWALLET 7
-#define RPC_M_SENDRAWTRANSACTION 8
-#define RPC_M_GETRAWTRANSACTION 9
-#define RPC_M_LISTLOCKUNSPENT 10
-#define RPC_M_LOCKUNSPENT 11
-#define RPC_METHODS_COUNT 12
-
 /* tx sending constants */
 #define B_ERR_MSG_BUF 50
 #define B_ADDRESS_BUF 75
@@ -39,6 +24,22 @@
 #define TX_OUTPUT_SZ 34
 #define TX_DATA_BASE_SZ 10
 #define TX_SZ_CAP 100000
+
+/* rpc method identifiers */
+typedef enum RpcMethod {
+	RPC_M_GETBALANCE,
+	RPC_M_GETUNCONFIRMEDBALANCE,
+	RPC_M_LISTUNSPENT,
+	RPC_M_LISTUNSPENT_0,
+	RPC_M_GETRAWCHANGEADDRESS,
+	RPC_M_ESTIMATEFEE,
+	RPC_M_CREATERAWTRANSACTION,
+	RPC_M_SIGNRAWTRANSACTIONWITHWALLET,
+	RPC_M_SENDRAWTRANSACTION,
+	RPC_M_GETRAWTRANSACTION,
+	RPC_M_LOCKUNSPENT,
+	RPC_METHODS_COUNT
+} RPC_METHOD_ID;
 
 /*
  * struct for carrying around UTXO specifiers
@@ -80,13 +81,13 @@ struct CWS_rpc_pack {
  * attempts an RPC call via given struct CWS_rpc_pack with specified RPC method identifier and params
  * copies json response pointer to jsonResult; this needs to be freed by json_decref()
  */
-static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params, json_t **jsonResult);
+static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, RPC_METHOD_ID rpcMethodI, json_t *params, json_t **jsonResult);
 
 /*
  * wrapper for rpcCallAttempt() to wait on connection error
  * will return appropriate status on any other error
  */
-static CW_STATUS rpcCall(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params, json_t **jsonResult);
+static CW_STATUS rpcCall(struct CWS_rpc_pack *rp, RPC_METHOD_ID rpcMethodI, json_t *params, json_t **jsonResult);
 
 /*
  * check balance of wallet via RPC and writes to balance 
@@ -447,12 +448,17 @@ CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CW
 }
 
 CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (strlen(name) > CW_NAMETAG_MAX_LEN) {
+		fprintf(stderr, "CWS_send_nametag provided with name that is too long (%zu characters)\n", strlen(name));
+		return CW_CALL_NO;
+	}
+
 	CW_STATUS status;
 
 	struct CWS_rpc_pack rpcPack;
 	if ((status = initRpc(params, &rpcPack)) != CW_OK) { cleanupRpc(&rpcPack); return status; }	
 
-	FILE *scriptStream = NULL;
+	FILE *scriptStream = NULL;	
 
 	// construct hex string for name
 	char cwName[strlen(CW_NAMETAG_PREFIX) + strlen(name) + 1]; cwName[0] = 0;
@@ -461,11 +467,6 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 	size_t cwNameLen = strlen(cwName);
 	char cwNameHexStr[cwNameLen*2];
 	byteArrToHexStr(cwName, cwNameLen, cwNameHexStr);
-	if (txDataSize(cwNameLen, NULL) + CW_METADATA_BYTES > CW_TX_DATA_BYTES) {
-		fprintf(stderr, "CWS_send_nametag provided with name that is too long (%zu characters)\n", strlen(name));
-		status = CW_CALL_NO;
-		goto cleanup;
-	}	
 
 	// write script byte data to tmpfile
 	if ((scriptStream = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
@@ -491,7 +492,7 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 	if (status != CW_OK) { goto cleanup; }
 
 	if (!immutable) {
-		if ((status = lockUnspent(resTxid, 1, false, &rpcPack)) != CW_OK) {
+		if ((status = lockUnspent(resTxid, CW_REVISION_INPUT_VOUT, false, &rpcPack)) != CW_OK) {
 			fprintf(stderr, "RPC fail on locking unspent for nametag; this may need to be done manually\n");
 			goto cleanup;
 		}	
@@ -541,37 +542,40 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 
 	params->cwType = CW_T_FILE;
 	struct CWS_sender sender;
-	init_CWS_sender_for_stream(&sender, scriptStream, 0, NULL, &rpcPack, params);
-
-	// unlock specified utxo to be used as input
-	if ((status = lockUnspent(utxoTxid, 1, true, &rpcPack)) != CW_OK) { goto cleanup; }
+	init_CWS_sender_for_stream(&sender, scriptStream, 0, NULL, &rpcPack, params);	
 
 	// force extra tiny change unspent for future revisions
 	if (!immutable) { rpcPack.forceTinyChangeLast = true; }
 
+	// unlock specified utxo to be used as input
+	if ((status = lockUnspent(utxoTxid, CW_REVISION_INPUT_VOUT, true, &rpcPack)) != CW_OK) { goto relock; }
+
 	// set specified utxo as forced input for send
 	struct CWS_utxo inUtxo;
 	inUtxo.txid[0] = 0; strncat(inUtxo.txid, utxoTxid, CW_TXID_CHARS);
-	inUtxo.vout = 1;
+	inUtxo.vout = CW_REVISION_INPUT_VOUT;
 	rpcPack.forceInputUtxoLast = &inUtxo;
 
 	// analyze UTXO requirements in advance; writes to rpcPack
 	if (params->fragUtxos == 1) {
-		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto relock; }
 		rewind(scriptStream);
 	} else { rpcPack.txsToSend = params->fragUtxos; }
 
 	if ((status = sendBySender(&sender, NULL, resTxid)) == CWS_INPUTS_NO) {
 		fprintf(stderr, "RPC reporting bad UTXO(s); check that UTXO specified for CWS_send_revision is owned by this wallet\n");
-	}
-	if (status != CW_OK) { goto cleanup; }
+	} else if (status != CW_OK) { goto relock; }
 
 	if (!immutable) {
-		if ((status = lockUnspent(resTxid, 1, false, &rpcPack)) != CW_OK) {
+		if ((status = lockUnspent(resTxid, CW_REVISION_INPUT_VOUT, false, &rpcPack)) != CW_OK) {
 			fprintf(stderr, "RPC fail on locking unspent for revision; this may need to be done manually\n");
-			goto cleanup;
 		}	
 	}		
+	goto cleanup;
+
+	relock:
+		// attempt to re-lock unspent in case of failure
+		if (status != CW_OK) { lockUnspent(utxoTxid, CW_REVISION_INPUT_VOUT, false, &rpcPack); }
 
 	cleanup:
 		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costCount; }
@@ -690,7 +694,7 @@ const char *CWS_errno_to_msg(int errNo) {
 
 /* ---------------------------------------------------------------------------------- */
 
-static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params, json_t **jsonResult) {
+static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, RPC_METHOD_ID rpcMethodI, json_t *params, json_t **jsonResult) {
 	bitcoinrpc_resp_t *bResponse = bitcoinrpc_resp_init();
 	bitcoinrpc_err_t bError;
 	if (!bResponse) { perror("bitcoinrpc_resp_init() failed"); return CW_SYS_ERR; }
@@ -725,7 +729,7 @@ static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, int rpcMethodI, json_t 
 		return status;
 }
 
-static CW_STATUS rpcCall(struct CWS_rpc_pack *rp, int rpcMethodI, json_t *params, json_t **jsonResult) {
+static CW_STATUS rpcCall(struct CWS_rpc_pack *rp, RPC_METHOD_ID rpcMethodI, json_t *params, json_t **jsonResult) {
 	bool printed = false;
 	CW_STATUS status;
 	while ((status = rpcCallAttempt(rp, rpcMethodI, params, jsonResult)) == CWS_RPC_ERR) {
@@ -1821,14 +1825,10 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 			case RPC_M_GETRAWTRANSACTION:
 				method = BITCOINRPC_METHOD_GETRAWTRANSACTION;
 				break;
-			case RPC_M_LISTLOCKUNSPENT:
-				method = BITCOINRPC_METHOD_LISTLOCKUNSPENT;
-				break;
 			case RPC_M_LOCKUNSPENT:
 				method = BITCOINRPC_METHOD_LOCKUNSPENT;
 				break;
 			default:
-				fprintf(stderr, "initRpcMethods() reached unexpected identifier; rpc method #defines probably incorrect in cashsendtools\n");
 				continue;
 		}
 

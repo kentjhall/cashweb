@@ -12,11 +12,17 @@
 #define CWG_IS_DIR_NO CW_SYS_ERR+2
 #define CWG_FETCH_NO CW_SYS_ERR+3
 #define CWG_METADATA_NO CW_SYS_ERR+4
-#define CWG_FETCH_ERR CW_SYS_ERR+5
-#define CWG_WRITE_ERR CW_SYS_ERR+6
-#define CWG_FILE_ERR CW_SYS_ERR+7
-#define CWG_FILE_LEN_ERR CW_SYS_ERR+8
-#define CWG_FILE_DEPTH_ERR CW_SYS_ERR+9
+#define CWG_SCRIPT_NO CW_SYS_ERR+5
+#define CWG_SCRIPT_TERM CW_SYS_ERR+6
+#define CWG_FETCH_ERR CW_SYS_ERR+7
+#define CWG_WRITE_ERR CW_SYS_ERR+8
+#define CWG_SCRIPT_ERR CW_SYS_ERR+9
+#define CWG_FILE_ERR CW_SYS_ERR+10
+#define CWG_FILE_LEN_ERR CW_SYS_ERR+11
+#define CWG_FILE_DEPTH_ERR CW_SYS_ERR+12
+
+/* this is passed to CWG_get_by_nametag if seeking latest revision; for readability */
+#define CWG_REV_LATEST -1
 
 /*
  * params for getting
@@ -93,6 +99,14 @@ static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *s
  * if foundHandler specified, will call to indicate if file is found before writing
  */
 CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
+
+/*
+ * gets the file at the specified nametag and writes to given file descriptor
+ * specify revision for versioning; CWG_REV_LATEST for latest revision
+ * queries at specified BitDB-populated MongoDB or BitDB HTTP endpoint
+ * if foundHandler specified, will call to indicate if file is found before writing
+ */
+CW_STATUS CWG_get_by_nametag(const char *name, int revision, struct CWG_params *params, int fd);
 
 /*
  * reads from specified file stream to ascertain the desired txid from given directory/path;
