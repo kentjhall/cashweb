@@ -40,10 +40,22 @@ void *popFront(struct List *list) {
 	return d;
 }
 
-void removeAllNodes(struct List *list) {
+void *peekFront(struct List *list) {
+	if (isEmptyList(list)) { return NULL; }
+	return list->head->data;	
+}
+
+void *peekLast(struct List *list) {
+	if (isEmptyList(list)) { return NULL; }
+	struct Node *n = list->head;
+	while (n->next) { n = n->next; }
+	return n->data;
+}
+
+void removeAllNodes(struct List *list, bool freeData) {
 	while (list->head) {
 		void *d = popFront(list);
-		if (d) { free(d); }
+		if (freeData && d) { free(d); }
 	}
 }
 

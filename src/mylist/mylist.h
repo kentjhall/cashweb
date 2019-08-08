@@ -1,10 +1,12 @@
 #ifndef _MYLIST_H_
 #define _MYLIST_H_
 
-struct Node {
+#include <stdbool.h>
+
+typedef struct Node {
     void *data;
     struct Node *next;
-};
+} Node;
 
 typedef struct List {
     struct Node *head;
@@ -38,9 +40,15 @@ static inline int isEmptyList(struct List *list)
 // returns the data pointer that was stored in the node, or NULL on empty list
 void *popFront(struct List *list);
 
-// removes all nodes from list, deallocating memory for nodes and data
-// this should only be used if all data is heap-allocated
-void removeAllNodes(struct List *list);
+// returns data pointer from first node of list, or NULL on empty list
+void *peekFront(struct List *list);
+
+// returns data pointer from last node of list, or NULL on empty list
+void *peekLast(struct List *list);
+
+// removes all nodes from list, deallocating memory for nodes (and data if freeData is true)
+// freeData should only be set true if all data is heap-allocated
+void removeAllNodes(struct List *list, bool freeData);
 
 // creates a node holding the given data pointer, adds it right after prevNode
 // if prevNode is NULL, is added to the front of the list

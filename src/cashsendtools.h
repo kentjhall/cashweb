@@ -14,6 +14,9 @@
 #define CWS_RECOVERYFILE_NO CW_SYS_ERR+6
 #define CWS_RPC_ERR CW_SYS_ERR+7
 
+/* data directory paths for cashsendtools */
+#define CW_DATADIR_REVISIONS_FILE "revision_locks.json"
+
 /*
  * params for sending
  * rpcServer: RPC address
@@ -62,7 +65,7 @@ static inline void init_CWS_params(struct CWS_params *csp,
 	csp->fragUtxos = 1;
 	csp->saveDirStream = NULL;
 	csp->recoveryStream = recoveryStream;
-	csp->datadir = NULL;
+	csp->datadir = CW_INSTALL_DATADIR_PATH;
 }
 
 /*
@@ -161,6 +164,27 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
 CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *fTxid, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * locks stored revisioning utxos (in data directory) via RPC
+ * this will be done automatically by cashsendtools when sending,
+   but this public function is available to protect revisioning utxos if bitcoind has been restarted (which apparently resets locked unspents)
+   and funds need to be sent elsewhere
+ */
+CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params);
+
+/*
+ * manually lock/unlock specified revisioning txid
+ * name should be set if locking, or stored revisioning name will be empty string;
+   if unlocking, name will be ignored (should be NULL), and any stored locks on specified txid (should really only be one) will be removed
+ */
+CW_STATUS CWS_set_revision_lock(const char *revTxid, bool unlock, const char *name, struct CWS_params *csp);
+
+/*
+ * determines revisioning txid by given name from what is stored in cashwebtools data directory and writes to revTxid
+ * returns CW_CALL_NO if name goes unmatched, or otherwise appropriate status code
+ */
+CW_STATUS CWS_get_stored_revision_txid_by_name(const char *name, struct CWS_params *csp, char *revTxid);
 
 /*
  * determines protocol-specific cashweb type value for given filename/extension by mimetype and copies to given struct CWS_params

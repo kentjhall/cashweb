@@ -1,6 +1,5 @@
 #include "cashgettools.h"
 #include <getopt.h>
-#include <ctype.h>
 
 #define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
@@ -55,7 +54,7 @@ int main(int argc, char **argv) {
 	if (!isName && strlen(identifier) != CW_TXID_CHARS) { fprintf(stderr, "Invalid txid; if getting by nametag, use flag -N\n"); exit(1); }
 
 	struct CWG_params params;
-	init_CWG_params(&params, mongodb, bitdbNode);
+	init_CWG_params(&params, mongodb, bitdbNode, NULL);
 
 	CW_STATUS status;
 	if (isName) { status = CWG_get_by_nametag(identifier, revision, &params, STDOUT_FILENO); }

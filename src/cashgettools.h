@@ -12,8 +12,8 @@
 #define CWG_IS_DIR_NO CW_SYS_ERR+2
 #define CWG_FETCH_NO CW_SYS_ERR+3
 #define CWG_METADATA_NO CW_SYS_ERR+4
-#define CWG_SCRIPT_NO CW_SYS_ERR+5
-#define CWG_SCRIPT_TERM CW_SYS_ERR+6
+#define CWG_SCRIPT_CODE_NO CW_SYS_ERR+5
+#define CWG_SCRIPT_NO CW_SYS_ERR+6
 #define CWG_FETCH_ERR CW_SYS_ERR+7
 #define CWG_WRITE_ERR CW_SYS_ERR+8
 #define CWG_SCRIPT_ERR CW_SYS_ERR+9
@@ -24,6 +24,9 @@
 /* this is passed to CWG_get_by_nametag if seeking latest revision; for readability */
 #define CWG_REV_LATEST -1
 
+/* required array size if passing saveMimeStr in params */
+#define CWG_MIMESTR_BUF 256
+
 /*
  * params for getting
  * mongodb: MongoDB address (assumed to be populated by BitDB Node); only specify if not using the latter
@@ -32,9 +35,16 @@
  * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
  * bitdbRequestLimit: Specify whether or not BitDB Node has request limit
  * dirPath: Specify path if requesting a directory
+ * dirPathReplace: Optionally allow requested dirPath to be replaced by nametag scripting; set NULL if not desired.
+ 		   If set, string length of zero indicates to allow replacement by script, but not mandated;
+		   otherwise, will replace with set string if not overwritten by script (soft replacement).
+		   This pointer CAN be overwritten, so if string is heap-allocated, a separate reference should be maintained for freeing it
+ * dirPathReplaceToFree: Specifies whether dirPathReplace points to heap-allocated memory that needs to be freed on replacement; primarily for internal use.
+ 			 Should function if set true when initial dirPathReplace points to heap-allocated memory,
+			 but is strongly recommended that freeing any passed pointer be handled by the user instead
  * saveDirFp: Optionally specify stream for writing directory contents if requesting a directory
  * saveMimeStr: Optionally interpret/save file's mimetype string to this memory location;
- 		must make sure there is enough space allocated (recommended 256 bytes for extremes)
+ 		pass pointer to char array of length CWG_MIMESTR_BUF (this #define is available in header)
  * foundHandler: Function to call when file is found, before writing
  * foundHandleData: Data pointer to pass to foundHandler()
  * foundSuppressErr: Specify an error code to suppress if file is found; <0 for none
@@ -47,8 +57,10 @@ struct CWG_params {
 	const char *bitdbNode;
 	bool bitdbRequestLimit;
 	char *dirPath;
+	char *dirPathReplace;
+	bool dirPathReplaceToFree;
 	FILE *saveDirFp;
-	char *saveMimeStr;
+	char (*saveMimeStr)[CWG_MIMESTR_BUF];
 	void (*foundHandler) (CW_STATUS, void *, int);
 	void *foundHandleData;
 	CW_STATUS foundSuppressErr;
@@ -59,8 +71,9 @@ struct CWG_params {
  * initialize struct CWG_params
  * either MongoDB or BitDB HTTP endpoint address must be specified on init
  * if both specified, will default to MongoDB within cashgettools
+ * if saving mime type string is desired, pointer must be passed here for array initialization; otherwise, can be set NULL
  */ 
-static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode) {
+static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, char (*saveMimeStr)[CWG_MIMESTR_BUF]) {
 	if (!mongodb && !bitdbNode) {
 		fprintf(stderr, "WARNING: CWG_params must be provided with address for MongoDB or BitDB HTTP endpoint on init\n");
 	} 
@@ -69,8 +82,11 @@ static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, 
 	cgp->bitdbNode = bitdbNode;
 	cgp->bitdbRequestLimit = true;
 	cgp->dirPath = NULL;
+	cgp->dirPathReplace = NULL;
+	cgp->dirPathReplaceToFree = false;
 	cgp->saveDirFp = NULL;
-	cgp->saveMimeStr = NULL;
+	cgp->saveMimeStr = saveMimeStr;
+	if (cgp->saveMimeStr) { memset(*cgp->saveMimeStr, 0, sizeof(*cgp->saveMimeStr)); }
 	cgp->foundHandler = NULL;
 	cgp->foundHandleData = NULL;
 	cgp->foundSuppressErr = -1;
@@ -85,6 +101,8 @@ static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *s
 	dest->mongodbCli = source->mongodbCli;
 	dest->bitdbNode = source->bitdbNode;
 	dest->dirPath = source->dirPath;
+	dest->dirPathReplace = source->dirPathReplace;
+	dest->dirPathReplaceToFree = source->dirPathReplaceToFree;
 	dest->saveDirFp = source->saveDirFp;
 	dest->saveMimeStr = source->saveMimeStr;
 	dest->foundHandler = source->foundHandler;

@@ -82,7 +82,7 @@ static int safeReadLine(struct DynamicMemory *line, size_t lineBufStart, FILE *f
 static inline bool copyStreamData(FILE *dest, FILE *source) {
 	char buf[FILE_DATA_BUF];
 	int n;
-	while ((n = fread(buf, 1, FILE_DATA_BUF, source)) > 0) {
+	while ((n = fread(buf, 1, sizeof(buf), source)) > 0) {
 		if (fwrite(buf, 1, n, dest) < n) { perror("fwrite() failed"); return false; }
 	}
 	if (ferror(source)) { perror("fread() failed"); return false; }
@@ -91,7 +91,7 @@ static inline bool copyStreamData(FILE *dest, FILE *source) {
 
 /*
  * converts byte array of n bytes to hex str of len 2n, and writes to specified memory location
- * must ensure hexStr has sufficient memory allocated
+ * must ensure hexStr has sufficient memory allocated (2n + 1); always null-terminates
  */
 static inline void byteArrToHexStr(const char *byteArr, int n, char *hexStr) {
 	for (int i=0; i<n; i++) {
@@ -120,6 +120,89 @@ static inline int hexStrToByteArr(const char *hexStr, int suffixLen, char *byteA
 	}
 
 	return bytesRead;
+}
+
+/*
+ * puts int to network byte order (big-endian) byte array, written to passed memory location
+ * must make sure that type of uintPtr matches numBytes (e.g. uint16_t -> 2 bytes), and that hexStr has sufficient space
+ * supports 2 and 4 byte integers
+ */
+static inline bool intToNetByteArr(void *uintPtr, int numBytes, unsigned char *byteArr) {
+	uint16_t uint16 = 0; uint32_t uint32 = 0;
+	bool isShort = false;
+	switch (numBytes) {
+		case sizeof(uint16_t):
+			isShort = true;
+			uint16 = htons(*(uint16_t *)uintPtr);
+			break;
+		case sizeof(uint32_t):
+			uint32 = htonl(*(uint32_t *)uintPtr);
+			break;
+		default:
+			fprintf(stderr, "invalid byte count specified for intToNetByteArr, int must be 2 or 4 bytes; problem with cashwebtools\n");
+			return false;
+	}
+
+	for (int i=0; i<numBytes; i++) {
+		byteArr[i] = ((isShort ? uint16 : uint32) >> i*8) & 0xFF;
+	}
+	return true;
+}
+
+/*
+ * puts int to network byte order (big-endian) and converts to hex string, written to passed memory location
+ * must make sure that type of uintPtr matches numBytes (e.g. uint16_t -> 2 bytes), and that hexStr has sufficient space
+ * supports 2 and 4 byte integers
+ * must ensure hexStr has sufficient memory allocated (2n + 1); always null-terminates
+ */
+static inline bool intToNetHexStr(void *uintPtr, int numBytes, char *hexStr) {
+	unsigned char bytes[numBytes];
+		
+	if (!intToNetByteArr(uintPtr, numBytes, bytes)) { return false; }
+	byteArrToHexStr((const char *)bytes, numBytes, hexStr);
+
+	return true;
+}
+
+/*
+ * converts byte array in network byte order (big-endian) to host byte order integer
+ * must make sure that type of uintPtr matches numBytes (e.g. uint16_t -> 2 bytes)
+ * supports 2 and 4 byte integers
+ */
+static inline bool netByteArrToInt(const char *byteData, int numBytes, void *uintPtr) {
+	uint16_t uint16 = 0; uint32_t uint32 = 0;
+	bool isShort = false;
+	switch (numBytes) {
+		case sizeof(uint16_t):
+			isShort = true;
+			break;
+		case sizeof(uint32_t):
+			break;
+		default:
+			fprintf(stderr, "unsupported number of bytes read for network integer value; probably problem with cashwebtools\n");
+			return false;
+	}
+
+	for (int i=0; i<numBytes; i++) {
+		if (isShort) { uint16 |= (uint16_t)byteData[i] << i*8; } else { uint32 |= (uint32_t)byteData[i] << i*8; }
+	}
+	if (isShort) { *(uint16_t *)uintPtr = ntohs(uint16); }
+	else { *(uint32_t *)uintPtr = ntohl(uint32); }
+
+	return true;
+}
+
+/* 
+ * resolves array of bytes into a network byte order (big-endian) unsigned integer,
+ * and then converts to host byte order
+ * must make sure void* is appropriate unsigned integer type (uint16_t or uint32_t),
+ * and passed hex must be appropriate length
+ */
+static inline bool netHexStrToInt(const char *hex, int numBytes, void *uintPtr) {
+	char byteData[numBytes];
+	if (numBytes != strlen(hex)/2 || hexStrToByteArr(hex, 0, byteData) < 0) { fprintf(stderr, "invalid hex data passed for network integer value; probably problem with cashwebtools\n"); return false; }	
+
+	return netByteArrToInt(byteData, numBytes, uintPtr);
 }
 
 #endif

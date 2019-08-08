@@ -1,18 +1,12 @@
 #include "cashsendtools.h"
 #include <getopt.h>
-#include <ctype.h>
 
 #define RPC_SERVER_DEFAULT "127.0.0.1"
 #define RPC_PORT_DEFAULT 8332
 #define RPC_USER_DEFAULT "root"
 #define RPC_PASS_DEFAULT "bitcoin"
 
-int main(int argc, char **argv) {
-	if (argc < 2) {
-		fprintf(stderr, "usage: %s [flags] <tosend>\n", argv[0]);
-		exit(1);
-	}	
-
+int main(int argc, char **argv) {	
 	FILE *recoveryStream;
 	if ((recoveryStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }
 
@@ -22,12 +16,15 @@ int main(int argc, char **argv) {
 	
 	bool no = false;
 	bool revImmutable = false;
-	char *nametag = NULL;
-	char *revisionUtxo = NULL;
+	char *name = NULL;
+	char *revision = NULL;
+	char *lock = NULL;
+	bool unlock = false;
+	bool justLockUnspents = false;
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nmfreIN:R:t:d:u:p:a:o:")) != -1) {
+	while ((c = getopt(argc, argv, ":nmfrelIN:R:L:Ut:d:u:p:a:o:")) != -1) {
 		switch (c) {
 			case 'n':
 				no = true;
@@ -48,15 +45,24 @@ int main(int argc, char **argv) {
 				estimate = no ? false : true;
 				no = false;
 				break;
+			case 'l':
+				justLockUnspents = no ? false : true;
+				break;
 			case 'I':
 				revImmutable = no ? false : true;
 				no = false;
 				break;
 			case 'N':
-				nametag = optarg;	
+				name = optarg;	
 				break;
 			case 'R':
-				revisionUtxo = optarg;
+				revision = optarg;
+				break;
+			case 'L':
+				lock = optarg;	
+				break;
+			case 'U':
+				unlock = no ? false : true;
 				break;
 			case 't':
 				params.maxTreeDepth = atoi(optarg);
@@ -91,7 +97,13 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	char *tosend = argv[optind];
+	if (argc < 2 && !justLockUnspents) {
+		fprintf(stderr, "usage: %s [FLAGS] <tosend>\n", argv[0]);
+		if (recoveryStream) { fclose(recoveryStream); }
+		exit(1);
+	}
+
+	char *tosend = !justLockUnspents ? argv[optind] : "";
 	char recName[strlen(tosend)+10];
 	char *lastSlash = strrchr(tosend, '/');
 	snprintf(recName, sizeof(recName), ".%s.cws", lastSlash ? lastSlash+1 : tosend);
@@ -119,10 +131,13 @@ int main(int argc, char **argv) {
 	CW_STATUS status = CW_OK;
 	if (estimate) {
 		fprintf(stderr, "Estimating cost... ");
-		if (nametag) {
-			fprintf(stderr, "No estimate available for sending nametag; it's cheap\n");
+		if (lock || unlock || justLockUnspents) {
+			fprintf(stderr, "Invalid call\n");
 		}
-		else if (revisionUtxo) {
+		else if (name) {
+			fprintf(stderr, "No estimate available for sending name; it's cheap\n");
+		}
+		else if (revision) {
 			fprintf(stderr, "No estimate available for sending revision update; it's cheap\n");
 		}
 		else if (recover) {
@@ -156,11 +171,21 @@ int main(int argc, char **argv) {
 			return exitcode;
 	}
 	else {
-		if (nametag) {
-			status = CWS_send_standard_nametag(nametag, tosend, revImmutable, &params, &totalCost, txid);
+		if (lock || unlock) {
+			status = CWS_set_revision_lock(tosend, unlock, lock, &params);
 		}
-		else if (revisionUtxo) {
-			status = CWS_send_replace_revision(revisionUtxo, tosend, revImmutable, &params, &totalCost, txid);
+		else if (justLockUnspents) {
+			status = CWS_wallet_lock_revision_utxos(&params);
+		}
+		else if (name) {
+			status = CWS_send_standard_nametag(name, tosend, revImmutable, &params, &totalCost, txid);
+		}
+		else if (revision) {
+			char revTxid[CW_TXID_CHARS+1]; txid[0] = 0;
+			status = CWS_get_stored_revision_txid_by_name(revision, &params, revTxid);
+			if (status == CW_OK) {
+				status = CWS_send_replace_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid);
+			} else if (status == CW_CALL_NO) { fprintf(stderr, "Specified name not found in revision locks; check %s in data directory", CW_DATADIR_REVISIONS_FILE); }
 		}
 		else if (recover) {
 			FILE *recoverySave;
@@ -178,7 +203,7 @@ int main(int argc, char **argv) {
 	}
 
 	if (status != CW_OK) {	
-		fprintf(stderr, "\nSend failed, error code %d: %s.\n", status, CWS_errno_to_msg(status));
+		fprintf(stderr, "\nAction failed, error code %d: %s.\n", status, CWS_errno_to_msg(status));
 		if (status == CW_DATADIR_NO) {
 			if (!params.datadir) {
 				fprintf(stderr, "Please ensure cashwebtools is properly installed with 'make install', or specify a different data directory with --data-dir=\n");
@@ -209,10 +234,17 @@ int main(int argc, char **argv) {
 		endrecovery:
 			if (recoverySave) { fclose(recoverySave); }
 			exitcode = 1;
-	} else { printf("%s", txid); }
+	}
+	if (lock || unlock || justLockUnspents) {
+		if (status == CW_OK) { fprintf(stderr, "Success.\n"); }
+		goto cleanup;
+	}
+
+	if (status == CW_OK) { printf("%s", txid); }
 
 	fprintf(stderr, "\n%s cost: %.8f BCH\n", !recover ? "Total" : "Added", totalCost);
 
-	fclose(recoveryStream);
-	return exitcode;
+	cleanup:
+		fclose(recoveryStream);
+		return exitcode;
 }
