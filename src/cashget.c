@@ -6,7 +6,7 @@
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
-		fprintf(stderr, "usage: %s [FLAGS] <identifier>\n", argv[0]);
+		fprintf(stderr, "usage: %s [FLAGS] <toget>\n", argv[0]);
 		exit(1);
 	}
 
@@ -14,20 +14,23 @@ int main(int argc, char **argv) {
 	char *bitdbNode = BITDB_DEFAULT;
 
 	bool isName = false;
+	char *pathGetId = NULL;
 	int revision = CWG_REV_LATEST;
 
 	int c;
-	while ((c = getopt(argc, argv, ":lNR:m:b:")) != -1) {
-		switch (c) {
-			case 'l':
-				mongodb = MONGODB_LOCAL_ADDR;
-				break;
+	while ((c = getopt(argc, argv, ":NR:p:lm:b:")) != -1) {
+		switch (c) {	
 			case 'N':
 				isName = true;
 				break;
-			
 			case 'R':
 				revision = atoi(optarg);
+				break;
+			case 'p':
+				pathGetId = optarg;
+				break;
+			case 'l':
+				mongodb = MONGODB_LOCAL_ADDR;
 				break;
 			case 'm':
 				mongodb = optarg;
@@ -50,15 +53,31 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	char *identifier = argv[optind];
-	if (!isName && strlen(identifier) != CW_TXID_CHARS) { fprintf(stderr, "Invalid txid; if getting by nametag, use flag -N\n"); exit(1); }
+	char *toget = argv[optind];
+	if (!isName && strlen(toget) != CW_TXID_CHARS) { fprintf(stderr, "Invalid txid; if getting by nametag, use flag -N\n"); exit(1); }
 
 	struct CWG_params params;
 	init_CWG_params(&params, mongodb, bitdbNode, NULL);
 
+	int getFd = STDOUT_FILENO;
+	FILE *dirStream = NULL;
+	if (pathGetId) {
+		if ((dirStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }	
+		getFd = fileno(dirStream);
+	}
+
 	CW_STATUS status;
-	if (isName) { status = CWG_get_by_nametag(identifier, revision, &params, STDOUT_FILENO); }
-	else { status = CWG_get_by_txid(identifier, &params, STDOUT_FILENO); }
+	if (isName) { status = CWG_get_by_nametag(toget, revision, &params, getFd); }
+	else { status = CWG_get_by_txid(toget, &params, getFd); }
+
+	if (status == CW_OK && pathGetId) {
+		rewind(dirStream);
+		char id[CW_NAME_MAX_LEN+1]; id[0] = 0;
+		if ((status = CWG_dirindex_path_to_identifier(dirStream, pathGetId, id)) == CW_OK) {
+			printf("%s", id);
+		}
+	}
+	if (dirStream) { fclose(dirStream); }
 
 	if (status != CW_OK) { 
 		fprintf(stderr, "\nGet failed, error code %d: %s.\n", status, CWG_errno_to_msg(status));

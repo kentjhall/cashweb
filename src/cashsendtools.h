@@ -144,10 +144,11 @@ CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CW
 CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
- * wrapper for CWS_send_nametag that constructs script around linking to file at specified fTxid
+ * wrapper for CWS_send_nametag that constructs script around linking to file at specified identifier attachId
+ * specify idIsName for whether or not attachId is name
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_standard_nametag(const char *name, const char *fTxid, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 
 /*
@@ -160,10 +161,73 @@ CW_STATUS CWS_send_standard_nametag(const char *name, const char *fTxid, bool im
 CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
- * wrapper for CWS_send_revision that constructs script around completely replacing data with file at specified fTxid
+ * wrapper for CWS_send_revision that constructs script around completely replacing data with file at specified identifier attachId
+ * specify idIsName for whether or not attachId is name
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *fTxid, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * wrapper for CWS_send_revision that constructs script around prepending existing data with file at specified identifier attachId
+ * specify idIsName for whether or not attachId is name
+ * will prepend script with CW_OP_NEXTREV if immutable is specified false
+ */
+CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * wrapper for CWS_send_revision that constructs script around appending to existing data with file at specified identifier attachId
+ * specify idIsName for whether or not attachId is name
+ * will prepend script with CW_OP_NEXTREV if immutable is specified false
+ */
+CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * wrapper for CWS_send_revision that constructs script around inserting into existing data at byte position bytePos with file at specified identifier attachId
+ * specify idIsName for whether or not attachId is name
+ * will prepend script with CW_OP_NEXTREV if immutable is specified false
+ */
+CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * wrapper for CWS_send_revision that constructs script around "deleting" (skipping) bytesToDel bytes of data starting from position startPos
+ * will prepend script with CW_OP_NEXTREV if immutable is specified false
+ */
+CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t bytesToDel, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * wrapper for CWS_send_revision that constructs script around adding a path redirect to existing nametag directory (given that client allows for this);
+   should have no effect if it isn't a directory
+ */
+CW_STATUS CWS_send_pathredirect_revision(const char *utxoTxid, const char *toReplace, const char *replacement, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+
+/*
+ * constructs script for pushing unsigned integer uint per appropriate number of bytes and writes to scriptStr
+ * reads/writes to scriptSz as going (for tracking position in script)
+ * must ensure adequate space is allocated to scriptPtr memory location (sizeof(uint32_t) + 1 bytes to be safe)
+ */
+void CWS_gen_script_push_int(uint32_t val, CW_OPCODE *scriptPtr, size_t *scriptSz);
+
+/*
+ * constructs script for pushing string str by its length and writes to scriptPtr
+ * reads/writes to scriptSz as going (for tracking position in script)
+ * must ensure adequate space is allocated to scriptPtr memory location (strlen(str) + sizeof(uint32_t) + 1 + 1 bytes to be safe)
+ */
+void CWS_gen_script_push_str(const char *str, CW_OPCODE *scriptPtr, size_t *scriptSz);
+
+/*
+ * constructs script for getting/writing from given nametag
+ * reads/writes to scriptSz as going (for tracking position in script)
+ * must ensure adequate space is allocated to scriptPtr memory location (CW_TXID_BYTES + 1 bytes)
+ */
+void CWS_gen_script_writefrom_nametag(const char *name, CW_OPCODE *scriptPtr, size_t *scriptSz);
+
+/*
+ * constructs script for getting/writing from given txid
+ * reads/writes to scriptSz as going (for tracking position in script)
+ * must ensure adequate space is allocated to scriptPtr memory location (CW_TXID_BYTES + 1 bytes)
+ * returns true on success, false on invalid hex for txid; shouldn't need to error-check if format of txid string has been verified
+ */
+bool CWS_gen_script_writefrom_txid(const char *txid, CW_OPCODE *scriptPtr, size_t *scriptSz);
 
 /*
  * locks stored revisioning utxos (in data directory) via RPC

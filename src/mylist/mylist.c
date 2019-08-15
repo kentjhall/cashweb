@@ -52,6 +52,16 @@ void *peekLast(struct List *list) {
 	return n->data;
 }
 
+void *peekAt(struct List *list, size_t i) {
+	struct Node *n = list->head;
+	for (size_t j=0; j<i; j++) {
+		if (!n) { return NULL; }	
+		n = n->next;
+	}
+	if (!n) { return NULL; }
+	return n->data;
+}
+
 void removeAllNodes(struct List *list, bool freeData) {
 	while (list->head) {
 		void *d = popFront(list);

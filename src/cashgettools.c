@@ -31,8 +31,9 @@ typedef enum FetchType {
  */
 struct CWG_script_pack {
 	List *scriptStreams;
-	const char *fromName;
+	List *fetchedNames;
 	const char *revTxid;
+	const char *revTxidFirst;
 	int atRev;
 	int maxRev;
 };
@@ -40,7 +41,7 @@ struct CWG_script_pack {
 /*
  * initializes struct CWG_script_pack
  */
-static inline void init_CWG_script_pack(struct CWG_script_pack *sp, List *scriptStreams, const char *fromName, const char *revTxid, int maxRev);
+static inline void init_CWG_script_pack(struct CWG_script_pack *sp, List *scriptStreams, List *fetchedNames, const char *revTxid, int maxRev);
 
 /*
  * copies struct CWG_script_pack from source to dest and increments current revision (atRev)
@@ -126,23 +127,30 @@ static CW_STATUS getScriptByNametag(const char *name, struct CWG_params *params,
 static CW_STATUS getScriptByInTxid(const char *inTxid, struct CWG_params *params, char **txidPtr, FILE *stream);
 
 /*
- * execute necessary action for given CW_OPCODE c
- * may involve pushing/popping stack, reading from scriptStreams (stored in given struct CWG_script_pack), and/or writing to fd
+ * frees all heap allocations and closes file descriptors for List of file descriptors
  */
-static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack *sp, struct CWG_params *params, int fd);
+static inline void freeFdStack(List *fdStack);
+
+/*
+ * execute necessary action for given CW_OPCODE c
+ * may involve pushing/popping stack (including fdStack), reading from specified scriptStream, and/or writing to fd
+ * fdStack is for storing open file descriptors used for storage during script execution
+ */
+static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, List *fdStack, struct CWG_script_pack *sp, struct CWG_params *params, int fd);
 
 /*
  * executes cashweb script from scriptStream, writing anything specified by script to file descriptor fd
+ * revTxid may be set NULL in given struct CWS_script_pack if reading from existing script streams for revisioning
  */
-
 static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *params, int fd);
 
 /*
  * fetches/traverses file at given nametag (according to script at nametag) and writes to specified file descriptor
- * revision can be specified for which version to get; -1 for latest
+ * revision can be specified for which version to get; CWG_REV_LATEST for latest
+ * fetchedNames may track origin nametag(s) if getting by nametag during script execution of another nametag
  * responsible for calling foundHandler if present in params; will be set to NULL upon call
  */
-static CW_STATUS getFileByNametag(const char *name, int revision, struct CWG_params *params, int fd);
+static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedNames, struct CWG_params *params, int fd);
 
 /*
  * fetches/traverses file at given txid and writes to specified file descriptor
@@ -181,14 +189,14 @@ CW_STATUS CWG_get_by_nametag(const char *name, int revision, struct CWG_params *
 	if ((status = initFetcher(params)) != CW_OK) { return status; } 
 
 	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
-	status = getFileByNametag(name, revision, params, fd);
+	status = getFileByNametag(name, revision, NULL, params, fd);
 	params->foundHandler = savePtr;
 	
 	cleanupFetcher(params);
 	return status;
 }
 
-CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathTxid) {
+CW_STATUS CWG_dirindex_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathId) {
 	CW_STATUS status = CWG_IN_DIR_NO;
 
 	char pathTxidBytes[CW_TXID_BYTES];
@@ -228,8 +236,8 @@ CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pat
 			} else { status = CWG_FILE_ERR; }
 			goto cleanup;
 		}
-		byteArrToHexStr(pathTxidBytes, CW_TXID_BYTES, pathTxid);
-	} else { status = CWG_IN_DIR_NO; } // this probably isn't necessary to set, as status starts at this value, but just in case
+		byteArrToHexStr(pathTxidBytes, CW_TXID_BYTES, pathId);
+	} else { status = CWG_IN_DIR_NO; } // this probably isn't necessary to set, as status starts at this value, but jic
 
 	cleanup:
 		freeDynamicMemory(&line);
@@ -260,6 +268,7 @@ const char *CWG_errno_to_msg(int errNo) {
 		case CWG_FILE_DEPTH_ERR:
 		case CWG_FILE_ERR:
 			return "There was an unexpected error in interpreting the file. The file may be encoded incorrectly (i.e. inaccurate metadata/structuring), or there is a problem with cashgettools";
+		case CWG_SCRIPT_RETRY_ERR:
 		case CWG_SCRIPT_ERR:
 			return "Requested nametag's encoded script is either invalid or lacks a file reference";
 		case CWG_SCRIPT_CODE_NO:
@@ -271,18 +280,20 @@ const char *CWG_errno_to_msg(int errNo) {
 
 /* ---------------------------------------------------------------------------------- */
 
-static inline void init_CWG_script_pack(struct CWG_script_pack *sp, List *scriptStreams, const char *fromName, const char *revTxid, int maxRev) {
+static inline void init_CWG_script_pack(struct CWG_script_pack *sp, List *scriptStreams, List *fetchedNames, const char *revTxid, int maxRev) {
 	sp->scriptStreams = scriptStreams;
-	sp->fromName = fromName;
+	sp->fetchedNames = fetchedNames;
 	sp->revTxid = revTxid;
+	sp->revTxidFirst = revTxid;
 	sp->atRev = 0;
 	sp->maxRev = maxRev;
 }
 
 static inline void copy_inc_CWG_script_pack(struct CWG_script_pack *dest, struct CWG_script_pack *source) {
 	dest->scriptStreams = source->scriptStreams;
-	dest->fromName = source->fromName;
+	dest->fetchedNames = source->fetchedNames;
 	dest->revTxid = source->revTxid;
+	dest->revTxidFirst = source->revTxidFirst;
 	dest->atRev = source->atRev+1;
 	dest->maxRev = source->maxRev;
 }
@@ -925,7 +936,17 @@ static CW_STATUS getScriptByNametag(const char *name, struct CWG_params *params,
 	return traverseFile(hexDataStart, params, &md, fileno(stream));
 }
 
-static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack *sp, struct CWG_params *params, int fd) {
+static inline void freeFdStack(List *fdStack) {
+	int fd;
+	int *fdPtr;
+	while ((fdPtr = popFront(fdStack))) {
+		fd = *fdPtr;	
+		free(fdPtr);
+		if (fcntl(fd, F_GETFD) != -1) { close(fd); }
+	}
+}
+
+static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, List *fdStack, struct CWG_script_pack *sp, struct CWG_params *params, int fd) {
 	switch (c) {
 		case CW_OP_TERM:
 			return CWG_SCRIPT_NO;
@@ -933,33 +954,35 @@ static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack
 		{
 			if (sp->maxRev >= 0 && sp->atRev >= sp->maxRev) { return CWG_SCRIPT_CODE_NO; }
 
-			char nextRevTxid[CW_TXID_CHARS+1]; char *nextRevTxidPtr = nextRevTxid;
-			FILE *nextScriptStream = tmpfile();
-			if (nextScriptStream == NULL) { perror("tmpfile() failed"); return CW_SYS_ERR; }
-
-			CW_STATUS status;
-			if ((status = getScriptByInTxid(sp->revTxid, params, &nextRevTxidPtr, nextScriptStream)) != CW_OK) {
-				fclose(nextScriptStream);
-				if (status == CWG_FETCH_NO) { return CWG_SCRIPT_CODE_NO; }
-				return status;
-			}
-			rewind(nextScriptStream);
-
-			if (!addFront(sp->scriptStreams, nextScriptStream)) { perror("mylist addFront() failed"); fclose(nextScriptStream); return CW_SYS_ERR; }
 			struct CWG_script_pack spN;
 			copy_inc_CWG_script_pack(&spN, sp);
-			spN.revTxid = nextRevTxid;
 
-			status = execScript(&spN, params, fd);
+			FILE *nextScriptStream = NULL;
+			if (sp->revTxid) {
+				if ((nextScriptStream = tmpfile()) == NULL) { perror("tmpfile() failed"); return CW_SYS_ERR; }
 
-			fclose(nextScriptStream);
+				char nextRevTxid[CW_TXID_CHARS+1]; char *nextRevTxidPtr = nextRevTxid;
+
+				CW_STATUS status;
+				if ((status = getScriptByInTxid(sp->revTxid, params, &nextRevTxidPtr, nextScriptStream)) != CW_OK) {
+					fclose(nextScriptStream);
+					if (status == CWG_FETCH_NO) { return CWG_SCRIPT_CODE_NO; }
+					return status;
+				}
+				rewind(nextScriptStream);
+
+				if (!addFront(sp->scriptStreams, nextScriptStream)) { perror("mylist addFront() failed"); fclose(nextScriptStream); return CW_SYS_ERR; }
+
+				spN.revTxid = nextRevTxid;
+			}
+
+			CW_STATUS status = execScript(&spN, params, fd);
+
+			if (nextScriptStream) { fclose(nextScriptStream); }
 			return status;
 		}
 		case CW_OP_PUSHTXID:
 		{
-			FILE *scriptStream = peekFront(sp->scriptStreams);
-			if (!scriptStream) { fprintf(stderr, "mylist peekFront() failed on scriptStreams; problem with cashgettools"); return CW_SYS_ERR; }
-
 			char txidBytes[CW_TXID_BYTES];
 			if (fread(txidBytes, 1, CW_TXID_BYTES, scriptStream) < CW_TXID_BYTES) {
 				if (ferror(scriptStream)) { perror("fread() failed on scriptStream"); return CW_SYS_ERR; }
@@ -987,11 +1010,25 @@ static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack
 		}
 		case CW_OP_WRITEFROMNAMETAG:
 		{
-			char *name;
-			if ((name = popFront(stack)) == NULL) { return CWG_SCRIPT_ERR; }
-			else if (!CW_is_valid_name(name)) { free(name); return CWG_SCRIPT_ERR; }
+			CW_STATUS status = CW_OK;
+			char *name = NULL;
 
-			CW_STATUS status = getFileByNametag(name, CWG_REV_LATEST, params, fd);
+			if ((name = popFront(stack)) == NULL) { status = CWG_SCRIPT_ERR; }
+			else if (!CW_is_valid_name(name)) { status = CWG_SCRIPT_ERR; }
+			else {
+				Node *n = sp->fetchedNames->head;
+				while (n) {
+					if (strcmp(name, n->data) == 0) { status = CWG_SCRIPT_ERR; break; }
+					n = n->next;
+				}
+			}
+
+			if (status != CW_OK) {
+				if (name) { free(name); }
+				return status;
+			}
+
+			status = getFileByNametag(name, CWG_REV_LATEST, sp->fetchedNames, params, fd);
 
 			free(name);
 			if (status == CWG_FETCH_NO || status == CW_CALL_NO) { return CWG_SCRIPT_ERR; }
@@ -1000,45 +1037,84 @@ static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack
 		case CW_OP_WRITEFROMPREV:
 		{
 			if (sp->atRev < 1) { return CWG_SCRIPT_ERR; }
-			FILE *startScriptStream = peekLast(sp->scriptStreams);
-			if (!startScriptStream) { fprintf(stderr, "mylist peekLast() failed on scriptStreams; problem with cashgettools"); return CW_SYS_ERR; }
 
-			long savePos = ftell(startScriptStream);
-			if (savePos < 0) { perror("ftell() failed on startScriptStream"); return CW_SYS_ERR; }
-
-			FILE *scriptStreamDup = tmpfile();
-			if (!scriptStreamDup) { perror("tmpfile() failed"); return CW_SYS_ERR; }
-
-			rewind(startScriptStream);
-			if (!copyStreamData(scriptStreamDup, startScriptStream)) { fclose(scriptStreamDup); return CW_SYS_ERR; }
-			if (fseek(startScriptStream, savePos, SEEK_SET) < 0) { perror("fseek() failed on startScriptStream"); fclose(scriptStreamDup); return CW_SYS_ERR; }
-
+			CW_STATUS status = CW_OK;
+			
 			List scriptStreams;
+			List scriptStreamsSavePos;
 			initList(&scriptStreams);
-			if (!addFront(&scriptStreams, scriptStreamDup)) { perror("mylist addFront() failed"); fclose(scriptStreamDup); return CW_SYS_ERR; }
+			initList(&scriptStreamsSavePos);
+
+			FILE *scriptStream;
+			long *savePosPtr;
+			Node *savePosNodeLast = NULL;
+
+			Node *n = sp->scriptStreams->head;
+			while (n) {
+				scriptStream = n->data;
+
+				if ((savePosPtr = malloc(sizeof(long))) == NULL) { perror("malloc failed"); status = CW_SYS_ERR; break; }
+				*savePosPtr = ftell(scriptStream);
+				if (*savePosPtr < 0) { perror("ftell() failed on scriptStream"); free(savePosPtr); status = CW_SYS_ERR; break; }
+				if ((savePosNodeLast = addAfter(&scriptStreamsSavePos, savePosNodeLast, savePosPtr)) == NULL) {
+					perror("mylist addAfter() failed");
+					free(savePosPtr);
+					status = CW_SYS_ERR;
+					break;
+				}
+
+				if (!addFront(&scriptStreams, scriptStream)) { perror("mylist addFront() failed"); status = CW_SYS_ERR; break;  }
+				rewind(scriptStream);
+
+				n = n->next;
+			}
+			if (status == CW_OK && isEmptyList(&scriptStreams)) {
+				fprintf(stderr, "scriptStreams empty in execScriptCode(); problem with cashgettools\n");
+				status = CW_SYS_ERR;
+			}
+			if (status != CW_OK) {
+				removeAllNodes(&scriptStreamsSavePos, true);
+				removeAllNodes(&scriptStreams, false);
+				return status;
+			}
+
+			if (sp->revTxid == NULL) { reverseList(&scriptStreams); }
 
 			struct CWG_script_pack spD;
-			init_CWG_script_pack(&spD, &scriptStreams, sp->fromName, sp->revTxid, sp->atRev-1);
+			init_CWG_script_pack(&spD, &scriptStreams, sp->fetchedNames, NULL, sp->atRev-1);
 
-			CW_STATUS status = execScript(&spD, params, fd);
+			status = execScript(&spD, params, fd);
 
+			n = sp->scriptStreams->head;
+			while (n) {
+				scriptStream = n->data;
+
+				if ((savePosPtr = popFront(&scriptStreamsSavePos)) == NULL) {
+					fprintf(stderr, "scriptStreamsSavePos invalid size in execScriptCode(); problem with cashgettools\n");
+					status = CW_SYS_ERR;
+					break;
+				}
+				if (fseek(scriptStream, *savePosPtr, SEEK_SET) < 0) { perror("fseek() failed on scriptStream"); status = CW_SYS_ERR; }
+				free(savePosPtr);
+				if (status != CW_OK) { break; }
+				
+				n = n->next;
+			}
+
+			removeAllNodes(&scriptStreamsSavePos, true);
 			removeAllNodes(&scriptStreams, false);	
-			fclose(scriptStreamDup);
 			return status;
 		}
-		case CW_OP_PUSHUCHAR:
-		case CW_OP_PUSHUSHORT:
-		case CW_OP_PUSHUINT:
+		case CW_OP_PUSHCHAR:
+		case CW_OP_PUSHSHORT:
+		case CW_OP_PUSHINT:
 		{
-			FILE *scriptStream = peekFront(sp->scriptStreams);
-			if (!scriptStream) { fprintf(stderr, "mylist peekFront() failed on scriptStreams; problem with cashgettools"); return CW_SYS_ERR; }
-
 			int numBytes;
 			switch (c) {
-				case CW_OP_PUSHUCHAR:
+				case CW_OP_PUSHCHAR:
 					numBytes = sizeof(uint8_t);
 					break;
-				case CW_OP_PUSHUSHORT:
+				case CW_OP_PUSHSHORT:
 					numBytes = sizeof(uint16_t);
 					break;
 				default:
@@ -1082,110 +1158,133 @@ static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack
 			}
 
 			CW_STATUS status;		
-			if ((status = execScriptCode(writeOp, stack, sp, params, tfd)) != CW_OK) { close(tfd); return status; }
+			if ((status = execScriptCode(writeOp, scriptStream, stack, fdStack, sp, params, tfd)) != CW_OK) { close(tfd); return status; }
+			if (lseek(tfd, 0, SEEK_SET) < 0) { perror("lseek() failed SEEK_SET"); close(tfd); return CW_SYS_ERR; }
 
-			uint32_t sfd = (uint32_t)tfd;
-			char sfdHexStr[(sizeof(sfd)*2)+1];
-			if (!intToNetHexStr(&sfd, sizeof(sfd), sfdHexStr)) { status = CW_SYS_ERR; }
-			else if (!addFront(stack, sfdHexStr)) { perror("mylist addFront() failed"); status = CW_SYS_ERR; }
-			if (status != CW_OK) { close(tfd); }
+			int *tfdHeap = malloc(sizeof(int));
+			if (!tfdHeap) { perror("malloc failed"); close(tfd); return CW_SYS_ERR; }
+			*tfdHeap = tfd;
+			if (!addFront(fdStack, tfdHeap)) { perror("mylist addFront() failed"); close(tfd); return CW_SYS_ERR; }
 
-			return status;
+			return CW_OK;
 		}
-		case CW_OP_WRITESEGFROMSTORED:
-		case CW_OP_WRITERANGEFROMSTORED:
+		case CW_OP_SEEKSTORED:
 		{
 			CW_STATUS status = CW_OK;
-			uint32_t low;
-			uint32_t high;
-			uint32_t sfd;
+			int offset;
+			int whence;
+			int tfd;
 
-			char *lowHexStr = popFront(stack);
-			if (!lowHexStr) { return CWG_SCRIPT_ERR; }
-			size_t lowBytes = strlen(lowHexStr)/2;
+			char *offsetHexStr = popFront(stack);
+			if (!offsetHexStr) { return CWG_SCRIPT_ERR; }
+			size_t offsetBytes = strlen(offsetHexStr)/2;
 
-			if (lowBytes == sizeof(uint8_t)) {  low = (uint32_t)strtoul(lowHexStr, NULL, 16); }
-			else if (lowBytes == sizeof(uint16_t) || lowBytes == sizeof(uint32_t)) {
-				if (!netHexStrToInt(lowHexStr, lowBytes, &low)) { status = CW_SYS_ERR; }
+			uint32_t offsetU = 0;
+			if (offsetBytes == sizeof(uint8_t)) {  offsetU = (uint32_t)strtoul(offsetHexStr, NULL, 16); }
+			else if (offsetBytes == sizeof(uint16_t) || offsetBytes == sizeof(uint32_t)) {
+				if (!netHexStrToInt(offsetHexStr, offsetBytes, &offsetU)) { status = CW_SYS_ERR; }
 			}
 			else { status = CWG_SCRIPT_ERR; }
-			free(lowHexStr);
+			free(offsetHexStr);
 			if (status != CW_OK) { return status; }
+			
+			if (offsetU > INT_MAX) { return CWG_SCRIPT_ERR; }
+			offset = (int)offsetU;
 
-			char *highHexStr = popFront(stack);
-			if (!highHexStr) { return CWG_SCRIPT_ERR; }
-			size_t highBytes = strlen(highHexStr)/2;
-
-			if (highBytes == sizeof(uint8_t)) {  high = (uint32_t)strtoul(highHexStr, NULL, 16); }
-			else if (highBytes == sizeof(uint16_t) || highBytes == sizeof(uint32_t)) {
-				if (!netHexStrToInt(highHexStr, highBytes, &high)) { status = CW_SYS_ERR; }
-			}
-			else { status = CWG_SCRIPT_ERR; }		
-			free(highHexStr);
-			if (status != CW_OK) { return status; }
-
-			char *sfdHexStr = peekFront(stack);
-			if (!sfdHexStr) { return CWG_SCRIPT_ERR; }
-			size_t sfdBytes = strlen(sfdHexStr)/2;
-
-			if (sfdBytes == sizeof(uint32_t)) {
-				if (!netHexStrToInt(sfdHexStr, sfdBytes, &sfd)) { status = CW_SYS_ERR; }
-			}
+			char *whenceHexStr = popFront(stack);
+			if (!whenceHexStr) { return CWG_SCRIPT_ERR; }
+			size_t whenceBytes = strlen(whenceHexStr)/2;
+			uint8_t cwWhence = 0;
+			if (whenceBytes == sizeof(uint8_t)) { cwWhence = (uint8_t)strtoul(whenceHexStr, NULL, 16); } 
 			else { status = CWG_SCRIPT_ERR; }
-			free(sfdHexStr);
+			free(whenceHexStr);
 			if (status != CW_OK) { return status; }
 
-			int tfd = (int)sfd;
-			if (fcntl(tfd, F_GETFD) == -1) { return CWG_SCRIPT_ERR; }
-			if (lseek(tfd, 0, SEEK_SET) < 0) { return CWG_SCRIPT_ERR; } // in this case, presumed to not be file descriptor from mkstemp()
-
-			if (lseek(tfd, (off_t)low, SEEK_SET) < 0) { close(tfd); return CWG_SCRIPT_ERR; }
-			size_t toWrite;
-			switch (c) {
-				case CW_OP_WRITESEGFROMSTORED:
-					if (high < 1) { close(tfd); return CWG_SCRIPT_ERR; }
-					toWrite = (size_t)high;
+			switch (cwWhence) {
+				case CW_SEEK_BEG:
+					whence = SEEK_SET;
+					break;
+				case CW_SEEK_CUR:
+					whence = SEEK_CUR;
+					break;
+				case CW_SEEK_CUR_NEG:
+					whence = SEEK_CUR;
+					offset *= -1;
+					break;
+				case CW_SEEK_END_NEG:
+					whence = SEEK_END;
+					offset *= -1;
 					break;
 				default:
-					if (high <= low) { close(tfd); return CWG_SCRIPT_ERR; }
-					toWrite = (size_t)(high - low);
-					break;
+					return CWG_SCRIPT_ERR;
 			}
-			if (toWrite == 0) { close(tfd); return CWG_SCRIPT_ERR; }
+
+			int *tfdPtr = peekFront(fdStack);	
+			if (!tfdPtr) { return CWG_SCRIPT_ERR; }
+			tfd = *tfdPtr;
+			if (fcntl(tfd, F_GETFD) == -1) { fprintf(stderr, "invalid fildes during script execution; problem with cashgettools\n"); return CW_SYS_ERR; }
+			if (lseek(tfd, offset, whence) < 0) { return CWG_SCRIPT_ERR; }
+
+			return CW_OK;
+		}
+		case CW_OP_WRITEFROMSTORED:
+		case CW_OP_WRITESOMEFROMSTORED:
+		{
+			CW_STATUS status = CW_OK;
+			uint32_t some = 0;
+			int tfd;
+
+			bool writeAll = false;
+			if (c == CW_OP_WRITESOMEFROMSTORED) {
+				char *someHexStr = popFront(stack);
+				if (!someHexStr) { return CWG_SCRIPT_ERR; }
+				size_t someBytes = strlen(someHexStr)/2;
+
+				if (someBytes == sizeof(uint8_t)) {  some = (uint32_t)strtoul(someHexStr, NULL, 16); }
+				else if (someBytes == sizeof(uint16_t) || someBytes == sizeof(uint32_t)) {
+					if (!netHexStrToInt(someHexStr, someBytes, &some)) { status = CW_SYS_ERR; }
+				}
+				else { status = CWG_SCRIPT_ERR; }
+				free(someHexStr);
+				if (status != CW_OK) { return status; }
+			} else { writeAll = true; }
+
+			int *tfdPtr = peekFront(fdStack);
+			if (!tfdPtr) { return CWG_SCRIPT_ERR; }
+			tfd = *tfdPtr;
+
+			if (fcntl(tfd, F_GETFD) == -1) { fprintf(stderr, "invalid fildes during script execution; problem with cashgettools\n"); return CW_SYS_ERR; }
+
+			size_t toWrite = (size_t)some;
+			if (toWrite == 0 && !writeAll) { return CWG_SCRIPT_ERR; }
 
 			char buf[FILE_DATA_BUF];
-			size_t maxWriteChunk = toWrite < sizeof(buf) ? toWrite : sizeof(buf);
+			size_t maxWriteChunk = toWrite < sizeof(buf) && !writeAll ? toWrite : sizeof(buf);
+			size_t writeChunk = toWrite < maxWriteChunk && !writeAll ? toWrite : maxWriteChunk;
 			ssize_t r;
 			ssize_t w;
-			while (toWrite > 0 && (r = read(tfd, buf, toWrite < maxWriteChunk ? toWrite : maxWriteChunk)) > 0) {
+			while ((toWrite > 0 || writeAll) && (r = read(tfd, buf, writeChunk)) > 0) {
 				if ((w = write(fd, buf, r)) < r) {
 					if (w < 0) { perror("write() failed"); }
-					close(tfd);
 					return CWG_WRITE_ERR;
 				}
-				toWrite -= w;
+				if (!writeAll) {
+					toWrite -= w;
+					writeChunk = toWrite < maxWriteChunk ? toWrite : maxWriteChunk;
+				}
 			}
-			if (r < 0) { perror("read() failed"); close(tfd); return CW_SYS_ERR; }
+			if (r < 0) { perror("read() failed"); return CW_SYS_ERR; }
+			if (toWrite > 0) { return CWG_SCRIPT_ERR; }
 
 			return CW_OK;
 		}
 		case CW_OP_DROPSTORED:
 		{
-			CW_STATUS status = CW_OK;
+			int *tfdHeap = popFront(fdStack);
+			if (!tfdHeap) { return CWG_SCRIPT_ERR; }
+			int tfd = *tfdHeap;
+			free(tfdHeap);
 
-			char *sfdHexStr = popFront(stack);
-			if (!sfdHexStr) { return CWG_SCRIPT_ERR; }
-			size_t sfdBytes = strlen(sfdHexStr)/2;
-
-			uint32_t sfd;
-			if (sfdBytes == sizeof(uint32_t)) {
-				if (!netHexStrToInt(sfdHexStr, sfdBytes, &sfd)) { status = CW_SYS_ERR; }
-			}
-			else { status = CWG_SCRIPT_ERR; }
-			free(sfdHexStr);
-			if (status != CW_OK) { return status; }
-
-			int tfd = (int)sfd;
 			if (fcntl(tfd, F_GETFD) == -1) { return CWG_SCRIPT_ERR; }
 			if (lseek(tfd, 0, SEEK_SET) < 0) { return CWG_SCRIPT_ERR; } // in this case, presumed to not be file descriptor from mkstemp()
 
@@ -1233,9 +1332,6 @@ static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack
 			else if (c > CW_OP_PUSHSTR) { return CWG_SCRIPT_ERR; }
 			else { len = (size_t)c; }
 
-			FILE *scriptStream = peekFront(sp->scriptStreams);
-			if (!scriptStream) { fprintf(stderr, "mylist peekFront() failed on scriptStreams; problem with cashgettools"); return CW_SYS_ERR; }
-
 			char *pushStr = malloc(len+1);	
 			if (pushStr == NULL) { perror("malloc failed"); }	
 			if (fread(pushStr, 1, len, scriptStream) < len) {
@@ -1252,23 +1348,38 @@ static CW_STATUS execScriptCode(CW_OPCODE c, List *stack, struct CWG_script_pack
 }
 
 static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *params, int fd) {
-	FILE *scriptStream = peekFront(sp->scriptStreams);
-	if (!scriptStream) { fprintf(stderr, "mylist peekFront() failed on scriptStreams; problem with cashgettools"); return CW_SYS_ERR; }
+	FILE *scriptStream;
+	if (sp->revTxid) {
+		if ((scriptStream = peekFront(sp->scriptStreams)) == NULL) {
+			fprintf(stderr, "mylist peekFront() failed on scriptStreams; problem with cashgettools\n");
+			return CW_SYS_ERR;
+		}
+	} else {
+		if ((scriptStream = peekAt(sp->scriptStreams, sp->atRev)) == NULL) {
+			fprintf(stderr, "mylist peekAt() failed on scriptStreams for atRev; problem with cashgettools\n");
+			return CW_SYS_ERR;
+		}
+	}
 
 	CW_STATUS status = CW_OK;
 
 	List stack;
 	initList(&stack);	
 
+	List fdStack;
+	initList(&fdStack);
+
 	int c;	
 	CW_OPCODE code;
 	while ((c = getc(scriptStream)) != EOF) {
 		code = (CW_OPCODE)c;
 		// if script is invalid, will attempt to replace with next revision; if it isn't there, will return CWG_SCRIPT_ERR
-		if ((status = execScriptCode(code, &stack, sp, params, fd)) == CWG_SCRIPT_ERR) {
+		if ((status = execScriptCode(code, scriptStream, &stack, &fdStack, sp, params, fd)) == CWG_SCRIPT_ERR) {
 			removeAllNodes(&stack, true);
-			if ((status = execScriptCode(CW_OP_NEXTREV, &stack, sp, params, fd)) == CWG_SCRIPT_CODE_NO) {
-				status = CWG_SCRIPT_ERR;
+			freeFdStack(&fdStack);
+			
+			if ((status = execScriptCode(CW_OP_NEXTREV, scriptStream, &stack, &fdStack, sp, params, fd)) == CWG_SCRIPT_CODE_NO || status == CWG_SCRIPT_ERR) {
+				status = CWG_SCRIPT_RETRY_ERR;
 			}
 			goto cleanup;
 		}
@@ -1278,12 +1389,14 @@ static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *param
 	if (ferror(scriptStream)) { perror("getc() failed on scriptStream"); status = CW_SYS_ERR; goto cleanup; }
 
 	cleanup:
+		if (status == CWG_SCRIPT_NO && sp->atRev == 0) { status = CW_OK; }
 		removeAllNodes(&stack, true);
-		popFront(sp->scriptStreams);
+		freeFdStack(&fdStack);
+		if (sp->revTxid) { popFront(sp->scriptStreams); }
 		return status;
 }
 
-static CW_STATUS getFileByNametag(const char *name, int revision, struct CWG_params *params, int fd) {	
+static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedNames, struct CWG_params *params, int fd) {	
 	CW_STATUS status;
 
 	char revTxid[CW_TXID_CHARS+1]; char *revTxidPtr = revTxid;
@@ -1297,9 +1410,15 @@ static CW_STATUS getFileByNametag(const char *name, int revision, struct CWG_par
 	initList(&scriptStreams);
 	if (!addFront(&scriptStreams, scriptStream)) { perror("mylist addFront() failed"); status = CW_SYS_ERR; goto foundhandler; }
 
+	List fetchedNamesN;
+	initList(&fetchedNamesN);
+
 	struct CWG_script_pack sp;
-	init_CWG_script_pack(&sp, &scriptStreams, name, revTxid, revision);
-	if ((status = execScript(&sp, params, fd)) == CWG_SCRIPT_NO) { status = CW_OK; }
+	init_CWG_script_pack(&sp, &scriptStreams, fetchedNames ? fetchedNames : &fetchedNamesN, revTxid, revision);
+	if (!addFront(sp.fetchedNames, (char *)name)) { perror("mylist addFront() failed"); status = CW_SYS_ERR; goto foundhandler; }
+
+	status = execScript(&sp, params, fd);
+	if (params->dirPathReplaceToFree && params->dirPathReplace) { free(params->dirPathReplace); }
 
 	// this should have been set NULL if anything was written from script execution; if not, it's deemed a bad script
 	if (status == CW_OK && params->foundHandler != NULL) { status = CWG_SCRIPT_ERR; }
@@ -1308,6 +1427,7 @@ static CW_STATUS getFileByNametag(const char *name, int revision, struct CWG_par
 	if (status == params->foundSuppressErr) { status = CW_OK; }
 	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); params->foundHandler = NULL; }
 
+	removeAllNodes(&fetchedNamesN, false);
 	removeAllNodes(&scriptStreams, false);
 	if (scriptStream) { fclose(scriptStream); }
 	return status;
@@ -1323,35 +1443,32 @@ static CW_STATUS getFileByTxid(const char *txid, struct CWG_params *params, int 
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }
 	protocolCheck(md.pVer);	
 
-	if (params->dirPath && md.type == CW_T_DIR) {
-		FILE *dirFp;
-		if ((dirFp = params->saveDirFp) == NULL &&
-		    (dirFp = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }
+	if (params->dirPath) {
+		char *dirPath = params->dirPathReplace && params->dirPathReplace[0] != 0 ? params->dirPathReplace : params->dirPath;
+		if (md.type == CW_T_DIR) {
+			FILE *dirFp;
+			if ((dirFp = params->saveDirFp) == NULL &&
+			    (dirFp = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }
 
-		if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) {
-			if (!params->saveDirFp) { fclose(dirFp); }
-			goto foundhandler;
-		}		
-		rewind(dirFp);
+			if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) {
+				if (dirFp != params->saveDirFp) { fclose(dirFp); }
+				goto foundhandler;
+			}		
+			rewind(dirFp);
 
-		char pathTxid[CW_TXID_CHARS+1];
-		if ((status = CWG_dir_path_to_identifier(dirFp, params->dirPath, pathTxid)) != CW_OK) {
-			if (!params->saveDirFp) { fclose(dirFp); }
-			goto foundhandler;
-		}
+			char pathTxid[CW_TXID_CHARS+1];
+			status = CWG_dirindex_path_to_identifier(dirFp, dirPath, pathTxid);
+			if (dirFp != params->saveDirFp) { fclose(dirFp); }
+			if (status != CW_OK) { goto foundhandler; }
 
-		char *savePtrC = params->dirPath;
-		params->dirPath = NULL;
-		FILE *savePtrF = params->saveDirFp;
-		params->saveDirFp = NULL;
+			char *savePtr = params->dirPath;
+			params->dirPath = NULL;
+			status = getFileByTxid(pathTxid, params, fd);	
+			params->dirPath = savePtr;
 
-		status = getFileByTxid(pathTxid, params, fd);	
-
-		params->dirPath = savePtrC;
-		params->saveDirFp = savePtrF;
-
-		return status;
-	} else if (params->dirPath) { status = CWG_IS_DIR_NO; goto foundhandler; }
+			return status;
+		} else { status = CWG_IS_DIR_NO; goto foundhandler; }
+	}
 
 	if (params->saveMimeStr && !strlen(*params->saveMimeStr)) {
 		if ((status = cwTypeToMimeStr(md.type, params)) != CW_OK) { goto foundhandler; }

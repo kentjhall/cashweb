@@ -7,11 +7,11 @@
 #include <sys/stat.h>
 
 /*
- * reports file size of file at given descriptor
+ * reports file size of file at given descriptor; returns -1 on failure
  */
 static inline long fileSize(int fd) {
 	struct stat st;
-	if (fstat(fd, &st) != 0) { return -1; }
+	if (fstat(fd, &st) != 0) { perror("fstat() failed"); return -1; }
 	return st.st_size;
 }
 
@@ -104,7 +104,7 @@ static inline void byteArrToHexStr(const char *byteArr, int n, char *hexStr) {
 /*
  * converts hex str to byte array, accounting for possible suffix to omit, and writes to specified memory location
  * must ensure byteArr has sufficient memory allocated
- * returns number of bytes read, or -1 on failure
+ * returns number of bytes read
  */
 static inline int hexStrToByteArr(const char *hexStr, int suffixLen, char *byteArr) {
 	int hexDataLen = strlen(hexStr);
@@ -124,27 +124,48 @@ static inline int hexStrToByteArr(const char *hexStr, int suffixLen, char *byteA
 
 /*
  * puts int to network byte order (big-endian) byte array, written to passed memory location
- * must make sure that type of uintPtr matches numBytes (e.g. uint16_t -> 2 bytes), and that hexStr has sufficient space
+ * must ensure byteArr has sizeof(uint32_t) bytes allocated
+ */
+static inline void int32ToNetByteArr(uint32_t uint, unsigned char *byteArr) {
+	uint32_t netUInt = htonl(uint);
+	for (int i=0; i<sizeof(netUInt); i++) {
+		byteArr[i] = (netUInt >> i*8) & 0xFF;
+	}
+}
+
+/*
+ * puts int to network byte order (big-endian) byte array, written to passed memory location
+ * must ensure byteArr has sizeof(uint16_t) bytes allocated
+ */
+static inline void int16ToNetByteArr(uint16_t uint, unsigned char *byteArr) {
+	uint16_t netUInt = htons(uint);
+	for (int i=0; i<sizeof(netUInt); i++) {
+		byteArr[i] = (netUInt >> i*8) & 0xFF;
+	}
+}
+
+/*
+ * puts int to network byte order (big-endian) byte array, written to passed memory location
+ * must make sure that type of uintPtr matches numBytes (e.g. uint16_t -> 2 bytes), and that byteArr has sufficient space
  * supports 2 and 4 byte integers
  */
 static inline bool intToNetByteArr(void *uintPtr, int numBytes, unsigned char *byteArr) {
-	uint16_t uint16 = 0; uint32_t uint32 = 0;
-	bool isShort = false;
 	switch (numBytes) {
 		case sizeof(uint16_t):
-			isShort = true;
-			uint16 = htons(*(uint16_t *)uintPtr);
+		{
+			uint16_t uint16 = *(uint16_t *)uintPtr;
+			int16ToNetByteArr(uint16, byteArr);
 			break;
+		}
 		case sizeof(uint32_t):
-			uint32 = htonl(*(uint32_t *)uintPtr);
+		{
+			uint32_t uint32 = *(uint32_t *)uintPtr;
+			int32ToNetByteArr(uint32, byteArr);
 			break;
+		}
 		default:
 			fprintf(stderr, "invalid byte count specified for intToNetByteArr, int must be 2 or 4 bytes; problem with cashwebtools\n");
 			return false;
-	}
-
-	for (int i=0; i<numBytes; i++) {
-		byteArr[i] = ((isShort ? uint16 : uint32) >> i*8) & 0xFF;
 	}
 	return true;
 }

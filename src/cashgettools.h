@@ -17,9 +17,10 @@
 #define CWG_FETCH_ERR CW_SYS_ERR+7
 #define CWG_WRITE_ERR CW_SYS_ERR+8
 #define CWG_SCRIPT_ERR CW_SYS_ERR+9
-#define CWG_FILE_ERR CW_SYS_ERR+10
-#define CWG_FILE_LEN_ERR CW_SYS_ERR+11
-#define CWG_FILE_DEPTH_ERR CW_SYS_ERR+12
+#define CWG_SCRIPT_RETRY_ERR CW_SYS_ERR+10
+#define CWG_FILE_ERR CW_SYS_ERR+11
+#define CWG_FILE_LEN_ERR CW_SYS_ERR+12
+#define CWG_FILE_DEPTH_ERR CW_SYS_ERR+13
 
 /* this is passed to CWG_get_by_nametag if seeking latest revision; for readability */
 #define CWG_REV_LATEST -1
@@ -82,7 +83,7 @@ static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, 
 	cgp->bitdbNode = bitdbNode;
 	cgp->bitdbRequestLimit = true;
 	cgp->dirPath = NULL;
-	cgp->dirPathReplace = NULL;
+	cgp->dirPathReplace = "";
 	cgp->dirPathReplaceToFree = false;
 	cgp->saveDirFp = NULL;
 	cgp->saveMimeStr = saveMimeStr;
@@ -127,10 +128,10 @@ CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
 CW_STATUS CWG_get_by_nametag(const char *name, int revision, struct CWG_params *params, int fd);
 
 /*
- * reads from specified file stream to ascertain the desired txid from given directory/path;
- * writes txid to specified location in memory
+ * reads from specified file stream to ascertain the desired file identifier from given directory/path;
+ * writes identifier to specified location in memory; ensure CW_NAME_MAX_LEN+1 allocated if this could be nametag reference, or CW_TXID_CHARS+1 otherwise
  */
-CW_STATUS CWG_dir_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathTxid);
+CW_STATUS CWG_dirindex_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathId);
 
 /*
  * returns generic error message by error code

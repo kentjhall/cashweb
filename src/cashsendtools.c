@@ -522,22 +522,15 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 		return status;
 }
 
-CW_STATUS CWS_send_standard_nametag(const char *name, const char *fTxid, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!CW_is_valid_txid(fTxid)) { fprintf(stderr, "CWS_send_standard_nametag provided with invalid txid\n"); return CW_CALL_NO; }
+CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_standard_nametag provided with invalid txid\n"); return CW_CALL_NO; }
 
 	// construct script byte string
-	size_t codesByteCount = 2 + (!immutable ? 1 : 0);
-	size_t scriptSz = CW_TXID_BYTES + codesByteCount;
-	CW_OPCODE scriptBytes[scriptSz];
-
-	char txidByteArr[CW_TXID_BYTES];
-	if (hexStrToByteArr(fTxid, 0, txidByteArr) != CW_TXID_BYTES) { fprintf(stderr, "hexStrToByteArr() failed\n"); return CW_SYS_ERR; }
-
-	CW_OPCODE *scriptPtr = scriptBytes;
-	if (!immutable) { *scriptPtr = CW_OP_NEXTREV; ++scriptPtr; }
-	*scriptPtr = CW_OP_PUSHTXID; ++scriptPtr;
-	memcpy(scriptPtr, txidByteArr, CW_TXID_BYTES); scriptPtr += CW_TXID_BYTES;	
-	*scriptPtr = CW_OP_WRITEFROMTXID;
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+	size_t scriptSz = 0;
+	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
+	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
 
 	return CWS_send_nametag(name, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
 }
@@ -603,32 +596,145 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 		return status;
 }
 
-CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *fTxid, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!CW_is_valid_txid(fTxid)) { fprintf(stderr, "CWS_send_replace_revision provided with txid of incorrect length\n"); return CW_CALL_NO; }
+CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_replace_revision provided with invalid txid\n"); return CW_CALL_NO; }
 
 	// construct script byte string
-	size_t codesByteCount = 3 + (!immutable ? 1 : 0);
-	size_t scriptSz = CW_TXID_BYTES + codesByteCount;
-	CW_OPCODE scriptBytes[scriptSz];
-
-	char txidByteArr[CW_TXID_BYTES];
-	if (hexStrToByteArr(fTxid, 0, txidByteArr) != CW_TXID_BYTES) { fprintf(stderr, "hexStrToByteArr() failed\n"); return CW_SYS_ERR; }
-
-	CW_OPCODE *scriptPtr = scriptBytes;
-	if (!immutable) { *scriptPtr = CW_OP_NEXTREV; ++scriptPtr; }
-	*scriptPtr = CW_OP_PUSHTXID; ++scriptPtr;
-	memcpy(scriptPtr, txidByteArr, CW_TXID_BYTES); scriptPtr += CW_TXID_BYTES;	
-	*scriptPtr = CW_OP_WRITEFROMTXID; ++scriptPtr;
-	*scriptPtr = CW_OP_TERM;
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+	size_t scriptSz = 0;
+	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
+	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	scriptPtr[scriptSz++] = CW_OP_TERM;
 
 	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+}
+
+CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_prepend_revision provided with invalid txid\n"); return CW_CALL_NO; }
+
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+	size_t scriptSz = 0;
+	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
+	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+}
+
+CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_append_revision provided with invalid txid\n"); return CW_CALL_NO; }
+
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+	size_t scriptSz = 0;
+	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	scriptPtr[scriptSz++] = CW_OP_WRITEFROMPREV;
+	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
+	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	scriptPtr[scriptSz++] = CW_OP_TERM;
+
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+}
+
+CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_insert_revision provided with invalid txid\n"); return CW_CALL_NO; }
+
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+	size_t scriptSz = 0;
+	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	scriptPtr[scriptSz++] = CW_OP_STOREFROMPREV;
+	CWS_gen_script_push_int(bytePos-1, scriptPtr, &scriptSz);
+	scriptPtr[scriptSz++] = CW_OP_WRITESOMEFROMSTORED;
+	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
+	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	scriptPtr[scriptSz++] = CW_OP_WRITEFROMSTORED;
+	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
+	scriptPtr[scriptSz++] = CW_OP_TERM;
+
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+}
+
+CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t bytesToDel, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (bytesToDel < 1) { fprintf(stderr, "CWS_send_delete_revision provided with invalid number of bytes to delete\n"); return CW_CALL_NO; }
+
+	CW_OPCODE scriptBytes[FILE_DATA_BUF]; CW_OPCODE *scriptPtr = scriptBytes;
+	size_t scriptSz = 0;
+	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	scriptPtr[scriptSz++] = CW_OP_STOREFROMPREV;
+	CWS_gen_script_push_int(startPos-1, scriptPtr, &scriptSz);
+	scriptPtr[scriptSz++] = CW_OP_WRITESOMEFROMSTORED;
+	CWS_gen_script_push_int(CW_SEEK_CUR, scriptPtr, &scriptSz);
+	CWS_gen_script_push_int(bytesToDel, scriptPtr, &scriptSz);
+	scriptPtr[scriptSz++] = CW_OP_SEEKSTORED;
+	scriptPtr[scriptSz++] = CW_OP_WRITEFROMSTORED;
+	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
+	scriptPtr[scriptSz++] = CW_OP_TERM;
+
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+}
+
+CW_STATUS CWS_send_pathredirect_revision(const char *utxoTxid, const char *toReplace, const char *replacement, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + strlen(toReplace) + strlen(replacement)]; CW_OPCODE *scriptPtr = scriptBytes;
+	size_t scriptSz = 0;
+	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	CWS_gen_script_push_str(replacement, scriptPtr, &scriptSz);
+	CWS_gen_script_push_str(toReplace, scriptPtr, &scriptSz);
+	scriptPtr[scriptSz++] = CW_OP_PATHREPLACE;
+
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+}
+
+void CWS_gen_script_push_int(uint32_t val, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+	if (val <= UINT8_MAX) {
+		scriptPtr[((*scriptSz))++] = CW_OP_PUSHCHAR;
+		scriptPtr[(*scriptSz)++] = (CW_OPCODE)val;
+	}
+	else if (val <= UINT16_MAX) {
+		scriptPtr[(*scriptSz)++] = CW_OP_PUSHSHORT;
+		uint16_t len = (uint16_t)val;
+		int16ToNetByteArr(len, scriptPtr + *scriptSz); *scriptSz += sizeof(len);
+	}
+	else {
+		scriptPtr[(*scriptSz)++] = CW_OP_PUSHINT;
+		uint32_t len = (uint32_t)val;
+		int32ToNetByteArr(len, scriptPtr + *scriptSz); *scriptSz += sizeof(len);
+	}
+}
+
+void CWS_gen_script_push_str(const char *str, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+	size_t strLen = strlen(str);	
+
+	if (strLen <= CW_OP_PUSHSTR) {
+		scriptPtr[(*scriptSz)++] = (CW_OPCODE)strLen;
+	} else {
+		CWS_gen_script_push_int(strLen, scriptPtr, scriptSz);
+		scriptPtr[(*scriptSz)++] = CW_OP_PUSHSTRX;
+	}
+
+	for (size_t i=0; i<strLen; i++) { scriptPtr[(*scriptSz)++] = (CW_OPCODE)str[i]; }
+}
+
+
+void CWS_gen_script_writefrom_nametag(const char *name, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+	CWS_gen_script_push_str(name, scriptPtr, scriptSz);
+	scriptPtr[(*scriptSz)++] = CW_OP_WRITEFROMNAMETAG;
+}
+
+bool CWS_gen_script_writefrom_txid(const char *txid, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+	char txidByteArr[CW_TXID_BYTES];
+	if (hexStrToByteArr(txid, 0, txidByteArr) != CW_TXID_BYTES) { return false; }
+
+	scriptPtr[(*scriptSz)++] = CW_OP_PUSHTXID;
+	memcpy(scriptPtr + *scriptSz, txidByteArr, CW_TXID_BYTES); *scriptSz += CW_TXID_BYTES;	
+	scriptPtr[(*scriptSz)++] = CW_OP_WRITEFROMTXID;
+
+	return true;
 }
 
 CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params) {
 	struct CWS_rpc_pack rpcPack;
 	CW_STATUS status = initRpc(params, &rpcPack); // initRpc will always lock revision utxos via RPC
 	cleanupRpc(&rpcPack);
-
 	return status;
 }
 

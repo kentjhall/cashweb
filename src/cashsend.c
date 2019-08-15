@@ -15,16 +15,22 @@ int main(int argc, char **argv) {
 	params.cwType = CW_T_MIMESET;
 	
 	bool no = false;
-	bool revImmutable = false;
 	char *name = NULL;
-	char *revision = NULL;
+	bool revImmutable = false;
+	bool revAttachIdIsName = false;
+	bool revReplace = false;
+	bool revPrepend = false;
+	bool revAppend = false;
+	size_t revInsertPos = 0;
+	size_t revDeleteBytes = 0;
+	char *revPathToRedirect = NULL;
 	char *lock = NULL;
 	bool unlock = false;
 	bool justLockUnspents = false;
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nmfrelIN:R:L:Ut:d:u:p:a:o:")) != -1) {
+	while ((c = getopt(argc, argv, ":nmfrelIN:RBAC:D:P:L:Ut:d:u:p:a:o:")) != -1) {
 		switch (c) {
 			case 'n':
 				no = true;
@@ -56,7 +62,23 @@ int main(int argc, char **argv) {
 				name = optarg;	
 				break;
 			case 'R':
-				revision = optarg;
+				revReplace = true;
+				break;
+			case 'B':
+				revPrepend = true;
+				break;
+			case 'A':
+				revAppend = true;
+				break;
+			case 'C':
+				revInsertPos = atoi(optarg);
+				break;
+			case 'D':
+				revDeleteBytes = atoi(optarg);
+				break;
+				break;
+			case 'P':
+				revPathToRedirect = optarg;
 				break;
 			case 'L':
 				lock = optarg;	
@@ -104,6 +126,8 @@ int main(int argc, char **argv) {
 	}
 
 	char *tosend = !justLockUnspents ? argv[optind] : "";
+	if (name && tosend[0] == '~') { ++tosend; revAttachIdIsName = true; }
+
 	char recName[strlen(tosend)+10];
 	char *lastSlash = strrchr(tosend, '/');
 	snprintf(recName, sizeof(recName), ".%s.cws", lastSlash ? lastSlash+1 : tosend);
@@ -132,13 +156,10 @@ int main(int argc, char **argv) {
 	if (estimate) {
 		fprintf(stderr, "Estimating cost... ");
 		if (lock || unlock || justLockUnspents) {
-			fprintf(stderr, "Invalid call\n");
+			fprintf(stderr, "Bad call\n");
 		}
 		else if (name) {
-			fprintf(stderr, "No estimate available for sending name; it's cheap\n");
-		}
-		else if (revision) {
-			fprintf(stderr, "No estimate available for sending revision update; it's cheap\n");
+			fprintf(stderr, "No estimate available for naming/revisioning; it's pretty cheap\n");
 		}
 		else if (recover) {
 			FILE *recoverySave;
@@ -178,14 +199,25 @@ int main(int argc, char **argv) {
 			status = CWS_wallet_lock_revision_utxos(&params);
 		}
 		else if (name) {
-			status = CWS_send_standard_nametag(name, tosend, revImmutable, &params, &totalCost, txid);
-		}
-		else if (revision) {
-			char revTxid[CW_TXID_CHARS+1]; txid[0] = 0;
-			status = CWS_get_stored_revision_txid_by_name(revision, &params, revTxid);
-			if (status == CW_OK) {
-				status = CWS_send_replace_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid);
-			} else if (status == CW_CALL_NO) { fprintf(stderr, "Specified name not found in revision locks; check %s in data directory", CW_DATADIR_REVISIONS_FILE); }
+			if (revReplace || revPrepend || revAppend || revInsertPos > 0 || revDeleteBytes > 0 || revPathToRedirect) {
+				char revTxid[CW_TXID_CHARS+1]; txid[0] = 0;
+				status = CWS_get_stored_revision_txid_by_name(name, &params, revTxid);
+				if (status == CW_OK) {
+					if (revReplace) { status = CWS_send_replace_revision(revTxid, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
+					else if (revPrepend) { status = CWS_send_prepend_revision(revTxid, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
+					else if (revAppend) { status = CWS_send_append_revision(revTxid, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
+					else if (revInsertPos > 0) { status = CWS_send_insert_revision(revTxid, revInsertPos, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
+					else if (revDeleteBytes > 0) { status = CWS_send_delete_revision(revTxid, atoi(tosend), revDeleteBytes, revImmutable, &params, &totalCost, txid);  }
+					else if (revPathToRedirect) { status = CWS_send_pathredirect_revision(revTxid, revPathToRedirect, tosend, revImmutable, &params, &totalCost, txid);  }
+					else { fprintf(stderr, "Unexpected behavior; problem with cashsend.c"); status = CW_SYS_ERR; }
+				} else if (status == CW_CALL_NO) {
+					fprintf(stderr, "Specified name not found in revision locks; check %s in data directory", CW_DATADIR_REVISIONS_FILE);
+				}
+			}
+			else {
+				status = CWS_send_standard_nametag(name, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid);
+			}
+			lostCost = totalCost;
 		}
 		else if (recover) {
 			FILE *recoverySave;
@@ -196,6 +228,7 @@ int main(int argc, char **argv) {
 			if (status == CW_OK) { fprintf(stderr, "\nRecovery successful; please delete %s", recName); }
 		}
 		else if (strcmp(tosend, "-") == 0) {
+			params.cwType = CW_T_FILE;
 			status = CWS_send_from_stream(stdin, &params, &totalCost, &lostCost, txid);
 		} else {
 			status = CWS_send_from_path(tosend, &params, &totalCost, &lostCost, txid);

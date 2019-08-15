@@ -87,10 +87,10 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	if (status == CW_OK) {
 		if (reqIsNametag) {
 			if (reqCwId && reqPath) {
-				fprintf(stderr, "%s: serving file at nametag %s, revision %s, path %s, type '%s'\n",
+				fprintf(stderr, "%s: serving file at nametag '%s', revision %s, path %s, type '%s'\n",
 						 clntip ? clntip : "?", reqCwId, reqRevisionStr, reqPath, mimeType ? mimeType : "?");
 			} else {
-				fprintf(stderr, "%s: serving file at nametag %s, revision %s, type '%s'\n",
+				fprintf(stderr, "%s: serving file at nametag '%s', revision %s, type '%s'\n",
 						 clntip ? clntip : "?", reqCwId ? reqCwId : "?", reqRevisionStr, mimeType ? mimeType : "?");
 			}
 		} else {
@@ -144,14 +144,19 @@ static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int
 	int urlLen = strlen(url);
 
 	char reqCwId[urlLen+1]; reqCwId[0] = 0;
-	char reqPath[urlLen + strlen(TRAILING_BACKSLASH_APPEND) + 1]; reqPath[0] = 0;
+	char reqPath[urlLen + 1]; reqPath[0] = 0;
+	char reqPathReplace[sizeof(reqPath) + strlen(TRAILING_BACKSLASH_APPEND)]; reqPathReplace[0] = 0;
 
 	size_t cwIdLen = 0;
 	const char *urlPtr;
 	if ((urlPtr = strstr(url+1, "/")) != NULL) {
 		strcat(reqPath, urlPtr);
-		if (url[strlen(url)-1] == '/') { strcat(reqPath, TRAILING_BACKSLASH_APPEND); }
+		if (url[strlen(url)-1] == '/') {
+			strcat(reqPathReplace, reqPath);
+			strcat(reqPathReplace, TRAILING_BACKSLASH_APPEND);
+		}
 		rd.path = getParams.dirPath = reqPath;
+		getParams.dirPathReplace = reqPathReplace;
 
 		cwIdLen = urlPtr-(url+1);	
 	} else if (urlLen > 1) { cwIdLen = strlen(url+1); }
@@ -208,17 +213,22 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(const char *host, const char *u
 	rd.cwId = reqCwId;
 	rd.isNametag = true;
 
-	char reqPath[urlLen + strlen(TRAILING_BACKSLASH_APPEND) + 1]; reqPath[0] = 0;
+	char reqPath[urlLen + 1]; reqPath[0] = 0;
+	char reqPathReplace[sizeof(reqPath) + strlen(TRAILING_BACKSLASH_APPEND)]; reqPathReplace[0] = 0;
 	strcat(reqPath, url);
-	if (url[urlLen-1] == '/') { strcat(reqPath, TRAILING_BACKSLASH_APPEND); }
+	if (url[urlLen-1] == '/') {
+		strcat(reqPathReplace, reqPath);
+		strcat(reqPathReplace, TRAILING_BACKSLASH_APPEND);
+	}
 	getParams.dirPath = reqPath;
+	getParams.dirPathReplace = reqPathReplace;
 	if (strcmp(url, "/") == 0) { getParams.foundSuppressErr = CWG_IS_DIR_NO; }
 	else { rd.path = getParams.dirPath; }
 
 	if (rd.path) {
-		fprintf(stderr, "%s: fetching requested file at identifier %s, path %s\n", clntip, rd.cwId, rd.path);
+		fprintf(stderr, "%s: fetching requested file at identifier '%s', path %s\n", clntip, rd.cwId, rd.path);
 	} else {
-		fprintf(stderr, "%s: fetching requested file at identifier %s\n", clntip, rd.cwId);
+		fprintf(stderr, "%s: fetching requested file at identifier '%s'\n", clntip, rd.cwId);
 	}
 
 	return CWG_get_by_nametag(rd.cwId, CWG_REV_LATEST, &getParams, sockfd);

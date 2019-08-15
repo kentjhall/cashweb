@@ -46,6 +46,9 @@ void *peekFront(struct List *list);
 // returns data pointer from last node of list, or NULL on empty list
 void *peekLast(struct List *list);
 
+// returns data pointer from 'i'th node of list, or NULL if not there
+void *peekAt(struct List *list, size_t i);
+
 // removes all nodes from list, deallocating memory for nodes (and data if freeData is true)
 // freeData should only be set true if all data is heap-allocated
 void removeAllNodes(struct List *list, bool freeData);
