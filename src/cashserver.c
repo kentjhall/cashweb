@@ -73,7 +73,7 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	const char *mimeType = rd ? rd->resMimeType : NULL;
 	if (reqCwId) { reqDBufSz += strlen(reqCwId); }
 	if (reqPath) { reqDBufSz += strlen(reqPath); }
-	char dummy[1];
+	char dummy[2];
 	char reqRevisionStr[snprintf(dummy, sizeof(dummy), "%d", reqRevision) + strlen("LATEST") + 1]; reqRevisionStr[0] = 0;
 	if (reqIsNametag) {
 		if (reqRevision >= 0) { snprintf(reqRevisionStr, sizeof(reqRevisionStr), "%d", reqRevision); }

@@ -545,6 +545,9 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 
 	FILE *scriptStream = NULL;
 
+	// declare array (string) before goto statements (some compilers give me shit even though it's fixed-length)
+	char name[CW_NAME_MAX_LEN+1]; name[0] = 0;
+
 	// write script byte data to tmpfile
 	if ((scriptStream = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
 	if (fwrite(script, scriptSz, 1, scriptStream) < 1) { perror("fwrite() failed"); status = CW_SYS_ERR; goto cleanup; }
@@ -560,7 +563,6 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 	// unlock specified utxo to be used as input, and copy corresponding name to memory
 	struct CWS_utxo inUtxo;
 	init_rev_CWS_utxo(&inUtxo, utxoTxid);
-	char name[CW_NAME_MAX_LEN+1]; name[0] = 0;
 	if ((status = setRevisionLock(&inUtxo, true, name, params, &rpcPack)) != CW_OK) { goto relock; }
 
 	// set specified utxo as forced input for send	
