@@ -522,15 +522,12 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 		return status;
 }
 
-CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_standard_nametag provided with invalid txid\n"); return CW_CALL_NO; }
-
+CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	// construct script byte string
-	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
-	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
-	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 
 	return CWS_send_nametag(name, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
 }
@@ -598,57 +595,44 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 		return status;
 }
 
-CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_replace_revision provided with invalid txid\n"); return CW_CALL_NO; }
-
-	// construct script byte string
-	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
-	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
-	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
 	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_prepend_revision provided with invalid txid\n"); return CW_CALL_NO; }
-
-	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
-	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
-	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 
 	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_append_revision provided with invalid txid\n"); return CW_CALL_NO; }
-
-	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
 	scriptPtr[scriptSz++] = CW_OP_WRITEFROMPREV;
-	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
-	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
 	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!idIsName && !CW_is_valid_txid(attachId)) { fprintf(stderr, "CWS_send_insert_revision provided with invalid txid\n"); return CW_CALL_NO; }
-
-	CW_OPCODE scriptBytes[FILE_DATA_BUF + (idIsName ? strlen(attachId) : 0)]; CW_OPCODE *scriptPtr = scriptBytes;
+CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
 	scriptPtr[scriptSz++] = CW_OP_STOREFROMPREV;
 	CWS_gen_script_push_int(bytePos-1, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_WRITESOMEFROMSTORED;
-	if (idIsName) { CWS_gen_script_writefrom_nametag(attachId, scriptPtr, &scriptSz); }
-	else { CWS_gen_script_writefrom_txid(attachId, scriptPtr, &scriptSz); }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_WRITEFROMSTORED;
 	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
 	scriptPtr[scriptSz++] = CW_OP_TERM;
@@ -731,6 +715,16 @@ bool CWS_gen_script_writefrom_txid(const char *txid, CW_OPCODE *scriptPtr, size_
 	scriptPtr[(*scriptSz)++] = CW_OP_WRITEFROMTXID;
 
 	return true;
+}
+
+bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+	char *name;
+	int rev;
+	if (CW_is_valid_nametag_id(id, &rev, &name)) {
+		if (rev >= 0) { fprintf(stderr, "nametag/revision scripting doesn't support attaching specific revision of nametag\n"); return false; }
+		CWS_gen_script_writefrom_nametag(name, scriptPtr, scriptSz);
+		return true;
+	} else { return CW_is_valid_txid(id) ? CWS_gen_script_writefrom_txid(id, scriptPtr, scriptSz) : false; }
 }
 
 CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params) {
@@ -872,6 +866,66 @@ CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params
 	cleanup:
 		freeDynamicMemory(&line);
 		if (mimeTypes) { fclose(mimeTypes); }
+		return status;
+}
+
+CW_STATUS CWS_dirindex_json_to_raw(FILE *indexJsonFp, FILE *indexFp) {
+	json_error_t e;
+	json_t *indexJson;
+	if ((indexJson = json_loadf(indexJsonFp, 0, &e)) == NULL) { fprintf(stderr, "json_loadf() failed\nMessage: %s\n", e.text); return CW_SYS_ERR; }
+
+	CW_STATUS status = CW_OK;
+
+	size_t numEntries = json_object_size(indexJson);
+	if (numEntries < 1) { fprintf(stderr, "CWS_dirindex_json_to_raw provided with empty JSON data\n"); json_decref(indexJson); return CW_CALL_NO; }
+	char txidsByteData[numEntries*CW_TXID_BYTES];
+
+	size_t tCount = 0;
+	size_t nCount = 0;
+	const char *id;
+
+	const char *path;
+	json_t *idVal;
+	json_object_foreach(indexJson, path, idVal) {
+		char dirPath[strlen(path)+1+1]; dirPath[0] = 0;
+		if (path[0] != '/') { strcat(dirPath, "/"); }
+		strcat(dirPath, path);
+
+		if (tCount+nCount >= numEntries) {
+			fprintf(stderr, "invalid numEntries calculated in CWS_dirindex_json_to_raw; problem with cashsendtools\n");
+			status = CW_SYS_ERR;
+			goto cleanup;
+		}
+		if ((id = json_string_value(idVal)) == NULL) {
+			fprintf(stderr, "CWS_dirindex_json_to_raw provided with empty JSON data\n");
+			status = CW_CALL_NO;
+			goto cleanup;
+		}
+
+		if (fprintf(indexFp, "%s\n", dirPath) < 0) { perror("fprintf() to indexFp failed"); status = CW_SYS_ERR; goto cleanup; }	
+		if (CW_is_valid_nametag_id(id, NULL, NULL) || CW_is_valid_path_id(id, NULL, NULL)) {
+			if (fprintf(indexFp, "%s\n", id) < 0) { perror("fprintf() to indexFp failed"); status = CW_SYS_ERR; goto cleanup; }	
+			++nCount;
+		}
+		else {
+			if (hexStrToByteArr(id, 0, txidsByteData+(tCount++ * CW_TXID_BYTES)) != CW_TXID_BYTES) {
+				fprintf(stderr, "CWS_dirindex_json_to_raw provided JSON contains invalid txid(s)\n");
+				status = CW_CALL_NO;
+				goto cleanup;
+			}
+		}
+	}
+	if (tCount+nCount < numEntries) {
+		fprintf(stderr, "invalid numEntries calculated in CWS_dirindex_json_to_raw; problem with cashsendtools\n");
+		status = CW_SYS_ERR;
+		goto cleanup;
+	}
+
+	if (fprintf(indexFp, "\n") < 0) { perror("fprintf() to indexFp failed"); status = CW_SYS_ERR; goto cleanup; }
+	if (fwrite(txidsByteData, CW_TXID_BYTES, tCount, indexFp) < tCount) { perror("fwrite() to indexFp failed"); }
+
+	cleanup:
+		json_decref(indexJson);
 		return status;
 }
 

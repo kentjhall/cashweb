@@ -1,4 +1,4 @@
-#include "cashsendtools.h"
+#include <cashsendtools.h>
 #include <getopt.h>
 
 #define RPC_SERVER_DEFAULT "127.0.0.1"
@@ -7,17 +7,15 @@
 #define RPC_PASS_DEFAULT "bitcoin"
 
 int main(int argc, char **argv) {	
-	FILE *recoveryStream;
-	if ((recoveryStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }
+	int exitcode = 0;	
 
 	struct CWS_params params;
-	init_CWS_params(&params, RPC_SERVER_DEFAULT, RPC_PORT_DEFAULT, RPC_USER_DEFAULT, RPC_PASS_DEFAULT, recoveryStream);
+	init_CWS_params(&params, RPC_SERVER_DEFAULT, RPC_PORT_DEFAULT, RPC_USER_DEFAULT, RPC_PASS_DEFAULT, NULL);
 	params.cwType = CW_T_MIMESET;
 	
 	bool no = false;
 	char *name = NULL;
 	bool revImmutable = false;
-	bool revAttachIdIsName = false;
 	bool revReplace = false;
 	bool revPrepend = false;
 	bool revAppend = false;
@@ -27,10 +25,11 @@ int main(int argc, char **argv) {
 	char *lock = NULL;
 	bool unlock = false;
 	bool justLockUnspents = false;
+	bool isDirIndex = false;
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nmfrelIN:RBAC:D:P:L:Ut:d:u:p:a:o:")) != -1) {
+	while ((c = getopt(argc, argv, ":nmfrelDIN:RBAC:X:P:L:Ut:d:u:p:a:o:")) != -1) {
 		switch (c) {
 			case 'n':
 				no = true;
@@ -42,7 +41,7 @@ int main(int argc, char **argv) {
 			case 'f':
 				params.fragUtxos = no ? 0 : params.fragUtxos;
 				no = false;
-				break;
+				break;	
 			case 'r':
 				recover = no ? false : true;
 				no = false;
@@ -53,6 +52,11 @@ int main(int argc, char **argv) {
 				break;
 			case 'l':
 				justLockUnspents = no ? false : true;
+				no = false;
+				break;
+			case 'D':
+				isDirIndex = no ? false : true;
+				no = false;
 				break;
 			case 'I':
 				revImmutable = no ? false : true;
@@ -73,9 +77,8 @@ int main(int argc, char **argv) {
 			case 'C':
 				revInsertPos = atoi(optarg);
 				break;
-			case 'D':
+			case 'X':
 				revDeleteBytes = atoi(optarg);
-				break;
 				break;
 			case 'P':
 				revPathToRedirect = optarg;
@@ -85,6 +88,7 @@ int main(int argc, char **argv) {
 				break;
 			case 'U':
 				unlock = no ? false : true;
+				no = false;
 				break;
 			case 't':
 				params.maxTreeDepth = atoi(optarg);
@@ -115,18 +119,25 @@ int main(int argc, char **argv) {
 				}
 				exit(1);
 			default:
-				fprintf(stderr, "getopt() unknown error\n"); exit(1);
+				fprintf(stderr, "getopt() unknown error\n");
+				exit(1);
 		}
 	}
 
-	if (argc < 2 && !justLockUnspents) {
+	if (argc <= optind && !justLockUnspents) {
 		fprintf(stderr, "usage: %s [FLAGS] <tosend>\n", argv[0]);
-		if (recoveryStream) { fclose(recoveryStream); }
 		exit(1);
-	}
+	}	
+
+	FILE *recoveryStream;
+	if ((recoveryStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }
+	params.recoveryStream = recoveryStream;
+
+	FILE *dirIndexStream = NULL;
+	if (isDirIndex && (dirIndexStream = tmpfile()) == NULL) { perror("tmpfile() failed"); fclose(recoveryStream); exit(1); }
 
 	char *tosend = !justLockUnspents ? argv[optind] : "";
-	if (name && tosend[0] == '~') { ++tosend; revAttachIdIsName = true; }
+	bool fromStdin = strcmp(tosend, "-") == 0;
 
 	char recName[strlen(tosend)+10];
 	char *lastSlash = strrchr(tosend, '/');
@@ -151,7 +162,6 @@ int main(int argc, char **argv) {
 	double lostCost = 0;
 	char txid[CW_TXID_CHARS+1]; txid[0] = 0;
 
-	int exitcode = 0;
 	CW_STATUS status = CW_OK;
 	if (estimate) {
 		fprintf(stderr, "Estimating cost... ");
@@ -173,8 +183,15 @@ int main(int argc, char **argv) {
 
 			fclose(recoverySave);
 		}
-		else if (strcmp(tosend, "-") == 0) {
-			if ((status = CWS_estimate_cost_from_stream(stdin, &params, txCountSave, &costEstimate)) != CW_OK) {
+		else if (fromStdin) {
+			if (isDirIndex) {
+				if ((status = CWS_dirindex_json_to_raw(stdin, dirIndexStream)) != CW_OK) {
+					exitcode = 1;
+					goto estimatecleanup;
+				}
+				rewind(dirIndexStream);
+			}
+			if ((status = CWS_estimate_cost_from_stream(isDirIndex ? dirIndexStream : stdin, &params, txCountSave, &costEstimate)) != CW_OK) {
 				exitcode = 1;
 				goto estimatecleanup;
 			}	
@@ -187,26 +204,30 @@ int main(int argc, char **argv) {
 			printf("%.8f", costEstimate);
 		}
 		estimatecleanup:
-			fclose(recoveryStream);
 			if (status != CW_OK) { fprintf(stderr, "Failed to get cost estimate, error code %d: %s.\n", status, CWS_errno_to_msg(status)); }
-			return exitcode;
-	}
-	else {
+			goto cleanup;
+	} else {
 		if (lock || unlock) {
 			status = CWS_set_revision_lock(tosend, unlock, lock, &params);
 		}
 		else if (justLockUnspents) {
 			status = CWS_wallet_lock_revision_utxos(&params);
-		}
+		}	
 		else if (name) {
+			char id[CW_NAMETAG_ID_MAX_LEN+1];
+			if (fromStdin) {
+				if (fgets(id, sizeof(id), stdin) == NULL) { perror("fgets() stdin failed"); status = CW_SYS_ERR; goto cleanup; }
+				tosend = id;
+			}
+
 			if (revReplace || revPrepend || revAppend || revInsertPos > 0 || revDeleteBytes > 0 || revPathToRedirect) {
 				char revTxid[CW_TXID_CHARS+1]; txid[0] = 0;
 				status = CWS_get_stored_revision_txid_by_name(name, &params, revTxid);
 				if (status == CW_OK) {
-					if (revReplace) { status = CWS_send_replace_revision(revTxid, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
-					else if (revPrepend) { status = CWS_send_prepend_revision(revTxid, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
-					else if (revAppend) { status = CWS_send_append_revision(revTxid, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
-					else if (revInsertPos > 0) { status = CWS_send_insert_revision(revTxid, revInsertPos, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid); }
+					if (revReplace) { status = CWS_send_replace_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid); }
+					else if (revPrepend) { status = CWS_send_prepend_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid); }
+					else if (revAppend) { status = CWS_send_append_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid); }
+					else if (revInsertPos > 0) { status = CWS_send_insert_revision(revTxid, revInsertPos, tosend, revImmutable, &params, &totalCost, txid); }
 					else if (revDeleteBytes > 0) { status = CWS_send_delete_revision(revTxid, atoi(tosend), revDeleteBytes, revImmutable, &params, &totalCost, txid);  }
 					else if (revPathToRedirect) { status = CWS_send_pathredirect_revision(revTxid, revPathToRedirect, tosend, revImmutable, &params, &totalCost, txid);  }
 					else { fprintf(stderr, "Unexpected behavior; problem with cashsend.c"); status = CW_SYS_ERR; }
@@ -215,7 +236,7 @@ int main(int argc, char **argv) {
 				}
 			}
 			else {
-				status = CWS_send_standard_nametag(name, tosend, revAttachIdIsName, revImmutable, &params, &totalCost, txid);
+				status = CWS_send_standard_nametag(name, tosend, revImmutable, &params, &totalCost, txid);
 			}
 			lostCost = totalCost;
 		}
@@ -227,9 +248,22 @@ int main(int argc, char **argv) {
 			fclose(recoverySave);
 			if (status == CW_OK) { fprintf(stderr, "\nRecovery successful; please delete %s", recName); }
 		}
-		else if (strcmp(tosend, "-") == 0) {
-			params.cwType = CW_T_FILE;
-			status = CWS_send_from_stream(stdin, &params, &totalCost, &lostCost, txid);
+		else if (isDirIndex) {
+			FILE *src;
+			if (fromStdin) { src = stdin; }
+			else if ((src = fopen(tosend, "rb")) == NULL) { perror("fopen() failed"); exitcode = 1; goto cleanup; }
+
+			status = CWS_dirindex_json_to_raw(src, dirIndexStream);
+			if (!fromStdin) { fclose(src); }
+			if (status != CW_OK) { exitcode = 1; goto cleanup; }
+
+			rewind(dirIndexStream);
+			params.cwType = CW_T_DIR;
+			status = CWS_send_from_stream(dirIndexStream, &params, &totalCost, &lostCost, txid);
+		}
+		else if (fromStdin) {
+			params.cwType = CW_T_FILE;	
+			status = CWS_send_from_stream(isDirIndex ? dirIndexStream : stdin, &params, &totalCost, &lostCost, txid);
 		} else {
 			status = CWS_send_from_path(tosend, &params, &totalCost, &lostCost, txid);
 		}
@@ -279,5 +313,6 @@ int main(int argc, char **argv) {
 
 	cleanup:
 		fclose(recoveryStream);
+		if (dirIndexStream) { fclose(dirIndexStream); }
 		return exitcode;
 }

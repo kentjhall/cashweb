@@ -5,7 +5,7 @@
 #include <fts.h>
 #include <libbitcoinrpc/bitcoinrpc.h>
 
-/* cashsendtools error codes */
+/* cashsendtools status codes */
 #define CWS_RPC_NO CW_SYS_ERR+1
 #define CWS_INPUTS_NO CW_SYS_ERR+2
 #define CWS_CONFIRMS_NO CW_SYS_ERR+3
@@ -145,10 +145,9 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 
 /*
  * wrapper for CWS_send_nametag that constructs script around linking to file at specified identifier attachId
- * specify idIsName for whether or not attachId is name
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 
 /*
@@ -162,31 +161,27 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 
 /*
  * wrapper for CWS_send_revision that constructs script around completely replacing data with file at specified identifier attachId
- * specify idIsName for whether or not attachId is name
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around prepending existing data with file at specified identifier attachId
- * specify idIsName for whether or not attachId is name
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around appending to existing data with file at specified identifier attachId
- * specify idIsName for whether or not attachId is name
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around inserting into existing data at byte position bytePos with file at specified identifier attachId
- * specify idIsName for whether or not attachId is name
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool idIsName, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around "deleting" (skipping) bytesToDel bytes of data starting from position startPos
@@ -203,31 +198,40 @@ CW_STATUS CWS_send_pathredirect_revision(const char *utxoTxid, const char *toRep
 /*
  * constructs script for pushing unsigned integer uint per appropriate number of bytes and writes to scriptStr
  * reads/writes to scriptSz as going (for tracking position in script)
- * must ensure adequate space is allocated to scriptPtr memory location (sizeof(uint32_t) + 1 bytes to be safe)
+ * must ensure adequate space is allocated to scriptPtr memory location
  */
 void CWS_gen_script_push_int(uint32_t val, CW_OPCODE *scriptPtr, size_t *scriptSz);
 
 /*
  * constructs script for pushing string str by its length and writes to scriptPtr
  * reads/writes to scriptSz as going (for tracking position in script)
- * must ensure adequate space is allocated to scriptPtr memory location (strlen(str) + sizeof(uint32_t) + 1 + 1 bytes to be safe)
+ * must ensure adequate space is allocated to scriptPtr memory location
  */
 void CWS_gen_script_push_str(const char *str, CW_OPCODE *scriptPtr, size_t *scriptSz);
 
 /*
  * constructs script for getting/writing from given nametag
  * reads/writes to scriptSz as going (for tracking position in script)
- * must ensure adequate space is allocated to scriptPtr memory location (CW_TXID_BYTES + 1 bytes)
+ * must ensure adequate space is allocated to scriptPtr memory location
  */
 void CWS_gen_script_writefrom_nametag(const char *name, CW_OPCODE *scriptPtr, size_t *scriptSz);
 
 /*
  * constructs script for getting/writing from given txid
  * reads/writes to scriptSz as going (for tracking position in script)
- * must ensure adequate space is allocated to scriptPtr memory location (CW_TXID_BYTES + 1 bytes)
+ * must ensure adequate space is allocated to scriptPtr memory location
  * returns true on success, false on invalid hex for txid; shouldn't need to error-check if format of txid string has been verified
  */
 bool CWS_gen_script_writefrom_txid(const char *txid, CW_OPCODE *scriptPtr, size_t *scriptSz);
+
+/*
+ * constructs script for getting/writing from given identifier;
+   can be nametag id or txid, but NOT nametag revision id (e.g. 0~coolcashwebname)
+ * reads/writes to scriptSz as going (for tracking position in script)
+ * must ensure adequate space is allocated to scriptPtr memory location
+ * returns true on success, false on invalid identifier
+ */ 
+bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *scriptSz);
 
 /*
  * locks stored revisioning utxos (in data directory) via RPC
@@ -260,6 +264,11 @@ CW_STATUS CWS_get_stored_revision_txid_by_name(const char *name, struct CWS_para
    if this is NULL, will set to proper cashwebtools system install data directory
  */
 CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params *csp);
+
+/*
+ * reads directory index JSON data and writes as protocol-compliant index data to given stream
+ */
+CW_STATUS CWS_dirindex_json_to_raw(FILE *indexJsonFp, FILE *indexFp);
 
 /*
  * returns generic error message by error code

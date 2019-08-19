@@ -91,9 +91,18 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cw
 			   CW_MD_BYTES(type)+\
 			   CW_MD_BYTES(pVer))
 
+/* nametag protocol constants */
 #define CW_NAMETAG_PREFIX "~"
-#define CW_NAME_MAX_LEN (CW_TX_DATA_BYTES-CW_METADATA_BYTES-strlen(CW_NAMETAG_PREFIX)-2)
+#define CW_NAMETAG_PREFIX_LEN (sizeof(CW_NAMETAG_PREFIX)-1)
+#define CW_NAME_MAX_LEN (CW_TX_DATA_BYTES-CW_METADATA_BYTES-CW_NAMETAG_PREFIX_LEN-2)
+#define CW_REV_STR_IMPL(rev) #rev
+#define CW_REV_STR(rev) CW_REV_STR_IMPL(rev)
+#define CW_REV_STR_MAX_LEN (sizeof(CW_REV_STR(INT_MAX))-1)
+#define CW_NAMETAG_ID_MAX_LEN (CW_NAME_MAX_LEN+CW_NAMETAG_PREFIX_LEN+CW_REV_STR_MAX_LEN)
+
+/* revisioning protocol constants */
 #define CW_REVISION_INPUT_VOUT 1
+#define CW_REV_LATEST -1
 
 /* network rules constants */
 #define CW_TX_RAW_DATA_BYTES 222
@@ -113,9 +122,9 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cw
 #define CW_TXID_CHARS HEX_CHARS(CW_TXID_BYTES)
 
 /*
- * convenience function for checking validity of given txid
+ * convenience function for checking validity of given txid (hex string of length TXID_CHARS)
  */
-inline bool CW_is_valid_txid(const char *txid) {
+static inline bool CW_is_valid_txid(const char *txid) {
 	size_t txidLen = strlen(txid);
 	if (txidLen != CW_TXID_CHARS) { return false; }
 	for (int i=0; i<txidLen; i++) { if (!isxdigit(txid[i])) { return false; } }
@@ -123,8 +132,59 @@ inline bool CW_is_valid_txid(const char *txid) {
 }
 
 /*
- * convenience function for checking validity of given name by cashweb protocol standards
+ * convenience function for checking validity of given name by cashweb protocol standards (should not include nametag ID prefix)
  */
-inline bool CW_is_valid_name(const char *name) { return strlen(name) <= CW_NAME_MAX_LEN; }
+static inline bool CW_is_valid_name(const char *name) { size_t nameLen = strlen(name); return !strchr(name, '/') && nameLen <= CW_NAME_MAX_LEN && nameLen > 0; }
+
+/*
+ * checks if given string is a valid nametag id by cashweb protocol standards for prefix and length
+ * if so, writes revision and name pointer (points to location in passed id string) to passed memory locations (can be NULL if not desired)
+ */
+static inline bool CW_is_valid_nametag_id(const char *id, int *rev, char **name) {
+	char *pre;
+	if ((pre = strstr(id, CW_NAMETAG_PREFIX))) {
+		char *nameStr = pre + CW_NAMETAG_PREFIX_LEN;
+		size_t revLen = pre - id;
+		if (!CW_is_valid_name(nameStr)) { return false; }
+		if (revLen > CW_REV_STR_MAX_LEN) { return false; }
+
+		if (rev) {
+			if (revLen > 0) {
+				char revStr[revLen+1]; revStr[0] = 0;
+				strncat(revStr, id, revLen);
+				*rev = atoi(revStr);
+			} else { *rev = CW_REV_LATEST; }
+		}
+		if (name) { *name = nameStr; }
+		return true;
+	}
+	return false;
+}
+
+/*
+ * checks if given string is a valid path id by cashweb protocol standards (i.e. presence of '/' and length of contained id);
+   does NOT check for validity of contained id (whether it be nametag id or txid) beyond its length
+ * if valid, copies id and path pointer (points to location in passed pathId string) to passed memory locations (can be NULL if not desired)
+ */
+static inline bool CW_is_valid_path_id(const char *pathId, char *id, char **path) {
+	char *idPath;
+	if ((idPath = strstr(pathId, "/"))) {
+		size_t idLen = idPath - pathId;
+		if (idLen > CW_NAMETAG_ID_MAX_LEN || idLen < 1) { return false; }
+
+		if (id) { id[0] = 0; strncat(id, pathId, idLen); }
+		if (path) { *path = idPath; }
+		return true;
+	}
+	return false;
+}
+
+/*
+ * checks if given string is valid as any sort of cashweb id by protocol standards
+ * does not ascertain any information about it; will need to be specific with above functions if this is desired
+ */
+static inline bool CW_is_valid_cashweb_id(const char *id) {
+	return CW_is_valid_path_id(id, NULL, NULL) || CW_is_valid_nametag_id(id, NULL, NULL) || CW_is_valid_txid(id);
+}
 
 #endif

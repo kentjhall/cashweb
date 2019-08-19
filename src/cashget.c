@@ -1,33 +1,21 @@
-#include "cashgettools.h"
+#include <cashgettools.h>
 #include <getopt.h>
 
 #define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
 
 int main(int argc, char **argv) {
-	if (argc < 2) {
-		fprintf(stderr, "usage: %s [FLAGS] <toget>\n", argv[0]);
-		exit(1);
-	}
-
 	char *mongodb = NULL;
 	char *bitdbNode = BITDB_DEFAULT;
 
-	bool isName = false;
-	char *pathGetId = NULL;
-	int revision = CWG_REV_LATEST;
+	char *getDirPath = NULL;
+	bool getDirIndex = false;
 
 	int c;
-	while ((c = getopt(argc, argv, ":NR:p:lm:b:")) != -1) {
+	while ((c = getopt(argc, argv, ":Dlm:b:")) != -1) {
 		switch (c) {	
-			case 'N':
-				isName = true;
-				break;
-			case 'R':
-				revision = atoi(optarg);
-				break;
-			case 'p':
-				pathGetId = optarg;
+			case 'D':
+				getDirIndex = true;
 				break;
 			case 'l':
 				mongodb = MONGODB_LOCAL_ADDR;
@@ -53,29 +41,29 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	if (argc <= optind) {
+		fprintf(stderr, "usage: %s [FLAGS] <toget>\n", argv[0]);
+		exit(1);
+	}
+
 	char *toget = argv[optind];
-	if (!isName && strlen(toget) != CW_TXID_CHARS) { fprintf(stderr, "Invalid txid; if getting by nametag, use flag -N\n"); exit(1); }
 
 	struct CWG_params params;
 	init_CWG_params(&params, mongodb, bitdbNode, NULL);
+	params.dirPath = getDirPath;
 
 	int getFd = STDOUT_FILENO;
 	FILE *dirStream = NULL;
-	if (pathGetId) {
+	if (getDirIndex) {
 		if ((dirStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }	
 		getFd = fileno(dirStream);
 	}
 
-	CW_STATUS status;
-	if (isName) { status = CWG_get_by_nametag(toget, revision, &params, getFd); }
-	else { status = CWG_get_by_txid(toget, &params, getFd); }
+	CW_STATUS status = CWG_get_by_id(toget, &params, getFd);
 
-	if (status == CW_OK && pathGetId) {
+	if (status == CW_OK && getDirIndex) {
 		rewind(dirStream);
-		char id[CW_NAME_MAX_LEN+1]; id[0] = 0;
-		if ((status = CWG_dirindex_path_to_identifier(dirStream, pathGetId, id)) == CW_OK) {
-			printf("%s", id);
-		}
+		status = CWG_dirindex_raw_to_json(dirStream, stdout);
 	}
 	if (dirStream) { fclose(dirStream); }
 

@@ -1,4 +1,4 @@
-#include "cashgettools.h"
+#include <cashgettools.h>
 #include <microhttpd.h>
 
 #define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
@@ -32,7 +32,7 @@ struct cashRequestData {
 static inline void initCashRequestData(struct cashRequestData *requestData, const char *clntip, char *resMimeType) {
 	requestData->cwId = NULL;
 	requestData->isNametag = false;
-	requestData->revision = CWG_REV_LATEST;
+	requestData->revision = CW_REV_LATEST;
 	requestData->path = NULL;
 	requestData->clntip = clntip;
 	requestData->resMimeType = resMimeType;	
@@ -68,7 +68,7 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	const char *clntip = rd ? rd->clntip : NULL;
 	const char *reqCwId = rd ? rd->cwId : NULL;
 	bool reqIsNametag = rd && rd->isNametag;
-	int reqRevision = rd ? rd->revision : CWG_REV_LATEST;
+	int reqRevision = rd ? rd->revision : CW_REV_LATEST;
 	const char *reqPath = rd ? rd->path : NULL;
 	const char *mimeType = rd ? rd->resMimeType : NULL;
 	if (reqCwId) { reqDBufSz += strlen(reqCwId); }
@@ -183,7 +183,7 @@ static CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, int
 		fprintf(stderr, "%s: fetching requested file at identifier '%s'\n", clntip, rd.cwId);
 	}
 
-	return rd.isNametag ? CWG_get_by_nametag(rd.cwId, rd.revision, &getParams, sockfd) : CWG_get_by_txid(rd.cwId, &getParams, sockfd);
+	return rd.isNametag ? CWG_get_by_name(rd.cwId, rd.revision, &getParams, sockfd) : CWG_get_by_txid(rd.cwId, &getParams, sockfd);
 }
 
 static CS_CW_STATUS cashRequestHandleBySubdomain(const char *host, const char *url, const char *clntip, int sockfd) {
@@ -231,7 +231,7 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(const char *host, const char *u
 		fprintf(stderr, "%s: fetching requested file at identifier '%s'\n", clntip, rd.cwId);
 	}
 
-	return CWG_get_by_nametag(rd.cwId, CWG_REV_LATEST, &getParams, sockfd);
+	return CWG_get_by_name(rd.cwId, CW_REV_LATEST, &getParams, sockfd);
 }
 
 static inline CS_CW_STATUS cashRequestHandle(struct MHD_Connection *connection, const char *url, const char *clntip, int sockfd) {

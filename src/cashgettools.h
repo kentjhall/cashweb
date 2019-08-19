@@ -7,23 +7,21 @@
 #include <b64/b64.h>
 #include <mylist/mylist.h>
 
-/* cashgettools error codes */
+/* cashgettools status codes */
 #define CWG_IN_DIR_NO CW_SYS_ERR+1
 #define CWG_IS_DIR_NO CW_SYS_ERR+2
 #define CWG_FETCH_NO CW_SYS_ERR+3
 #define CWG_METADATA_NO CW_SYS_ERR+4
 #define CWG_SCRIPT_CODE_NO CW_SYS_ERR+5
 #define CWG_SCRIPT_NO CW_SYS_ERR+6
-#define CWG_FETCH_ERR CW_SYS_ERR+7
-#define CWG_WRITE_ERR CW_SYS_ERR+8
-#define CWG_SCRIPT_ERR CW_SYS_ERR+9
-#define CWG_SCRIPT_RETRY_ERR CW_SYS_ERR+10
-#define CWG_FILE_ERR CW_SYS_ERR+11
-#define CWG_FILE_LEN_ERR CW_SYS_ERR+12
-#define CWG_FILE_DEPTH_ERR CW_SYS_ERR+13
-
-/* this is passed to CWG_get_by_nametag if seeking latest revision; for readability */
-#define CWG_REV_LATEST -1
+#define CWG_CIRCLEREF_NO CW_SYS_ERR+7
+#define CWG_FETCH_ERR CW_SYS_ERR+8
+#define CWG_WRITE_ERR CW_SYS_ERR+9
+#define CWG_SCRIPT_ERR CW_SYS_ERR+10
+#define CWG_SCRIPT_RETRY_ERR CW_SYS_ERR+11
+#define CWG_FILE_ERR CW_SYS_ERR+12
+#define CWG_FILE_LEN_ERR CW_SYS_ERR+13
+#define CWG_FILE_DEPTH_ERR CW_SYS_ERR+14
 
 /* required array size if passing saveMimeStr in params */
 #define CWG_MIMESTR_BUF 256
@@ -35,7 +33,8 @@
  * 	       is included for internal management by cashgettools
  * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
  * bitdbRequestLimit: Specify whether or not BitDB Node has request limit
- * dirPath: Specify path if requesting a directory
+ * dirPath: Specify path if requesting a directory;
+ 	    keep in mind this pointer may be overwritten when getting by ID (specifically a path ID) via CWG_get_by_id
  * dirPathReplace: Optionally allow requested dirPath to be replaced by nametag scripting; set NULL if not desired.
  		   If set, string length of zero indicates to allow replacement by script, but not mandated;
 		   otherwise, will replace with set string if not overwritten by script (soft replacement).
@@ -43,7 +42,6 @@
  * dirPathReplaceToFree: Specifies whether dirPathReplace points to heap-allocated memory that needs to be freed on replacement; primarily for internal use.
  			 Should function if set true when initial dirPathReplace points to heap-allocated memory,
 			 but is strongly recommended that freeing any passed pointer be handled by the user instead
- * saveDirFp: Optionally specify stream for writing directory contents if requesting a directory
  * saveMimeStr: Optionally interpret/save file's mimetype string to this memory location;
  		pass pointer to char array of length CWG_MIMESTR_BUF (this #define is available in header)
  * foundHandler: Function to call when file is found, before writing
@@ -60,7 +58,6 @@ struct CWG_params {
 	char *dirPath;
 	char *dirPathReplace;
 	bool dirPathReplaceToFree;
-	FILE *saveDirFp;
 	char (*saveMimeStr)[CWG_MIMESTR_BUF];
 	void (*foundHandler) (CW_STATUS, void *, int);
 	void *foundHandleData;
@@ -85,7 +82,6 @@ static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, 
 	cgp->dirPath = NULL;
 	cgp->dirPathReplace = "";
 	cgp->dirPathReplaceToFree = false;
-	cgp->saveDirFp = NULL;
 	cgp->saveMimeStr = saveMimeStr;
 	if (cgp->saveMimeStr) { memset(*cgp->saveMimeStr, 0, sizeof(*cgp->saveMimeStr)); }
 	cgp->foundHandler = NULL;
@@ -104,7 +100,6 @@ static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *s
 	dest->dirPath = source->dirPath;
 	dest->dirPathReplace = source->dirPathReplace;
 	dest->dirPathReplaceToFree = source->dirPathReplaceToFree;
-	dest->saveDirFp = source->saveDirFp;
 	dest->saveMimeStr = source->saveMimeStr;
 	dest->foundHandler = source->foundHandler;
 	dest->foundHandleData = source->foundHandleData;
@@ -121,17 +116,34 @@ CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
 
 /*
  * gets the file at the specified nametag and writes to given file descriptor
- * specify revision for versioning; CWG_REV_LATEST for latest revision
+ * specify revision for versioning; CW_REV_LATEST for latest revision
  * queries at specified BitDB-populated MongoDB or BitDB HTTP endpoint
  * if foundHandler specified, will call to indicate if file is found before writing
  */
-CW_STATUS CWG_get_by_nametag(const char *name, int revision, struct CWG_params *params, int fd);
+CW_STATUS CWG_get_by_name(const char *name, int revision, struct CWG_params *params, int fd);
+
+/*
+ * gets the file by protocol-compliant identifier and writes to given file descriptor
+ * this could be of the following formats:
+   1) hex string of length TXID_CHARS (valid txid)
+   2) name prefixed with CW_NAMETAG_PREFIX (e.g. ~coolcashwebname, gets latest revision)
+   3) name prefixed with revision number and CW_NAMETAG_PREFIX (e.g. 0~coolcashwebname, gets first revision)
+ */
+CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd);
 
 /*
  * reads from specified file stream to ascertain the desired file identifier from given directory/path;
- * writes identifier to specified location in memory; ensure CW_NAME_MAX_LEN+1 allocated if this could be nametag reference, or CW_TXID_CHARS+1 otherwise
+   if path is prepended with '/', this will be ignored (i.e. handled, but not necessary)
+ * writes identifier to specified location in memory; ensure CW_NAMETAG_ID_MAX_LEN+1 allocated if this could be nametag reference, or CW_TXID_CHARS+1 otherwise;
+   writes remaining path to subPath if only partial path used (presumed to be referencing another directory), or NULL if full path used
+ * pass NULL for subPath if only accepting exact match (won't match a partial path)
  */
-CW_STATUS CWG_dirindex_path_to_identifier(FILE *dirFp, const char *dirPath, char *pathId);
+CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char const **subPath, char *pathId);
+
+/*
+ * reads directory index data and dumps as readable JSON format to given stream
+ */
+CW_STATUS CWG_dirindex_raw_to_json(FILE *indexFp, FILE *indexJsonFp);
 
 /*
  * returns generic error message by error code
