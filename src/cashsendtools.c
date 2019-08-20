@@ -5,7 +5,7 @@
 /* general constants */
 #define LINE_BUF 150
 #define ERR_WAIT_CYCLE 5
-#define ERR_MSG_BUF 40
+#define ERR_MSG_BUF 50
 #define RECOVERY_INFO_BUF 15
 
 /* tx sending constants */
@@ -1071,6 +1071,7 @@ static CW_STATUS lockRevisionUnspents(json_t *revisionLocks, bool unlock, struct
         CW_STATUS status = rpcCall(rp, RPC_M_LOCKUNSPENT, params, &jsonResult);
         if (jsonResult) { json_decref(jsonResult); }
         json_decref(params);
+	if (status != CW_OK && strstr(rp->errMsg, "already locked")) { status = CW_OK; }
 
         return status;	
 }
