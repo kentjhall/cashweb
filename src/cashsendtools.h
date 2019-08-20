@@ -27,6 +27,8 @@
  		 determines the chunk size the file is downloaded in
  * cwType: the file's cashweb type (set to CW_T_MIMESET if the mimetype should be interpreted by extension)
  * dirOmitIndex: if sending directory, can be specified to not send index (i.e. to send collection of files)
+ * revToAddr: specifies an address to force last tiny change output to when revisioning (for transferring ownership);
+ 	      needn't be specified if using struct CWS_revision_pack (equivalent to transferAddr)
  * fragUtxos: specifies the number of UTXOs to create for file send in advance; best to have this handled by CWS_estimate_cost function
  *	       leave set at 1 to have cashsendtools calculate this, or 0 to not fragment any UTXOs
  * saveDirStream: optionally save directory index data to specified stream;
@@ -42,8 +44,9 @@ struct CWS_params {
 	const char *rpcPass;
 	int maxTreeDepth;
 	CW_TYPE cwType;
-	bool dirOmitIndex;
+	const char *revToAddr;
 	size_t fragUtxos;
+	bool dirOmitIndex;
 	FILE *saveDirStream;
 	FILE *recoveryStream;
 	const char *datadir;
@@ -61,8 +64,9 @@ static inline void init_CWS_params(struct CWS_params *csp,
 	csp->rpcPass = rpcPass;
 	csp->maxTreeDepth = -1;
 	csp->cwType = CW_T_FILE;
-	csp->dirOmitIndex = false;
+	csp->revToAddr = NULL;
 	csp->fragUtxos = 1;
+	csp->dirOmitIndex = false;
 	csp->saveDirStream = NULL;
 	csp->recoveryStream = recoveryStream;
 	csp->datadir = CW_INSTALL_DATADIR_PATH;
@@ -78,11 +82,44 @@ static inline void copy_CWS_params(struct CWS_params *dest, struct CWS_params *s
 	dest->rpcPass = source->rpcPass;
 	dest->maxTreeDepth = source->maxTreeDepth;
 	dest->cwType = source->cwType;
-	dest->dirOmitIndex = source->dirOmitIndex;
+	dest->revToAddr = source->revToAddr;
 	dest->fragUtxos = source->fragUtxos;
+	dest->dirOmitIndex = source->dirOmitIndex;
 	dest->saveDirStream = source->saveDirStream;
 	dest->recoveryStream = source->recoveryStream;
 	dest->datadir = source->datadir;
+}
+
+/*
+ * convenience pack for passing common qualifers to revision functions
+ */
+struct CWS_revision_pack {
+	bool immutable;
+	const char *pathToReplace;
+	const char *pathReplacement;
+	const char *transferAddr;
+};
+
+/*
+ * initializes struct CWS_revision_pack
+ */
+static inline void init_CWS_revision_pack(struct CWS_revision_pack *rvp) {
+	rvp->immutable = false;
+	rvp->pathToReplace = NULL;
+	rvp->pathReplacement = NULL;
+	rvp->transferAddr = NULL;
+}
+
+/*
+ * determines if given struct CWS_revision_pack contains any new (non-default) information
+ */
+static inline bool is_default_CWS_revision_pack(struct CWS_revision_pack *rvp) {
+	struct CWS_revision_pack def;
+	init_CWS_revision_pack(&def);
+	return rvp->immutable == def.immutable &&
+	       rvp->pathToReplace == def.pathToReplace &&
+	       rvp->pathReplacement == def.pathReplacement &&
+	       rvp->transferAddr == def.transferAddr;
 }
 
 /*
@@ -147,7 +184,7 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
  * wrapper for CWS_send_nametag that constructs script around linking to file at specified identifier attachId
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 
 /*
@@ -163,37 +200,38 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
  * wrapper for CWS_send_revision that constructs script around completely replacing data with file at specified identifier attachId
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around prepending existing data with file at specified identifier attachId
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around appending to existing data with file at specified identifier attachId
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around inserting into existing data at byte position bytePos with file at specified identifier attachId
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * wrapper for CWS_send_revision that constructs script around "deleting" (skipping) bytesToDel bytes of data starting from position startPos
  * will prepend script with CW_OP_NEXTREV if immutable is specified false
  */
-CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t bytesToDel, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t bytesToDel, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
- * wrapper for CWS_send_revision that constructs script around adding a path redirect to existing nametag directory (given that client allows for this);
-   should have no effect if it isn't a directory
+ * wrapper for CWS_send_revision that constructs script purely around contents of given struct CWS_revision_pack, with no real content added/changed
+ * if script ends up completely empty, will put CW_OP_PUSHNO as whole script
+ * may be useful for transferring ownership of nametag, as well as rendering a nametag immutable or redirecting path for existing directory
  */
-CW_STATUS CWS_send_pathredirect_revision(const char *utxoTxid, const char *toReplace, const char *replacement, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid);
+CW_STATUS CWS_send_empty_revision(const char *utxoTxid, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid);
 
 /*
  * constructs script for pushing unsigned integer uint per appropriate number of bytes and writes to scriptStr
@@ -232,6 +270,22 @@ bool CWS_gen_script_writefrom_txid(const char *txid, CW_OPCODE *scriptPtr, size_
  * returns true on success, false on invalid identifier
  */ 
 bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *scriptSz);
+
+/*
+ * constructs script for path replacement (for script pointing to directory, suggests replacement of path 'toReplace' with 'replacement')
+ * paths may be prepended with '/'; shouldn't make a difference unless replacing lone slash (just '/', which is valid)
+ * reads/writes to scriptSz as going (for tracking position in script)
+ * must ensure adequate space is allocated to scriptPtr memory location
+ */
+void CWS_gen_script_pathredirect(const char *toReplace, const char *replacement, CW_OPCODE *scriptPtr, size_t *scriptSz);
+
+/*
+ * constructs standard script beginning from given struct CWS_revision_pack (pertaining to immutability, path replacement)
+ * writes transferAddr to params (here for convenience, doesn't affect script) for handling ownership transfer
+ * reads/writes to scriptSz as going (for tracking position in script)
+ * must ensure adequate space is allocated to scriptPtr memory location
+ */
+void CWS_gen_script_standard_start(struct CWS_revision_pack *rvp, struct CWS_params *params, CW_OPCODE *scriptPtr, size_t *scriptSz);
 
 /*
  * locks stored revisioning utxos (in data directory) via RPC

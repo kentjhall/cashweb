@@ -38,7 +38,6 @@
  * dirPathReplace: Optionally allow requested dirPath to be replaced by nametag scripting; set NULL if not desired.
  		   If set, string length of zero indicates to allow replacement by script, but not mandated;
 		   otherwise, will replace with set string if not overwritten by script (soft replacement).
-		   This pointer CAN be overwritten, so if string is heap-allocated, a separate reference should be maintained for freeing it
  * dirPathReplaceToFree: Specifies whether dirPathReplace points to heap-allocated memory that needs to be freed on replacement; primarily for internal use.
  			 Should function if set true when initial dirPathReplace points to heap-allocated memory,
 			 but is strongly recommended that freeing any passed pointer be handled by the user instead

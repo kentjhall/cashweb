@@ -12,16 +12,17 @@ int main(int argc, char **argv) {
 	struct CWS_params params;
 	init_CWS_params(&params, RPC_SERVER_DEFAULT, RPC_PORT_DEFAULT, RPC_USER_DEFAULT, RPC_PASS_DEFAULT, NULL);
 	params.cwType = CW_T_MIMESET;
+
+	struct CWS_revision_pack revPack;
+	init_CWS_revision_pack(&revPack);
 	
 	bool no = false;
 	char *name = NULL;
-	bool revImmutable = false;
 	bool revReplace = false;
 	bool revPrepend = false;
 	bool revAppend = false;
 	size_t revInsertPos = 0;
 	size_t revDeleteBytes = 0;
-	char *revPathToRedirect = NULL;
 	char *lock = NULL;
 	bool unlock = false;
 	bool justLockUnspents = false;
@@ -29,7 +30,7 @@ int main(int argc, char **argv) {
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nmfrelDIN:RBAC:X:P:L:Ut:d:u:p:a:o:")) != -1) {
+	while ((c = getopt(argc, argv, ":nmfrelDIN:RBAC:X:T:P:L:Ut:d:u:p:a:o:")) != -1) {
 		switch (c) {
 			case 'n':
 				no = true;
@@ -59,7 +60,7 @@ int main(int argc, char **argv) {
 				no = false;
 				break;
 			case 'I':
-				revImmutable = no ? false : true;
+				revPack.immutable = no ? false : true;
 				no = false;
 				break;
 			case 'N':
@@ -80,8 +81,16 @@ int main(int argc, char **argv) {
 			case 'X':
 				revDeleteBytes = atoi(optarg);
 				break;
+			case 'T':
+				revPack.transferAddr = optarg;
+				break;
 			case 'P':
-				revPathToRedirect = optarg;
+				revPack.pathToReplace = optarg;
+				if (argc <= optind || (argv[optind][0] == '-' && strlen(argv[optind]) > 1)) {
+					fprintf (stderr, "Option -%c requires two arguments.\n", optopt);
+					exit(1);
+				}
+				revPack.pathReplacement = argv[optind++];
 				break;
 			case 'L':
 				lock = optarg;	
@@ -124,7 +133,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	if (argc <= optind && !justLockUnspents) {
+	if (argc <= optind && !justLockUnspents && is_default_CWS_revision_pack(&revPack)) {
 		fprintf(stderr, "usage: %s [FLAGS] <tosend>\n", argv[0]);
 		exit(1);
 	}	
@@ -136,7 +145,7 @@ int main(int argc, char **argv) {
 	FILE *dirIndexStream = NULL;
 	if (isDirIndex && (dirIndexStream = tmpfile()) == NULL) { perror("tmpfile() failed"); fclose(recoveryStream); exit(1); }
 
-	char *tosend = !justLockUnspents ? argv[optind] : "";
+	char *tosend = argc > optind ? argv[optind] : "";
 	bool fromStdin = strcmp(tosend, "-") == 0;
 
 	char recName[strlen(tosend)+10];
@@ -220,23 +229,23 @@ int main(int argc, char **argv) {
 				tosend = id;
 			}
 
-			if (revReplace || revPrepend || revAppend || revInsertPos > 0 || revDeleteBytes > 0 || revPathToRedirect) {
+			if (revReplace || revPrepend || revAppend || revInsertPos > 0 || revDeleteBytes > 0 || !is_default_CWS_revision_pack(&revPack)) {
 				char revTxid[CW_TXID_CHARS+1]; txid[0] = 0;
 				status = CWS_get_stored_revision_txid_by_name(name, &params, revTxid);
 				if (status == CW_OK) {
-					if (revReplace) { status = CWS_send_replace_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid); }
-					else if (revPrepend) { status = CWS_send_prepend_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid); }
-					else if (revAppend) { status = CWS_send_append_revision(revTxid, tosend, revImmutable, &params, &totalCost, txid); }
-					else if (revInsertPos > 0) { status = CWS_send_insert_revision(revTxid, revInsertPos, tosend, revImmutable, &params, &totalCost, txid); }
-					else if (revDeleteBytes > 0) { status = CWS_send_delete_revision(revTxid, atoi(tosend), revDeleteBytes, revImmutable, &params, &totalCost, txid);  }
-					else if (revPathToRedirect) { status = CWS_send_pathredirect_revision(revTxid, revPathToRedirect, tosend, revImmutable, &params, &totalCost, txid);  }
+					if (revReplace) { status = CWS_send_replace_revision(revTxid, tosend, &revPack, &params, &totalCost, txid); }
+					else if (revPrepend) { status = CWS_send_prepend_revision(revTxid, tosend, &revPack, &params, &totalCost, txid); }
+					else if (revAppend) { status = CWS_send_append_revision(revTxid, tosend, &revPack, &params, &totalCost, txid); }
+					else if (revInsertPos > 0) { status = CWS_send_insert_revision(revTxid, revInsertPos, tosend, &revPack, &params, &totalCost, txid); }
+					else if (revDeleteBytes > 0) { status = CWS_send_delete_revision(revTxid, atoi(tosend), revDeleteBytes, &revPack, &params, &totalCost, txid);  }
+					else if (!is_default_CWS_revision_pack(&revPack)) { status = CWS_send_empty_revision(revTxid, &revPack, &params, &totalCost, txid); }
 					else { fprintf(stderr, "Unexpected behavior; problem with cashsend.c"); status = CW_SYS_ERR; }
 				} else if (status == CW_CALL_NO) {
 					fprintf(stderr, "Specified name not found in revision locks; check %s in data directory", CW_DATADIR_REVISIONS_FILE);
 				}
 			}
 			else {
-				status = CWS_send_standard_nametag(name, tosend, revImmutable, &params, &totalCost, txid);
+				status = CWS_send_standard_nametag(name, tosend, &revPack, &params, &totalCost, txid);
 			}
 			lostCost = totalCost;
 		}

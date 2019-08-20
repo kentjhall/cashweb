@@ -52,6 +52,7 @@ typedef uint8_t CW_OPCODE;
 #define CW_OP_PATHREPLACE (CW_OP_TERM-15)
 #define CW_OP_PUSHSTRX (CW_OP_PUSHSTR+1)
 #define CW_OP_PUSHSTR ((CW_OPCODE)205)
+#define CW_OP_PUSHNO ((CW_OPCODE)0)
 
 /* whence/direction constants for script code CW_OP_SEEKSTORED */
 #define CW_SEEK_BEG 0

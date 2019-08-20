@@ -1368,10 +1368,14 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 			if ((toReplace = popFront(stack)) == NULL) { return CWG_SCRIPT_ERR; }
 			if ((replacement = popFront(stack)) == NULL) { free(toReplace); return CWG_SCRIPT_ERR; }
 
-			if (params->dirPath && params->dirPathReplace && strcmp(params->dirPath, toReplace) == 0) {
-				if (params->dirPathReplaceToFree) { free(params->dirPathReplace); }	
-				params->dirPathReplace = replacement;
-				params->dirPathReplaceToFree = true;
+			if (params->dirPath) {
+				char *check = params->dirPath[0] == '/' ? params->dirPath + 1 : params->dirPath;
+				char *against = toReplace[0] == '/' ? toReplace + 1 : toReplace;
+				if (params->dirPathReplace && strcmp(check, against) == 0) {
+					if (params->dirPathReplaceToFree) { free(params->dirPathReplace); }	
+					params->dirPathReplace = replacement;
+					params->dirPathReplaceToFree = true;
+				} else { free(replacement); }
 			} else { free(replacement); }
 			free(toReplace);
 
@@ -1400,6 +1404,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 				len = (size_t)pushLen;
 			}
 			else if (c > CW_OP_PUSHSTR) { return CWG_SCRIPT_ERR; }
+			else if (c == CW_OP_PUSHNO) { return CW_OK; }
 			else { len = (size_t)c; }
 
 			char *pushStr = malloc(len+1);	
@@ -1439,9 +1444,6 @@ static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *param
 	List fdStack;
 	initList(&fdStack);
 
-	char *savePtr = params->dirPathReplace;
-	bool saveBool = params->dirPathReplaceToFree;
-
 	int c;	
 	CW_OPCODE code;
 	while ((c = getc(scriptStream)) != EOF) {
@@ -1465,12 +1467,7 @@ static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *param
 		removeAllNodes(&stack, true);
 		freeFdStack(&fdStack);
 		if (sp->revTxid) { popFront(sp->scriptStreams); }
-		if (sp->atRev == 0) {
-			if (status == CWG_SCRIPT_NO) { status = CW_OK; }
-			if (params->dirPathReplaceToFree) { free(params->dirPathReplace); }
-			params->dirPathReplaceToFree = saveBool;
-			params->dirPathReplace = savePtr;
-		}
+		if (sp->atRev == 0 && status == CWG_SCRIPT_NO) { status = CW_OK; }
 		return status;
 }
 
@@ -1574,7 +1571,7 @@ static CW_STATUS getFileByTxid(const char *txid, List *fetchedNames, struct CWG_
 		char *dirPath = params->dirPathReplace && params->dirPathReplace[0] != 0 ? params->dirPathReplace : params->dirPath;
 
 		if (md.type == CW_T_DIR) {
-			if (strcmp(dirPath, "/") != 0) {
+			if (dirPath[0] != 0 && strcmp(dirPath, "/") != 0) {
 				FILE *dirFp = tmpfile();
 				if (!dirFp) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }
 
@@ -1666,4 +1663,6 @@ static void cleanupFetcher(struct CWG_params *params) {
 		mongoc_cleanup();
 	} 
 	else if (params->bitdbNode) { curl_global_cleanup(); }
+
+	if (params->dirPathReplace && params->dirPathReplaceToFree) { free(params->dirPathReplace); params->dirPathReplace = NULL; }
 }

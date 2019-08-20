@@ -80,6 +80,7 @@ struct CWS_rpc_pack {
 	size_t reservedUtxosCount;
 	bool forceTinyChangeLast;
 	struct CWS_utxo *forceInputUtxoLast;
+	const char *forceOutputAddrLast;
 	json_t *revisionLocks;
 	char *revLocksPath;
 	double costCount;
@@ -506,7 +507,7 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 	}
 	if (status != CW_OK) { goto cleanup; }
 
-	if (!immutable) {
+	if (!immutable && !rpcPack.forceOutputAddrLast) {
 		struct CWS_utxo lock;
 		init_rev_CWS_utxo(&lock, resTxid);
 		if ((status = setRevisionLock(&lock, false, (char *)name, params, &rpcPack)) != CW_OK) {
@@ -522,14 +523,14 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 		return status;
 }
 
-CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	// construct script byte string
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
-	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 
-	return CWS_send_nametag(name, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+	return CWS_send_nametag(name, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
 CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
@@ -595,40 +596,40 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 		return status;
 }
 
-CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
-	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
-	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
-	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_WRITEFROMPREV;
 	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
-	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_STOREFROMPREV;
 	CWS_gen_script_push_int(bytePos-1, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_WRITESOMEFROMSTORED;
@@ -637,15 +638,15 @@ CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const c
 	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t bytesToDel, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t bytesToDel, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	if (bytesToDel < 1) { fprintf(stderr, "CWS_send_delete_revision provided with invalid number of bytes to delete\n"); return CW_CALL_NO; }
 
 	CW_OPCODE scriptBytes[FILE_DATA_BUF]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
-	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
+	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_STOREFROMPREV;
 	CWS_gen_script_push_int(startPos-1, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_WRITESOMEFROMSTORED;
@@ -656,18 +657,16 @@ CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t
 	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_pathredirect_revision(const char *utxoTxid, const char *toReplace, const char *replacement, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	CW_OPCODE scriptBytes[FILE_DATA_BUF + strlen(toReplace) + strlen(replacement)]; CW_OPCODE *scriptPtr = scriptBytes;
+CW_STATUS CWS_send_empty_revision(const char *utxoTxid, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	CW_OPCODE scriptBytes[FILE_DATA_BUF]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
-	if (!immutable) { scriptPtr[scriptSz++] = CW_OP_NEXTREV; }
-	CWS_gen_script_push_str(replacement, scriptPtr, &scriptSz);
-	CWS_gen_script_push_str(toReplace, scriptPtr, &scriptSz);
-	scriptPtr[scriptSz++] = CW_OP_PATHREPLACE;
+	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
+	if (!scriptSz) { scriptPtr[scriptSz++] = CW_OP_PUSHNO; }
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
 void CWS_gen_script_push_int(uint32_t val, CW_OPCODE *scriptPtr, size_t *scriptSz) {
@@ -725,6 +724,18 @@ bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *s
 		CWS_gen_script_writefrom_nametag(name, scriptPtr, scriptSz);
 		return true;
 	} else { return CW_is_valid_txid(id) ? CWS_gen_script_writefrom_txid(id, scriptPtr, scriptSz) : false; }
+}
+
+void CWS_gen_script_pathredirect(const char *toReplace, const char *replacement, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+	CWS_gen_script_push_str(replacement, scriptPtr, scriptSz);
+	CWS_gen_script_push_str(toReplace, scriptPtr, scriptSz);
+	scriptPtr[(*scriptSz)++] = CW_OP_PATHREPLACE;
+}
+
+void CWS_gen_script_standard_start(struct CWS_revision_pack *rvp, struct CWS_params *params, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+	params->revToAddr = rvp->transferAddr;
+	if (!rvp->immutable) { scriptPtr[(*scriptSz)++] = CW_OP_NEXTREV; }
+	if (rvp->pathToReplace && rvp->pathReplacement) { CWS_gen_script_pathredirect(rvp->pathToReplace, rvp->pathReplacement, scriptPtr, scriptSz); }
 }
 
 CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params) {
@@ -1437,19 +1448,22 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 			return CW_SYS_ERR;
 		}
 
-		// get change address and copy to memory
-		if ((status = rpcCall(rp, RPC_M_GETRAWCHANGEADDRESS, NULL, &jsonResult)) != CW_OK) {
-			json_decref(inputParams);
-			json_decref(outputParams);
-			if (jsonResult) { json_decref(jsonResult); }
-			return status;
-		}
-		char changeAddr[strlen(json_string_value(jsonResult))+1];
-		strcpy(changeAddr, json_string_value(jsonResult));
-		json_decref(jsonResult);
-		jsonResult = NULL;
+		const char *tinyAddr;
+		if (rp->forceOutputAddrLast) { tinyAddr = rp->forceOutputAddrLast; }
+		else {
+			// get change address and copy to memory
+			if ((status = rpcCall(rp, RPC_M_GETRAWCHANGEADDRESS, NULL, &jsonResult)) != CW_OK) {
+				json_decref(inputParams);
+				json_decref(outputParams);
+				if (jsonResult) { json_decref(jsonResult); }
+				return status;
+			}
+			tinyAddr = json_string_value(jsonResult);
+		}	
 
-		json_object_set_new(outputParams, changeAddr, json_string(tinyChangeAmntStr));
+		json_object_set_new(outputParams, tinyAddr, json_string(tinyChangeAmntStr));
+
+		if (jsonResult) { json_decref(jsonResult); jsonResult = NULL; }
 	}
 
 	// create reuse change amount string
@@ -1470,12 +1484,10 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 			if (jsonResult) { json_decref(jsonResult); }
 			return status;
 		}
-		char changeAddr[strlen(json_string_value(jsonResult))+1];
-		strcpy(changeAddr, json_string_value(jsonResult));
-		json_decref(jsonResult);
-		jsonResult = NULL;
 
-		json_object_set_new(outputParams, changeAddr, json_string(reuseChangeAmntStr));
+		json_object_set_new(outputParams, json_string_value(jsonResult), json_string(reuseChangeAmntStr));
+
+		if (jsonResult) { json_decref(jsonResult); jsonResult = NULL; }
 	}	
 
 	// construct output for change (if more than dust)	
@@ -1496,12 +1508,10 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 			if (jsonResult) { json_decref(jsonResult); }
 			return status;
 		}
-		char changeAddr[strlen(json_string_value(jsonResult))+1];
-		strcpy(changeAddr, json_string_value(jsonResult));
-		json_decref(jsonResult);
-		jsonResult = NULL;
 
-		json_object_set_new(outputParams, changeAddr, json_string(changeAmntStr));
+		json_object_set_new(outputParams, json_string_value(jsonResult), json_string(changeAmntStr));
+
+		if (jsonResult) { json_decref(jsonResult); jsonResult = NULL; }
 	} else if (changeLost == 0) { changeLost = changeAmnt; }
 
 	// construct params from inputs and outputs
@@ -2132,6 +2142,7 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 	rpcPack->reservedUtxosCount = 0;
 	rpcPack->forceTinyChangeLast = false;
 	rpcPack->forceInputUtxoLast = NULL;
+	rpcPack->forceOutputAddrLast = params->revToAddr;
 	rpcPack->costCount = 0;
 	rpcPack->txCount = 0;
 	rpcPack->errMsg[0] = 0;
