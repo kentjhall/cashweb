@@ -508,6 +508,7 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 	}
 	if (status != CW_OK) { goto cleanup; }
 
+	// lock resulting revisioning utxo if needed
 	if (!immutable && !rpcPack.forceOutputAddrLast) {
 		struct CWS_utxo lock;
 		init_rev_CWS_utxo(&lock, resTxid);
@@ -579,7 +580,7 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 
 	struct CWS_utxo resUtxo;
 	init_rev_CWS_utxo(&resUtxo, resTxid);
-	if (!immutable) {
+	if (!immutable && !rpcPack.forceOutputAddrLast) {
 		if ((status = setRevisionLock(&resUtxo, false, name, params, &rpcPack)) != CW_OK) {
 			fprintf(stderr, "Revisioning utxo lock failed; this may need to be done manually, check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 		}	

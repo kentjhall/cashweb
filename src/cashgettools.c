@@ -139,6 +139,12 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *params, int fd);
 
 /*
+ * starting point for executing the beginning of a cashweb script (not on a per-revision basis);
+ * contains some stuff that needs to avoid the recursiveness of execScript()
+ */
+static CW_STATUS execScriptStart(struct CWG_script_pack *sp, struct CWG_params *params, int fd);
+
+/*
  * fetches/traverses script data at nametag and writes to stream
  * writes txid of of script to txid
  */
@@ -1155,7 +1161,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 			struct CWG_script_pack spD;
 			init_CWG_script_pack(&spD, &scriptStreams, sp->fetchedNames, NULL, sp->atRev-1);
 
-			status = execScript(&spD, params, fd);
+			status = execScriptStart(&spD, params, fd);
 
 			n = sp->scriptStreams->head;
 			while (n) {
@@ -1469,8 +1475,20 @@ static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *param
 		removeAllNodes(&stack, true);
 		freeFdStack(&fdStack);
 		if (sp->revTxid) { popFront(sp->scriptStreams); }
-		if (sp->atRev == 0 && status == CWG_SCRIPT_NO) { status = CW_OK; }
 		return status;
+}
+
+static CW_STATUS execScriptStart(struct CWG_script_pack *sp, struct CWG_params *params, int fd) {
+	char *savePtr = params->dirPathReplace;
+	bool saveBool = params->dirPathReplaceToFree;
+
+	CW_STATUS status;
+	if ((status = execScript(sp, params, fd)) == CWG_SCRIPT_NO) { status = CW_OK; }
+
+	if (params->dirPathReplace != savePtr && params->dirPathReplaceToFree) { free(params->dirPathReplace); }
+	params->dirPathReplaceToFree = saveBool;
+	params->dirPathReplace = savePtr;
+	return status;
 }
 
 static CW_STATUS getScriptByInTxid(const char *inTxid, struct CWG_params *params, char **txidPtr, FILE *stream) {
@@ -1544,7 +1562,7 @@ static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedN
 	init_CWG_script_pack(&sp, &scriptStreams, fetchedNames ? fetchedNames : &fetchedNamesN, revTxid, revision);
 	if (!addFront(sp.fetchedNames, (char *)name)) { perror("mylist addFront() failed"); status = CW_SYS_ERR; goto foundhandler; }
 	
-	status = execScript(&sp, params, fd);	
+	status = execScriptStart(&sp, params, fd);	
 
 	// this should have been set NULL if anything was written from script execution; if not, it's deemed a bad script
 	if (status == CW_OK && params->foundHandler != NULL) { status = CWG_SCRIPT_ERR; }
