@@ -4,8 +4,6 @@
 #include "cashwebuni.h"
 #include <curl/curl.h>
 #include <mongoc.h>
-#include <b64/b64.h>
-#include <mylist/mylist.h>
 
 /* cashgettools status codes */
 #define CWG_IN_DIR_NO CW_SYS_ERR+1

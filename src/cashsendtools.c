@@ -1,5 +1,6 @@
-#include "cashsendtools.h"
 #include "cashwebutils.h"
+#include "cashsendtools.h"
+#include <libbitcoinrpc/bitcoinrpc.h>
 
 /* general constants */
 #define LINE_BUF 150
@@ -2151,7 +2152,7 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 
 	rpcPack->revLocksPath = NULL;
 	struct stat st;
-	if (stat(params->datadir, &st) == -1) { perror("stat() failed"); return CW_SYS_ERR; }
+	if (stat(params->datadir, &st) == -1) { perror("stat() failed on data directory"); return CW_SYS_ERR; }
 	if (!S_ISDIR(st.st_mode)) { return CW_DATADIR_NO; }
 	size_t dataDirPathLen = strlen(params->datadir);
 	bool appendSlash = params->datadir[dataDirPathLen-1] != '/';	

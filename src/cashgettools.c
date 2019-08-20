@@ -1,5 +1,7 @@
-#include "cashgettools.h"
 #include "cashwebutils.h"
+#include "cashgettools.h"
+#include <b64/b64.h>
+#include <mylist/mylist.h>
 
 /* general constants */
 #define LINE_BUF 150

@@ -3,9 +3,11 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
 
 #define FILE_DATA_BUF 1024
 

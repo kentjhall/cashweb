@@ -3,7 +3,6 @@
 
 #include "cashwebuni.h"
 #include <fts.h>
-#include <libbitcoinrpc/bitcoinrpc.h>
 
 /* cashsendtools status codes */
 #define CWS_RPC_NO CW_SYS_ERR+1
