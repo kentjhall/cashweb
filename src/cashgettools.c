@@ -5,7 +5,6 @@
 
 /* general constants */
 #define LINE_BUF 150
-#define MIME_STR_DEFAULT "application/octet-stream"
 
 /* MongoDB constants */
 #define MONGODB_STR_HEX_PREFIX "OP_RETURN "
@@ -30,6 +29,7 @@ typedef enum FetchType {
 
 /*
  * struct for information to carry around during script execution
+ * if counter is set, nothing will actually be fetched
  */
 struct CWG_script_pack {
 	List *scriptStreams;
@@ -38,6 +38,7 @@ struct CWG_script_pack {
 	const char *revTxidFirst;
 	int atRev;
 	int maxRev;
+	struct CWG_nametag_counter *infoCounter;
 };
 
 /*
@@ -49,6 +50,33 @@ static inline void init_CWG_script_pack(struct CWG_script_pack *sp, List *script
  * copies struct CWG_script_pack from source to dest and increments current revision (atRev)
  */
 static inline void copy_inc_CWG_script_pack(struct CWG_script_pack *dest, struct CWG_script_pack *source);
+
+/*
+ * struct for tracking info on a nametag when just analyzing; pointers all heap-allocated
+ * corresponds to struct CWG_nametag_info, but for internal use
+ */
+struct CWG_nametag_counter {
+	char *revisionTxid;
+	int revision;
+	List nameRefs;
+	List txidRefs;
+};
+
+/*
+ * initializes given struct CWG_nametag_counter
+ */
+static inline void init_CWG_nametag_counter(struct CWG_nametag_counter *cnc);
+
+/*
+ * frees heap-allocated memory of given struct CWG_nametag_counter for cleanup
+ */
+static inline void destroy_CWG_nametag_counter(struct CWG_nametag_counter *cnc);
+
+/*
+ * copies data from specified struct CWG_nametag_counter into given struct CWG_nametag_info
+ * this exists to turn locally available Lists from CWG_nametag_counter into more generalizable NULL-terminated arrays in CWG_nametag_info
+ */
+static bool counter_copy_CWG_nametag_info(struct CWG_nametag_info *cni, struct CWG_nametag_counter *cnc);
 
 /* 
  * currently, simply reports a warning if given protocol version is newer than one in use
@@ -157,12 +185,36 @@ static CW_STATUS getScriptByNametag(const char *name, struct CWG_params *params,
 static CW_STATUS getScriptByInTxid(const char *inTxid, struct CWG_params *params, char **txidPtr, FILE *stream);
 
 /*
- * fetches/traverses file at given nametag (according to script at nametag) and writes to specified file descriptor
+ * gets pointer to actual directory path to use from path and params (simply chooses between path and params->dirPathReplace)
+ * returns NULL if resulting path is empty (either string length zero, or just "/")
+ */
+static inline char *dirPath(const char *path, struct CWG_params *params);
+
+/*
+ * fetched/traverses file at specified path of given directory index stream dirFp, writing file to specified file descriptor
+ * fetchedNames will track origin nametag(s) for chained script/directory nametag references; should be set NULL on initial call
+ * responsible for calling foundHandler if present in params; will be set to NULL upon call
+ */
+static CW_STATUS getFileByPath(FILE *dirFp, const char *path, List *fetchedNames, struct CWG_params *params, int fd);
+
+/*
+ * convenience wrapper function for getByGetterPath when getting for path at nametag revision
+ */
+static inline CW_STATUS getFileByNametagPath(const char *name, int revision, const char *path, List *fetchedNames, struct CWG_params *params, struct CWG_nametag_counter *counter, int fd);
+
+/*
+ * fetches/traverses file at given nametag (according to script at nametag) and writes to specified file descriptor;
+   or, if counter is set (non-NULL), nametag info will be written to it and nothing will be written to file descriptor
  * revision can be specified for which version to get; CW_REV_LATEST for latest
  * fetchedNames will track origin nametag(s) for chained script/directory nametag references; should be set NULL on initial call
  * responsible for calling foundHandler if present in params; will be set to NULL upon call
  */
-static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedNames, struct CWG_params *params, int fd);
+static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedNames, struct CWG_params *params, struct CWG_nametag_counter *counter, int fd);
+
+/*
+ * convenience wrapper function for getByGetterPath when getting for path at txid
+ */
+static inline CW_STATUS getFileByTxidPath(const char *txid, const char *path, List *fetchedNames, struct CWG_params *params, int fd);
 
 /*
  * fetches/traverses file at given txid and writes to specified file descriptor
@@ -172,8 +224,14 @@ static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedN
 static CW_STATUS getFileByTxid(const char *txid, List *fetchedNames, struct CWG_params *params, int fd);
 
 /*
+ * convenience wrapper function for getByGetterPath when getting for path at cashweb id
+ */
+static inline CW_STATUS getFileByIdPath(const char *id, const char *path, List *fetchedNames, struct CWG_params *params, int fd);
+
+/*
  * wrapper function for either getting by txid or by nametag, dependent on prefix (or lack thereof) of provided ID
  * fetchedNames will track origin nametag(s) for chained script/directory nametag references; should be set NULL on initial call
+ * responsible for calling foundHandler if present in params; will be set to NULL upon call
  */
 static CW_STATUS getFileById(const char *id, List *fetchedNames, struct CWG_params *params, int fd);
 
@@ -189,14 +247,61 @@ static CW_STATUS initFetcher(struct CWG_params *params);
  */
 static void cleanupFetcher(struct CWG_params *params);
 
+/*
+ * struct CWG_getter stores a send function pointer and its arguments; strictly for internal use by cashsendtools
+ * really only exists to avoid some repetitive code
+ */
+struct CWG_getter {
+	CW_STATUS (*byId) (const char *, List *, struct CWG_params *, int);
+	CW_STATUS (*byName) (const char *name, int revision, List *fetchedNames, struct CWG_params *, struct CWG_nametag_counter *counter, int fd);
+	const char *id;
+	const char *name;
+	int revision;
+	List *fetchedNames;
+	struct CWG_params *params;
+};
+
+/*
+ * initializes struct CWG_getter for getting by id, whether it be strictly a single txid or more general cashweb id
+ */
+static inline void init_CWG_getter_for_id(struct CWG_getter *cgg, CW_STATUS (*byId) (const char *, List *, struct CWG_params *, int), const char *id, List *fetchedNames, struct CWG_params *params);
+
+/*
+ * initializes struct CWG_getter for getting by nametag revision
+ */
+static inline void init_CWG_getter_for_name(struct CWG_getter *cgg, const char *name, int revision, List *fetchedNames, struct CWG_params *params);
+
+/*
+ * convenience function for getting as per contents of given struct CWG_getter, regardless of whether by name or id
+ */
+static inline CW_STATUS getByGetter(struct CWG_getter *getter, int fd);
+
+/*
+ * fetches/traverses directory by given struct CWG_getter, and then file at given path, writing file to specified file descriptor
+ * if path is NULL, this function is equivalent to getByGetter
+ */
+static CW_STATUS getByGetterPath(struct CWG_getter *getter, const char *path, int fd);
+
 /* ------------------------------------- PUBLIC ------------------------------------- */
 
-CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd) {
+CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 	if ((status = initFetcher(params)) != CW_OK) { return status; } 
 
 	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
-	status = getFileByTxid(txid, NULL, params, fd);
+	if ((status = getFileByIdPath(id, params->dirPath, NULL, params, fd)) == CW_CALL_NO) { fprintf(stderr, "CWG_get_by_id provided with invalid identifier\n"); }
+	params->foundHandler = savePtr;
+	
+	cleanupFetcher(params);
+	return status;
+}
+
+CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd) {
+	CW_STATUS status;
+	if ((status = initFetcher(params)) != CW_OK) { return status; } 	
+
+	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
+	status = getFileByTxidPath(txid, params->dirPath, NULL, params, fd);
 	params->foundHandler = savePtr;
 	
 	cleanupFetcher(params);
@@ -208,23 +313,37 @@ CW_STATUS CWG_get_by_name(const char *name, int revision, struct CWG_params *par
 	if ((status = initFetcher(params)) != CW_OK) { return status; } 
 
 	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
-	status = getFileByNametag(name, revision, NULL, params, fd);
+	status = getFileByNametagPath(name, revision, params->dirPath, NULL, params, NULL, fd);
 	params->foundHandler = savePtr;
 	
 	cleanupFetcher(params);
 	return status;
 }
 
-CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd) {
+CW_STATUS CWG_get_nametag_info(const char *name, int revision, struct CWG_params *params, struct CWG_nametag_info *info) {
 	CW_STATUS status;
-	if ((status = initFetcher(params)) != CW_OK) { return status; } 
+	if ((status = initFetcher(params)) != CW_OK) { return status; }
 
-	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
-	if ((status = getFileById(id, NULL, params, fd)) == CW_CALL_NO) { fprintf(stderr, "CWG_get_by_id provided with invalid identifier\n"); }
-	params->foundHandler = savePtr;
+	int devnull = open("/dev/null", O_WRONLY);
+	if (devnull < 0) { perror("open() /dev/null failed"); cleanupFetcher(params); return CW_SYS_ERR; }
+
+	struct CWG_nametag_counter counter;
+	init_CWG_nametag_counter(&counter);
+
+	if ((status = getFileByNametag(name, revision, NULL, params, &counter, devnull)) != CW_OK) { goto cleanup; }
+	if (!counter_copy_CWG_nametag_info(info, &counter)) { destroy_CWG_nametag_info(info); status = CW_SYS_ERR; goto cleanup; }
+
+	if (info->revisionTxid && revision >= 0 && revision <= info->revision) { free(info->revisionTxid); info->revisionTxid = NULL; }	
+
+	cleanup:
+		destroy_CWG_nametag_counter(&counter);
+		close(devnull);
+		cleanupFetcher(params);
+		return status;
+}
+
+CW_STATUS CWG_get_file_info(const char *txid, struct CWG_params *params, struct CWG_file_info *info) {
 	
-	cleanupFetcher(params);
-	return status;
 }
 
 CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char const **subPath, char *pathId) {
@@ -243,23 +362,25 @@ CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char 
 	bool isSubDir = false;
 	int count = 0;
 	bool found = false;
+	bool concluded = false;
 	int readlineStatus;
 	while ((readlineStatus = safeReadLine(&line, LINE_BUF, indexFp)) == READLINE_OK) {
-		if (line.data[0] == 0) { break; }
+		if (line.data[0] == 0) { concluded = true; break; }
 				
 		if (!found) {
-			if (CW_is_valid_cashweb_id(line.data)) { continue; }
+			if (CW_is_valid_cashweb_id(line.data)) { --count; continue; }
 
+			if (line.data[0] != '/') { break; }
 			++count;
 			linePath = line.data + 1;
 			lineLen = strlen(linePath);
 			isSubDir = linePath[lineLen-1] == '/';
-			if (strcmp(dirPath, linePath) == 0 || (subPath && isSubDir && strncmp(dirPath, linePath, lineLen) == 0)) {
+			if (strcmp(dirPath, linePath) == 0 || (subPath && isSubDir && strncmp(dirPath, linePath, lineLen-1) == 0 && (dirPath[lineLen-1] == 0 || dirPath[lineLen-1] == '/'))) {
 				found = true;
 				status = CW_OK;
 
-				if ((readlineStatus = safeReadLine(&line, LINE_BUF, indexFp)) != READLINE_OK) { status = CWG_IS_DIR_NO; break; }
-				if (line.data[0] == 0) { break; }
+				if ((readlineStatus = safeReadLine(&line, LINE_BUF, indexFp)) != READLINE_OK) { break; }
+				if (line.data[0] == 0) { concluded = true; break; }
 
 				if (CW_is_valid_cashweb_id(line.data)) {
 					pathId[0] = 0;
@@ -271,9 +392,10 @@ CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char 
 	}
 	if (ferror(indexFp)) { perror("fgets() failed on directory index"); status = CW_SYS_ERR; }
 	else if (readlineStatus == READLINE_ERR) { status = CW_SYS_ERR; }
+	else if (!concluded) { status = CWG_IS_DIR_NO; }
 	if (status != CW_OK) { goto cleanup; }
 
-	if (subPath) { *subPath = isSubDir ? dirPath + (lineLen-1) : NULL; }
+	if (subPath) { *subPath = isSubDir && strlen(dirPath) > lineLen-1 ? dirPath + (lineLen-1) : NULL; }
 	if (count > 0) {
 		if (fseek(indexFp, CW_TXID_BYTES*(count-1), SEEK_CUR) < 0) {
 			perror("fseek() SEEK_CUR failed on directory index");
@@ -289,9 +411,9 @@ CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char 
 		}
 		byteArrToHexStr(pathTxidBytes, CW_TXID_BYTES, pathId);
 	}
+	if (pathId[0] == 0) { status = CWG_IN_DIR_NO; } // this probably isn't necessary to set, as status starts at this value, but jic
 
 	cleanup:
-		if (pathId[0] == 0) { status = CWG_IN_DIR_NO; } // this probably isn't necessary to set, as status starts at this value, but jic
 		freeDynamicMemory(&line);
 		return status;
 }
@@ -310,9 +432,10 @@ CW_STATUS CWG_dirindex_raw_to_json(FILE *indexFp, FILE *indexJsonFp) {
 
 	char *path;
 	size_t count = 0;
+	bool concluded = false;
 	int readlineStatus;
 	while ((readlineStatus = safeReadLine(&line, LINE_BUF, indexFp)) == READLINE_OK) {
-		if (line.data[0] == 0) { break; }
+		if (line.data[0] == 0) { concluded = true; break; }
 
 		if (CW_is_valid_cashweb_id(line.data)) {
 			if ((path = popFront(&paths)) == NULL) { status = CWG_IS_DIR_NO; goto cleanup; }		
@@ -322,12 +445,14 @@ CW_STATUS CWG_dirindex_raw_to_json(FILE *indexFp, FILE *indexJsonFp) {
 			continue;
 		}
 
+		if (line.data[0] != '/') { break; }
 		if ((path = strdup(line.data)) == NULL) { perror("strdup() failed"); status = CW_SYS_ERR; goto cleanup; }
 		if (!addFront(&paths, path)) { perror("mylist addFront() failed"); status = CW_SYS_ERR; goto cleanup; }
 		++count;
 	}
 	if (ferror(indexFp)) { perror("fgets() failed on directory index"); status = CW_SYS_ERR; }
 	else if (readlineStatus == READLINE_ERR) { status = CW_SYS_ERR; }
+	else if (!concluded) { status = CWG_IS_DIR_NO; }
 	if (status != CW_OK) { goto cleanup; }	
 
 	reverseList(&paths);
@@ -375,7 +500,7 @@ const char *CWG_errno_to_msg(int errNo) {
 		case CWG_IN_DIR_NO:
 			return "Requested file doesn't exist in specified directory";
 		case CWG_IS_DIR_NO:
-			return "Requested directory index is invalid, or contains invalid reference for requested path";
+			return "Requested file is not a valid directory index, or contains invalid reference for requested path";
 		case CWG_FETCH_NO:
 			return "Requested file doesn't exist, check identifier";
 		case CWG_METADATA_NO:
@@ -393,7 +518,7 @@ const char *CWG_errno_to_msg(int errNo) {
 		case CWG_SCRIPT_RETRY_ERR:
 		case CWG_SCRIPT_ERR:
 			return "Requested nametag's encoded script is either invalid or lacks a file reference";
-		case CWG_SCRIPT_CODE_NO:
+		case CWG_SCRIPT_REV_NO:
 		case CWG_SCRIPT_NO:
 		default:
 			return "Unexpected error code. This is likely an issue with cashgettools";
@@ -409,6 +534,7 @@ static inline void init_CWG_script_pack(struct CWG_script_pack *sp, List *script
 	sp->revTxidFirst = revTxid;
 	sp->atRev = 0;
 	sp->maxRev = maxRev;
+	sp->infoCounter = NULL;
 }
 
 static inline void copy_inc_CWG_script_pack(struct CWG_script_pack *dest, struct CWG_script_pack *source) {
@@ -418,6 +544,51 @@ static inline void copy_inc_CWG_script_pack(struct CWG_script_pack *dest, struct
 	dest->revTxidFirst = source->revTxidFirst;
 	dest->atRev = source->atRev+1;
 	dest->maxRev = source->maxRev;
+	dest->infoCounter = source->infoCounter;
+}
+
+static inline void init_CWG_nametag_counter(struct CWG_nametag_counter *cnc) {
+	cnc->revisionTxid = NULL;
+	cnc->revision = 0;
+	initList(&cnc->nameRefs);
+	initList(&cnc->txidRefs);
+}
+
+static inline void destroy_CWG_nametag_counter(struct CWG_nametag_counter *cnc) {
+	if (cnc->revisionTxid) { free(cnc->revisionTxid); }
+	removeAllNodes(&cnc->nameRefs, true);
+	removeAllNodes(&cnc->txidRefs, true);
+	init_CWG_nametag_counter(cnc);
+}
+
+static bool counter_copy_CWG_nametag_info(struct CWG_nametag_info *cni, struct CWG_nametag_counter *cnc) {
+	cni->revisionTxid = cnc->revisionTxid; cnc->revisionTxid = NULL;
+	cni->revision = cnc->revision;
+
+	size_t i;
+	size_t nameRefsCount = listLength(&cnc->nameRefs);
+	if ((cni->nameRefs = malloc((nameRefsCount+1)*sizeof(char *))) == NULL) { perror("malloc failed"); return false; }
+	for (i=0; i<nameRefsCount; i++) {
+		if (((cni->nameRefs)[i] = popFront(&cnc->nameRefs)) == NULL) {
+			// list will be NULL-terminated in this case, so cleanup can be handled normally
+			fprintf(stderr, "incorrect listLength() calculation; problem with cashgettools\n");
+			return false;
+		}
+	}
+	(cni->nameRefs)[i] = NULL;
+
+	size_t txidRefsCount = listLength(&cnc->txidRefs);
+	if ((cni->txidRefs = malloc((txidRefsCount+1)*sizeof(char *))) == NULL) { perror("malloc failed"); return false; }
+	for (i=0; i<txidRefsCount; i++) {
+		if (((cni->txidRefs)[i] = popFront(&cnc->txidRefs)) == NULL) {
+			// list will be NULL-terminated in this case, so cleanup can be handled normally
+			fprintf(stderr, "incorrect listLength() calculation; problem with cashgettools\n");
+			return false;
+		}
+	}
+	(cni->txidRefs)[i] = NULL;
+
+	return true;
 }
 
 static void protocolCheck(uint16_t pVer) {
@@ -429,8 +600,7 @@ static void protocolCheck(uint16_t pVer) {
 static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 	if (!cgp->saveMimeStr) { return CW_OK; }
 	(*cgp->saveMimeStr)[0] = 0;
-	if (cwType <= CW_T_MIMESET) { strcat(*cgp->saveMimeStr, MIME_STR_DEFAULT); return CW_OK; }
-	if (cgp->datadir == NULL) { cgp->datadir = CW_INSTALL_DATADIR_PATH; }
+	if (cwType <= CW_T_MIMESET) { return CW_OK; }
 
 	CW_STATUS status = CW_OK;
 
@@ -488,7 +658,6 @@ static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 		if (!mimeFileBad) {
 			fprintf(stderr, "invalid cashweb type (numeric %u); defaults to MIME_STR_DEFAULT\n", cwType);
 		}
-		strcat(*cgp->saveMimeStr, MIME_STR_DEFAULT);
 	}
 
 	cleanup:
@@ -723,6 +892,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 			json_array_foreach(jsonArrs[a], index, dataJson) {
 				if ((dataId = json_string_value(json_object_get(dataJson, BITDB_QUERY_ID_TAG))) == NULL ||
 				    (dataHex = json_string_value(json_object_get(dataJson, BITDB_QUERY_DATA_TAG))) == NULL) {
+				    	if (dataId && json_is_null(json_object_get(dataJson, BITDB_QUERY_DATA_TAG))) { continue; }
 				    	jsonDump = json_dumps(jsonArrs[a], 0);
 					fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
 					free(jsonDump);
@@ -1042,7 +1212,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 			return CWG_SCRIPT_NO;
 		case CW_OP_NEXTREV:
 		{
-			if (sp->maxRev >= 0 && sp->atRev >= sp->maxRev) { return CWG_SCRIPT_CODE_NO; }
+			if (sp->maxRev >= 0 && sp->atRev >= sp->maxRev) { return CWG_SCRIPT_REV_NO; }
 
 			struct CWG_script_pack spN;
 			copy_inc_CWG_script_pack(&spN, sp);
@@ -1056,7 +1226,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 				CW_STATUS status;
 				if ((status = getScriptByInTxid(sp->revTxid, params, &nextRevTxidPtr, nextScriptStream)) != CW_OK) {
 					fclose(nextScriptStream);
-					if (status == CWG_FETCH_NO) { return CWG_SCRIPT_CODE_NO; }
+					if (status == CWG_FETCH_NO) { return CWG_SCRIPT_REV_NO; }
 					return status;
 				}
 				rewind(nextScriptStream);
@@ -1064,6 +1234,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 				if (!addFront(sp->scriptStreams, nextScriptStream)) { perror("mylist addFront() failed"); fclose(nextScriptStream); return CW_SYS_ERR; }
 
 				spN.revTxid = nextRevTxid;
+				if (sp->infoCounter) { sp->infoCounter->revision = spN.atRev; }
 			}
 
 			CW_STATUS status = execScript(&spN, params, fd);
@@ -1092,6 +1263,10 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 			if ((txid = popFront(stack)) == NULL) { return CWG_SCRIPT_ERR; }
 			else if (!CW_is_valid_txid(txid)) { free(txid); return CWG_SCRIPT_ERR; }
 
+			if (sp->infoCounter) {
+				if (!addFront(&sp->infoCounter->txidRefs, txid)) { perror("mylist addFront() failed"); free(txid); return CW_SYS_ERR; }
+				return CW_OK;
+			}
 			CW_STATUS status = getFileByTxid(txid, sp->fetchedNames, params, fd);
 
 			free(txid);
@@ -1106,7 +1281,11 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 				return CWG_SCRIPT_ERR;
 			}
 
-			CW_STATUS status = getFileByNametag(name, CW_REV_LATEST, sp->fetchedNames, params, fd);
+			if (sp->infoCounter) {
+				if (!addFront(&sp->infoCounter->nameRefs, name)) { perror("mylist addFront() failed"); free(name); return CW_SYS_ERR; }
+				return CW_OK;
+			}
+			CW_STATUS status = getFileByNametag(name, CW_REV_LATEST, sp->fetchedNames, params, NULL, fd);
 
 			free(name);
 			if (status == CWG_FETCH_NO || status == CW_CALL_NO) { return CWG_SCRIPT_ERR; }
@@ -1160,6 +1339,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 
 			struct CWG_script_pack spD;
 			init_CWG_script_pack(&spD, &scriptStreams, sp->fetchedNames, NULL, sp->atRev-1);
+			spD.infoCounter = sp->infoCounter;
 
 			status = execScriptStart(&spD, params, fd);
 
@@ -1327,6 +1507,8 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 				if (status != CW_OK) { return status; }
 			} else { writeAll = true; }
 
+			if (sp->infoCounter) { return CW_OK; }
+
 			int *tfdPtr = peekFront(fdStack);
 			if (!tfdPtr) { return CWG_SCRIPT_ERR; }
 			tfd = *tfdPtr;
@@ -1461,12 +1643,22 @@ static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *param
 			removeAllNodes(&stack, true);
 			freeFdStack(&fdStack);
 			
-			if ((status = execScriptCode(CW_OP_NEXTREV, scriptStream, &stack, &fdStack, sp, params, fd)) == CWG_SCRIPT_CODE_NO || status == CWG_SCRIPT_ERR) {
+			if ((status = execScriptCode(CW_OP_NEXTREV, scriptStream, &stack, &fdStack, sp, params, fd)) == CWG_SCRIPT_REV_NO || status == CWG_SCRIPT_ERR) {
 				status = CWG_SCRIPT_RETRY_ERR;
 			}
 			goto cleanup;
 		}
-		else if (status == CWG_SCRIPT_CODE_NO) { status = CW_OK; continue; }
+		else if (status == CWG_SCRIPT_REV_NO) {
+			if (sp->infoCounter && sp->revTxid) {
+				if (!sp->infoCounter->revisionTxid && (sp->infoCounter->revisionTxid = strdup(sp->revTxid)) == NULL) {
+					perror("strdup() failed");
+					status = CW_SYS_ERR;
+					goto cleanup;
+				}
+			}
+			status = CW_OK;
+			continue;
+		}
 		else if (status != CW_OK) { goto cleanup; }
 	}
 	if (ferror(scriptStream)) { perror("getc() failed on scriptStream"); status = CW_SYS_ERR; goto cleanup; }
@@ -1478,16 +1670,9 @@ static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *param
 		return status;
 }
 
-static CW_STATUS execScriptStart(struct CWG_script_pack *sp, struct CWG_params *params, int fd) {
-	char *savePtr = params->dirPathReplace;
-	bool saveBool = params->dirPathReplaceToFree;
-
+static inline CW_STATUS execScriptStart(struct CWG_script_pack *sp, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 	if ((status = execScript(sp, params, fd)) == CWG_SCRIPT_NO) { status = CW_OK; }
-
-	if (params->dirPathReplace != savePtr && params->dirPathReplaceToFree) { free(params->dirPathReplace); }
-	params->dirPathReplaceToFree = saveBool;
-	params->dirPathReplace = savePtr;
 	return status;
 }
 
@@ -1532,17 +1717,41 @@ static CW_STATUS getScriptByNametag(const char *name, struct CWG_params *params,
 	return status;
 }
 
-static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedNames, struct CWG_params *params, int fd) {	
-	// check for circular reference in fetched names
-	if (fetchedNames) {
-		Node *n = fetchedNames->head;
-		while (n) {
-			if (strcmp(name, n->data) == 0) { return CWG_CIRCLEREF_NO; }
-			n = n->next;
-		}
+static inline char *dirPath(const char *path, struct CWG_params *params) {
+	char *pathReal = params->dirPathReplace && params->dirPathReplace[0] != 0 ? params->dirPathReplace : (char *)path;
+	if (pathReal && (pathReal[0] == 0 || strcmp(pathReal, "/") == 0)) { return NULL; }
+	return pathReal;
+}
+
+static CW_STATUS getFileByPath(FILE *dirFp, const char *path, List *fetchedNames, struct CWG_params *params, int fd) {
+	CW_STATUS status;	
+
+	const char *subPath = NULL;
+	char pathId[CW_NAMETAG_ID_MAX_LEN+1];
+	if ((status = CWG_dirindex_path_to_identifier(dirFp, path, &subPath, pathId)) != CW_OK) { goto foundhandler; }
+	if (params->dirPathReplace) {
+		if (params->dirPathReplaceToFree) { free(params->dirPathReplace); }
+		params->dirPathReplaceToFree = false;
+		params->dirPathReplace = "";
 	}
 
-	CW_STATUS status;
+	if ((status = getFileByIdPath(pathId, subPath, fetchedNames, params, fd)) == CW_CALL_NO || status == CWG_FETCH_NO) { status = CWG_IS_DIR_NO; }
+
+	foundhandler:
+	if (status == params->foundSuppressErr) { status = CW_OK; }
+	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); params->foundHandler = NULL; }
+
+	return status;	
+}
+
+static inline CW_STATUS getFileByNametagPath(const char *name, int revision, const char *path, List *fetchedNames, struct CWG_params *params, struct CWG_nametag_counter *counter, int fd) {	
+	struct CWG_getter getter;
+	init_CWG_getter_for_name(&getter, name, revision, fetchedNames, params);
+	return getByGetterPath(&getter, path, fd);
+}
+
+static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedNames, struct CWG_params *params, struct CWG_nametag_counter *counter, int fd) {	
+	CW_STATUS status;	
 
 	char revTxid[CW_TXID_CHARS+1]; char *revTxidPtr = revTxid;
 	FILE *scriptStream = NULL;		
@@ -1553,6 +1762,15 @@ static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedN
 	List fetchedNamesN;
 	initList(&fetchedNamesN);
 
+	// check for circular reference in fetched names
+	if (fetchedNames) {
+		Node *n = fetchedNames->head;
+		while (n) {
+			if (strcmp(name, n->data) == 0) { status = CWG_CIRCLEREF_NO; goto foundhandler; }
+			n = n->next;
+		}
+	}
+
 	if ((scriptStream = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }	
 	if ((status = getScriptByNametag(name, params, &revTxidPtr, scriptStream)) != CW_OK) { goto foundhandler; }
 	rewind(scriptStream);	
@@ -1560,6 +1778,7 @@ static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedN
 
 	struct CWG_script_pack sp;
 	init_CWG_script_pack(&sp, &scriptStreams, fetchedNames ? fetchedNames : &fetchedNamesN, revTxid, revision);
+	sp.infoCounter = counter;
 	if (!addFront(sp.fetchedNames, (char *)name)) { perror("mylist addFront() failed"); status = CW_SYS_ERR; goto foundhandler; }
 	
 	status = execScriptStart(&sp, params, fd);	
@@ -1577,6 +1796,12 @@ static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedN
 	return status;
 }
 
+static inline CW_STATUS getFileByTxidPath(const char *txid, const char *path, List *fetchedNames, struct CWG_params *params, int fd) {
+	struct CWG_getter getter;
+	init_CWG_getter_for_id(&getter, &getFileByTxid, txid, fetchedNames, params);
+	return getByGetterPath(&getter, path, fd);
+}
+
 static CW_STATUS getFileByTxid(const char *txid, List *fetchedNames, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 
@@ -1586,36 +1811,7 @@ static CW_STATUS getFileByTxid(const char *txid, List *fetchedNames, struct CWG_
 	if ((status = fetchHexData((const char **)&txid, 1, BY_TXID, params, NULL, hexDataStart)) != CW_OK) { goto foundhandler; }
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }
 	protocolCheck(md.pVer);	
-
-	if (params->dirPath) {
-		char *dirPath = params->dirPathReplace && params->dirPathReplace[0] != 0 ? params->dirPathReplace : params->dirPath;
-
-		if (md.type == CW_T_DIR) {
-			if (dirPath[0] != 0 && strcmp(dirPath, "/") != 0) {
-				FILE *dirFp = tmpfile();
-				if (!dirFp) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }
-
-				if ((status = traverseFile(hexDataStart, params, &md, fileno(dirFp))) != CW_OK) {
-					fclose(dirFp);
-					goto foundhandler;
-				}		
-				rewind(dirFp);
-
-				const char *subPath = NULL;
-				char pathId[CW_NAMETAG_ID_MAX_LEN+1];
-				status = CWG_dirindex_path_to_identifier(dirFp, dirPath, &subPath, pathId);
-				fclose(dirFp);
-				if (status != CW_OK) { goto foundhandler; }
-
-				char *savePtr = params->dirPath;
-				params->dirPath = (char *)subPath;
-				if ((status = getFileById(pathId, fetchedNames, params, fd)) == CW_CALL_NO || status == CWG_FETCH_NO) { status = CWG_IS_DIR_NO; }
-				params->dirPath = savePtr;
-
-				return status;
-			}
-		} else { status = CWG_IS_DIR_NO; goto foundhandler; }
-	}
+	if (params->dirPath && md.type != CW_T_DIR) { status = CWG_IS_DIR_NO; goto foundhandler; }
 
 	if (params->saveMimeStr && (*params->saveMimeStr)[0] == 0) {
 		if ((status = cwTypeToMimeStr(md.type, params)) != CW_OK) { goto foundhandler; }
@@ -1629,6 +1825,12 @@ static CW_STATUS getFileByTxid(const char *txid, List *fetchedNames, struct CWG_
 	return traverseFile(hexDataStart, params, &md, fd);
 }
 
+static inline CW_STATUS getFileByIdPath(const char *id, const char *path, List *fetchedNames, struct CWG_params *params, int fd) {
+	struct CWG_getter getter;
+	init_CWG_getter_for_id(&getter, &getFileById, id, fetchedNames, params);
+	return getByGetterPath(&getter, path, fd);
+}
+
 static CW_STATUS getFileById(const char *id, List *fetchedNames, struct CWG_params *params, int fd) {
 	char idEnc[CW_NAMETAG_ID_MAX_LEN+1];
 	char *path;
@@ -1637,12 +1839,14 @@ static CW_STATUS getFileById(const char *id, List *fetchedNames, struct CWG_para
 
 	CW_STATUS status;
 
-	char *savePtr = params->dirPath;
-	if (CW_is_valid_path_id(id, idEnc, &path)) { params->dirPath = path; status = getFileById(idEnc, fetchedNames, params, fd); }
-	else if (CW_is_valid_nametag_id(id, &rev, &name)) { status = getFileByNametag(name, rev, fetchedNames, params, fd); }	
+	if (CW_is_valid_path_id(id, idEnc, &path)) { status = getFileByIdPath(idEnc, path, fetchedNames, params, fd); }
+	else if (CW_is_valid_nametag_id(id, &rev, &name)) { status = getFileByNametag(name, rev, fetchedNames, params, NULL, fd); }	
 	else if (CW_is_valid_txid(id)) { status = getFileByTxid(id, fetchedNames, params, fd); }
-	else { status = CW_CALL_NO; }
-	params->dirPath = savePtr;
+	else { status = CW_CALL_NO; goto foundhandler; }
+
+	foundhandler:
+	if (status == params->foundSuppressErr) { status = CW_OK; }
+	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); params->foundHandler = NULL; }
 
 	return status;
 }
@@ -1685,4 +1889,67 @@ static void cleanupFetcher(struct CWG_params *params) {
 	else if (params->bitdbNode) { curl_global_cleanup(); }
 
 	if (params->dirPathReplace && params->dirPathReplaceToFree) { free(params->dirPathReplace); params->dirPathReplace = NULL; }
+}
+
+static inline void init_CWG_getter_for_id(struct CWG_getter *cgg, CW_STATUS (*byId) (const char *, List *, struct CWG_params *, int), const char *id, List *fetchedNames, struct CWG_params *params) {
+	cgg->byId = byId;
+	cgg->byName = NULL;
+	cgg->id = id;
+	cgg->name = NULL;
+	cgg->revision = 0;
+	cgg->fetchedNames = fetchedNames;
+	cgg->params = params;
+}
+
+static inline void init_CWG_getter_for_name(struct CWG_getter *cgg, const char *name, int revision, List *fetchedNames, struct CWG_params *params) {
+	cgg->byId = NULL;
+	cgg->byName = &getFileByNametag;
+	cgg->id = NULL;
+	cgg->name = name;
+	cgg->revision = revision;
+	cgg->fetchedNames = fetchedNames;
+	cgg->params = params;
+}
+
+static inline CW_STATUS getByGetter(struct CWG_getter *getter, int fd) {
+	if (getter->byName) { return getter->byName(getter->name, getter->revision, getter->fetchedNames, getter->params, NULL, fd); }
+	else { return getter->byId(getter->id, getter->fetchedNames, getter->params, fd); }
+}
+
+static CW_STATUS getByGetterPath(struct CWG_getter *getter, const char *path, int fd) {
+	if (path == NULL) { return getByGetter(getter, fd); }
+
+	CW_STATUS status;
+	struct CWG_params *params = getter->params;
+
+	FILE *dirFp = tmpfile();
+	if (!dirFp) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto foundhandler; }
+
+	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
+	params->foundHandler = NULL;
+	char *saveStr = params->dirPath;
+	params->dirPath = (char *)path;
+	status = getByGetter(getter, fileno(dirFp));
+	params->dirPath = saveStr;
+	params->foundHandler = savePtr;
+
+	if (status != CW_OK) { fclose(dirFp); goto foundhandler; }
+
+	rewind(dirFp);
+	char *getPath = dirPath(path, params);
+	if (getPath) { status = getFileByPath(dirFp, getPath, getter->fetchedNames, params, fd); }
+	else {
+		int copyStatus;
+		if ((copyStatus = copyStreamDataFildes(fd, dirFp)) != COPY_OK) {
+			if (copyStatus == COPY_WRITE_ERR) { status = CWG_WRITE_ERR; }
+			else { status = CW_SYS_ERR; }
+		}
+	}
+	fclose(dirFp);
+
+	foundhandler:
+	if (status == params->foundSuppressErr) { status = CW_OK; }
+	if (params->foundHandler != NULL) { params->foundHandler(status, params->foundHandleData, fd); params->foundHandler = NULL; }
+
+	return status;
 }

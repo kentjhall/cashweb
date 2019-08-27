@@ -49,14 +49,28 @@ int safeReadLine(struct DynamicMemory *line, size_t lineBufStart, FILE *fp) {
 	return READLINE_NO;
 }
 
-bool copyStreamData(FILE *dest, FILE *source) {
+int copyStreamData(FILE *dest, FILE *source) {
 	char buf[FILE_DATA_BUF];
 	int n;
 	while ((n = fread(buf, 1, sizeof(buf), source)) > 0) {
-		if (fwrite(buf, 1, n, dest) < n) { perror("fwrite() failed"); return false; }
+		if (fwrite(buf, 1, n, dest) < n) { perror("fwrite() failed"); return COPY_WRITE_ERR; }
 	}
-	if (ferror(source)) { perror("fread() failed"); return false; }
-	return true;
+	if (ferror(source)) { perror("fread() failed"); return COPY_READ_ERR; }
+	return COPY_OK;
+}
+
+int copyStreamDataFildes(int dest, FILE *source) {
+	char buf[FILE_DATA_BUF];
+	ssize_t w;
+	size_t n;
+	while ((n = fread(buf, 1, sizeof(buf), source)) > 0) {
+		if ((w = write(dest, buf, n)) < n) {
+			if (w < 0) { perror("write() failed"); }
+			return COPY_WRITE_ERR;
+		}
+	}
+	if (ferror(source)) { perror("fread() failed"); return COPY_READ_ERR; }
+	return COPY_OK;
 }
 
 void byteArrToHexStr(const char *byteArr, int n, char *hexStr) {

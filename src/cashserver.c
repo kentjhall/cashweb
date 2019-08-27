@@ -12,6 +12,7 @@ typedef int CS_CW_STATUS;
 #define RESP_BUF 110
 #define REQ_DESCRIPT_BUF 40
 #define TRAILING_BACKSLASH_APPEND "index.html"
+#define MIME_STR_DEFAULT "application/octet-stream"
 
 #define DOT_COUNT(h,c) for (c=0; h[c]; h[c]=='.' ? c++ : *h++);
 
@@ -70,7 +71,8 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int sockfd)
 	bool reqIsNametag = rd && rd->isNametag;
 	int reqRevision = rd ? rd->revision : CW_REV_LATEST;
 	const char *reqPath = rd ? rd->path : NULL;
-	const char *mimeType = rd ? rd->resMimeType : NULL;
+	char *mimeType = rd ? rd->resMimeType : NULL;
+	if (mimeType[0] == 0) { strcat(mimeType, MIME_STR_DEFAULT); }
 	if (reqCwId) { reqDBufSz += strlen(reqCwId); }
 	if (reqPath) { reqDBufSz += strlen(reqPath); }
 	char dummy[2];

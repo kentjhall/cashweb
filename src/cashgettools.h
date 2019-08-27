@@ -10,7 +10,7 @@
 #define CWG_IS_DIR_NO CW_SYS_ERR+2
 #define CWG_FETCH_NO CW_SYS_ERR+3
 #define CWG_METADATA_NO CW_SYS_ERR+4
-#define CWG_SCRIPT_CODE_NO CW_SYS_ERR+5
+#define CWG_SCRIPT_REV_NO CW_SYS_ERR+5
 #define CWG_SCRIPT_NO CW_SYS_ERR+6
 #define CWG_CIRCLEREF_NO CW_SYS_ERR+7
 #define CWG_FETCH_ERR CW_SYS_ERR+8
@@ -31,16 +31,17 @@
  * 	       is included for internal management by cashgettools
  * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
  * bitdbRequestLimit: Specify whether or not BitDB Node has request limit
- * dirPath: Specify path if requesting a directory;
- 	    keep in mind this pointer may be overwritten when getting by ID (specifically a path ID) via CWG_get_by_id
- * dirPathReplace: Optionally allow requested dirPath to be replaced by nametag scripting; set NULL if not desired.
+ * dirPath: Forces file at requested ID to be treated as directory index, and gets at requested path;
+ 	    allows getting at path even when getting by CWG_get_by_txid or CWG_get_by_name
+ * dirPathReplace: Optionally allow a requested path to be replaced by nametag scripting; set NULL if not desired.
  		   If set, string length of zero indicates to allow replacement by script, but not mandated;
-		   otherwise, will replace with set string if not overwritten by script (soft replacement).
+		   otherwise, will replace with set string if not displaced by script (soft replacement).
  * dirPathReplaceToFree: Specifies whether dirPathReplace points to heap-allocated memory that needs to be freed on replacement; primarily for internal use.
  			 Should function if set true when initial dirPathReplace points to heap-allocated memory,
 			 but is strongly recommended that freeing any passed pointer be handled by the user instead
  * saveMimeStr: Optionally interpret/save file's mimetype string to this memory location;
- 		pass pointer to char array of length CWG_MIMESTR_BUF (this #define is available in header)
+ 		pass pointer to char array of length CWG_MIMESTR_BUF (this #define is available in header).
+		Will result as string of length 0 if file is of type CW_T_FILE, CW_T_DIR, or otherwise invalid value
  * foundHandler: Function to call when file is found, before writing
  * foundHandleData: Data pointer to pass to foundHandler()
  * foundSuppressErr: Specify an error code to suppress if file is found; <0 for none
@@ -63,7 +64,7 @@ struct CWG_params {
 };
 
 /*
- * initialize struct CWG_params
+ * initializes struct CWG_params
  * either MongoDB or BitDB HTTP endpoint address must be specified on init
  * if both specified, will default to MongoDB within cashgettools
  * if saving mime type string is desired, pointer must be passed here for array initialization; otherwise, can be set NULL
@@ -84,11 +85,11 @@ static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, 
 	cgp->foundHandler = NULL;
 	cgp->foundHandleData = NULL;
 	cgp->foundSuppressErr = -1;
-	cgp->datadir = NULL;
+	cgp->datadir = CW_INSTALL_DATADIR_PATH;
 }
 
 /*
- * copy struct CWG_params from source to dest
+ * copies struct CWG_params from source to dest
  */
 static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
 	dest->mongodb = source->mongodb;
@@ -103,6 +104,64 @@ static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *s
 	dest->foundSuppressErr = source->foundSuppressErr;
 	dest->datadir = source->datadir;
 }
+
+struct CWG_file_info {
+	struct CW_file_metadata metadata;
+	char (*saveMimeStr)[CWG_MIMESTR_BUF];
+};
+
+/*
+ * convenience struct for packing info on a nametag when analyzing; pointers must be exclusively heap-allocated
+ * always make sure to initialize on use and destroy afterward
+ * revisionTxid: the txid to be used for further revisions on the nametag; will be NULL if immutable
+ * revision: the revision that the nametag is up to
+ * nameRefs: a NULL-terminated array of names directly referenced by the nametag script; if present, nametag is presumed to be mutable by reference
+ * txidRefs: a NULL-terminated array of txids directly referenced by the nametag script
+ */
+struct CWG_nametag_info {
+	char *revisionTxid;
+	int revision;
+	char **nameRefs;
+	char **txidRefs;
+};
+
+/*
+ * initializes struct CWG_nametag_info
+ */
+static inline void init_CWG_nametag_info(struct CWG_nametag_info *cni) {
+	cni->revisionTxid = NULL;
+	cni->revision = 0;
+	cni->nameRefs = NULL;
+	cni->txidRefs = NULL;
+}
+
+/*
+ * frees heap-allocated data pointed to by given struct CWG_nametag_info
+ */
+static inline void destroy_CWG_nametag_info(struct CWG_nametag_info *cni) {
+	if (cni->revisionTxid) { free(cni->revisionTxid); }
+	if (cni->nameRefs) {
+		char **nameRefsPtr = cni->nameRefs;
+		while (*nameRefsPtr) { free(*nameRefsPtr++); }
+		free(cni->nameRefs);
+	}
+	if (cni->txidRefs) {
+		char **txidRefsPtr = cni->txidRefs;
+		while (*txidRefsPtr) { free(*txidRefsPtr++); }
+		free(cni->txidRefs);
+	}
+	init_CWG_nametag_info(cni);
+}
+
+/*
+ * gets the file by protocol-compliant identifier and writes to given file descriptor
+ * this could be of the following formats:
+   1) hex string of length TXID_CHARS (valid txid)
+   2) name prefixed with CW_NAMETAG_PREFIX (e.g. $coolcashwebname, gets latest revision)
+   3) name prefixed with revision number and CW_NAMETAG_PREFIX (e.g. 0$coolcashwebname, gets first revision)
+   4) any above form of ID preceding a path (e.g. 0$coolcashwebname/coolpath/coolfile.cash)
+ */
+CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd);
 
 /*
  * gets the file at the specified txid and writes to given file descriptor
@@ -120,13 +179,10 @@ CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
 CW_STATUS CWG_get_by_name(const char *name, int revision, struct CWG_params *params, int fd);
 
 /*
- * gets the file by protocol-compliant identifier and writes to given file descriptor
- * this could be of the following formats:
-   1) hex string of length TXID_CHARS (valid txid)
-   2) name prefixed with CW_NAMETAG_PREFIX (e.g. ~coolcashwebname, gets latest revision)
-   3) name prefixed with revision number and CW_NAMETAG_PREFIX (e.g. 0~coolcashwebname, gets first revision)
+ * gets nametag info by name/revision and writes to given struct CWG_nametag_info
+ * always cleanup afterward with destroy_CWG_nametag_info() for freeing struct data
  */
-CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd);
+CW_STATUS CWG_get_nametag_info(const char *name, int revision, struct CWG_params *params, struct CWG_nametag_info *info);
 
 /*
  * reads from specified file stream to ascertain the desired file identifier from given directory/path;

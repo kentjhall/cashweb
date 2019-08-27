@@ -295,14 +295,18 @@ void CWS_gen_script_standard_start(struct CWS_revision_pack *rvp, struct CWS_par
 CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params);
 
 /*
- * manually lock/unlock specified revisioning txid
- * name should be set if locking, or stored revisioning name will be empty string;
-   if unlocking, name will be ignored (should be NULL), and any stored locks on specified txid (should really only be one) will be removed
+ * manually lock/unlock specified name/txid for revisioning
+ * when locking, both name and revTxid are required; 
+   when unlocking, either name or revTxid is required; if both provided, will first attempt to match name;
+   if conditions aren't met, behavior is undefined
+ * returns CW_CALL_NO if locking name/txid that is already locked or unlocking one that isn't, or otherwise appropriate status code;
+   conversely, will still return CW_OK when unlocking name/txid that is not already locked
  */
-CW_STATUS CWS_set_revision_lock(const char *revTxid, bool unlock, const char *name, struct CWS_params *csp);
+CW_STATUS CWS_set_revision_lock(const char *name, const char *revTxid, bool unlock, struct CWS_params *csp);
 
 /*
  * determines revisioning txid by given name from what is stored in cashwebtools data directory and writes to revTxid
+ * can be used to determine if name is locked; pass NULL for revTxid if write not needed, and check for status CW_CALL_NO
  * returns CW_CALL_NO if name goes unmatched, or otherwise appropriate status code
  */
 CW_STATUS CWS_get_stored_revision_txid_by_name(const char *name, struct CWS_params *csp, char *revTxid);

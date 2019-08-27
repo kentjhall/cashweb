@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>
 
@@ -42,9 +43,18 @@ int safeReadLine(struct DynamicMemory *line, size_t lineBufStart, FILE *fp);
 
 /*
  * reads data from source and writes to dest
- * returns true on success or false on system error
+ * returns COPY_OK on success or COPY_READ_ERR/COPY_WRITE_ERR as appropriate
  */
-bool copyStreamData(FILE *dest, FILE *source);
+#define COPY_OK 0
+#define COPY_READ_ERR 1
+#define COPY_WRITE_ERR 2
+int copyStreamData(FILE *dest, FILE *source);
+
+/*
+ * reads data from source and writes to dest file descriptor
+ * returns COPY_OK on success or COPY_READ_ERR/COPY_WRITE_ERR as appropriate
+ */
+int copyStreamDataFildes(int dest, FILE *source);
 
 /*
  * converts byte array of n bytes to hex str of len 2n, and writes to specified memory location

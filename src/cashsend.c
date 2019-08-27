@@ -175,10 +175,10 @@ int main(int argc, char **argv) {
 	if (estimate) {
 		fprintf(stderr, "Estimating cost... ");
 		if (lock || unlock || justLockUnspents) {
-			fprintf(stderr, "Bad call\n");
+			fprintf(stderr, "Bad call.\n");
 		}
 		else if (name) {
-			fprintf(stderr, "No estimate available for naming/revisioning; it's pretty cheap\n");
+			fprintf(stderr, "No estimate available for naming/revisioning; it's pretty cheap.\n");
 		}
 		else if (recover) {
 			FILE *recoverySave;
@@ -192,15 +192,25 @@ int main(int argc, char **argv) {
 
 			fclose(recoverySave);
 		}
+		else if (isDirIndex) {
+			FILE *src;
+			if (fromStdin) { src = stdin; }
+			else if ((src = fopen(tosend, "rb")) == NULL) { perror("fopen() failed"); exitcode = 1; goto cleanup; }
+
+			status = CWS_dirindex_json_to_raw(src, dirIndexStream);
+			if (!fromStdin) { fclose(src); }
+			if (status != CW_OK) { exitcode = 1; goto estimatecleanup; }
+
+			rewind(dirIndexStream);
+			params.cwType = CW_T_DIR;
+			if ((status = CWS_estimate_cost_from_stream(dirIndexStream, &params, txCountSave, &costEstimate)) != CW_OK) {
+				exitcode = 1;
+				goto estimatecleanup;
+			}	
+			printf("%.8f", costEstimate);
+		}
 		else if (fromStdin) {
-			if (isDirIndex) {
-				if ((status = CWS_dirindex_json_to_raw(stdin, dirIndexStream)) != CW_OK) {
-					exitcode = 1;
-					goto estimatecleanup;
-				}
-				rewind(dirIndexStream);
-			}
-			if ((status = CWS_estimate_cost_from_stream(isDirIndex ? dirIndexStream : stdin, &params, txCountSave, &costEstimate)) != CW_OK) {
+			if ((status = CWS_estimate_cost_from_stream(stdin, &params, txCountSave, &costEstimate)) != CW_OK) {
 				exitcode = 1;
 				goto estimatecleanup;
 			}	
@@ -213,11 +223,11 @@ int main(int argc, char **argv) {
 			printf("%.8f", costEstimate);
 		}
 		estimatecleanup:
-			if (status != CW_OK) { fprintf(stderr, "Failed to get cost estimate, error code %d: %s.\n", status, CWS_errno_to_msg(status)); }
+			if (status != CW_OK) { fprintf(stderr, "\nFailed to get cost estimate, error code %d: %s.\n", status, CWS_errno_to_msg(status)); }
 			goto cleanup;
 	} else {
 		if (lock || unlock) {
-			status = CWS_set_revision_lock(tosend, unlock, lock, &params);
+			status = CWS_set_revision_lock(tosend, lock, unlock, &params);
 		}
 		else if (justLockUnspents) {
 			status = CWS_wallet_lock_revision_utxos(&params);

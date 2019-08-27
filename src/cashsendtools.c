@@ -51,9 +51,19 @@ struct CWS_utxo {
 };
 
 /*
- * initializes struct CWS_utxo to be used for revisioning
+ * initializes given struct CWS_utxo
+ */
+static inline void init_CWS_utxo(struct CWS_utxo *u, const char *txid, int vout);
+
+/*
+ * initializes given struct CWS_utxo to be used for revisioning
  */
 static inline void init_rev_CWS_utxo(struct CWS_utxo *u, const char *txid);
+
+/*
+ * copies struct CWS_utxo values from source to dest
+ */
+static inline void copy_CWS_utxo(struct CWS_utxo *dest, struct CWS_utxo *source);
 
 /*
  * struct for carrying initialized bitcoinrpc_cl_t and bitcoinrpc_methods; for internal use by cashsendtools
@@ -116,12 +126,13 @@ static CW_STATUS lockRevisionUnspents(json_t *revisionLocks, bool unlock, struct
 
 /*
  * locks/unlocks (as per bool unlock) given utxo to prevent/allow future use for revisioning purposes, storing this information in data directory
- * name pointer is treated differently when locking/unlocking;
- * if locking, name must reference existing string to be stored as data for revision lock;
- * if unlocking, name references memory location for unlocked revision utxo's associated name to be stored upon success; should have at least CW_NAME_MAX_LEN+1 allocated
- * returns CW_CALL_NO if attempting to unlock utxo that isn't stored as locked, or otherwise appropriate status code
+ * if locking, both name and utxo must be specified; behavior is undefined otherwise
+ * if unlocking, name or utxo must be specified; behavior is undefined otherwise;
+   if non-empty name string is provided, will unlock by name and write utxo details to provided utxo memory location (pass NULL if not desired);
+   if only utxo is provided, will unlock by matching utxo details and write corresponding name to provided name memory location (pass NULL if not desired)
+ * returns CW_CALL_NO if attempting to lock existing name/utxo or unlock non-existant, or otherwise appropriate status code
  */
-static CW_STATUS setRevisionLock(struct CWS_utxo *utxo, bool unlock, char *name, struct CWS_params *csp, struct CWS_rpc_pack *rp);
+static CW_STATUS setRevisionLock(char *name, struct CWS_utxo *utxo, bool unlock, struct CWS_params *csp, struct CWS_rpc_pack *rp);
 
 /*
  * calculates data size in tx for data of length hexDataLen by accounting for extra opcodes
@@ -325,7 +336,7 @@ CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *
 	// read stream into tmpfile to ensure it can be rewinded
 	FILE *streamCopy;
 	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
-	if (!copyStreamData(streamCopy, stream)) { status = CW_SYS_ERR; goto cleanup; }
+	if (copyStreamData(streamCopy, stream) != COPY_OK) { status = CW_SYS_ERR; goto cleanup; }
 	rewind(streamCopy);
 
 	struct CWS_sender sender;
@@ -355,7 +366,7 @@ CW_STATUS CWS_estimate_cost_from_stream(FILE *stream, struct CWS_params *params,
 	// read stream into tmpfile to ensure it can be rewinded
 	FILE *streamCopy;
 	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
-	if (!copyStreamData(streamCopy, stream)) { status = CW_SYS_ERR; goto cleanup; }
+	if (copyStreamData(streamCopy, stream) != COPY_OK) { status = CW_SYS_ERR; goto cleanup; }
 	rewind(streamCopy);
 
 	struct CWS_sender sender;
@@ -397,7 +408,7 @@ CW_STATUS CWS_send_from_recovery_stream(FILE *recoveryStream, struct CWS_params 
 
 	// read stream into tmpfile to ensure it can be rewinded
 	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
-	if (!copyStreamData(streamCopy, recoveryStream)) { status = CW_SYS_ERR; goto cleanup; }
+	if (copyStreamData(streamCopy, recoveryStream) != COPY_OK) { status = CW_SYS_ERR; goto cleanup; }
 	rewind(streamCopy);
 
 	struct CWS_sender sender;
@@ -443,7 +454,7 @@ CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CW
 
 	// read stream into tmpfile to ensure it can be rewinded
 	if ((streamCopy = tmpfile()) == NULL) { perror("tmpfile() failed"); status = CW_SYS_ERR; goto cleanup; }
-	if (!copyStreamData(streamCopy, recoveryStream)) { status = CW_SYS_ERR; goto cleanup; }
+	if (copyStreamData(streamCopy, recoveryStream) != COPY_OK) { status = CW_SYS_ERR; goto cleanup; }
 	rewind(streamCopy);
 
 	struct CWS_sender sender;
@@ -512,7 +523,9 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 	if (!immutable && !rpcPack.forceOutputAddrLast) {
 		struct CWS_utxo lock;
 		init_rev_CWS_utxo(&lock, resTxid);
-		if ((status = setRevisionLock(&lock, false, (char *)name, params, &rpcPack)) != CW_OK) {
+		if ((status = setRevisionLock((char *)name, &lock, false, params, &rpcPack)) == CW_CALL_NO) {
+			fprintf(stderr, "Failed to lock revisioning utxo, name is already locked; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+		} else if (status != CW_OK) {
 			fprintf(stderr, "Revisioning utxo lock failed; this may need to be done manually, check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 			goto cleanup;
 		}	
@@ -535,8 +548,8 @@ CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, stru
 	return CWS_send_nametag(name, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!CW_is_valid_txid(utxoTxid)) { fprintf(stderr, "CWS_send_revision provided with revision txid of invalid format\n"); return CW_CALL_NO; }
+CW_STATUS CWS_send_revision(const char *revTxid, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+	if (!CW_is_valid_txid(revTxid)) { fprintf(stderr, "CWS_send_revision provided with revision txid of invalid format\n"); return CW_CALL_NO; }
 
 	CW_STATUS status;
 
@@ -562,8 +575,11 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 
 	// unlock specified utxo to be used as input, and copy corresponding name to memory
 	struct CWS_utxo inUtxo;
-	init_rev_CWS_utxo(&inUtxo, utxoTxid);
-	if ((status = setRevisionLock(&inUtxo, true, name, params, &rpcPack)) != CW_OK) { goto relock; }
+	init_rev_CWS_utxo(&inUtxo, revTxid);
+	if ((status = setRevisionLock(name, &inUtxo, true, params, &rpcPack)) == CW_CALL_NO) {
+		fprintf(stderr, "Revision txid is not stored as a revision lock; check %s in data directory", CW_DATADIR_REVISIONS_FILE);
+		goto cleanup;
+	} else if (status != CW_OK) { goto relock; }
 
 	// set specified utxo as forced input for send	
 	rpcPack.forceInputUtxoLast = &inUtxo;
@@ -581,7 +597,9 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 	struct CWS_utxo resUtxo;
 	init_rev_CWS_utxo(&resUtxo, resTxid);
 	if (!immutable && !rpcPack.forceOutputAddrLast) {
-		if ((status = setRevisionLock(&resUtxo, false, name, params, &rpcPack)) != CW_OK) {
+		if ((status = setRevisionLock(name, &resUtxo, false, params, &rpcPack)) == CW_CALL_NO) {
+			fprintf(stderr, "Failed to lock revisioning utxo, name is already locked; check %s in data directory; problem with cashsendtools\n", CW_DATADIR_REVISIONS_FILE);
+		} else if (status != CW_OK) {
 			fprintf(stderr, "Revisioning utxo lock failed; this may need to be done manually, check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 		}	
 	}		
@@ -589,7 +607,7 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 
 	relock:
 		// attempt to re-lock unspent in case of failure
-		if (status != CW_OK) { setRevisionLock(&inUtxo, false, name, params, &rpcPack); }
+		if (status != CW_OK) { setRevisionLock(name, &inUtxo, false, params, &rpcPack); }
 
 	cleanup:
 		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costCount; }
@@ -598,26 +616,26 @@ CW_STATUS CWS_send_revision(const char *utxoTxid, const CW_OPCODE *script, size_
 		return status;
 }
 
-CW_STATUS CWS_send_replace_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_replace_revision(const char *revTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_prepend_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_prepend_revision(const char *revTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_append_revision(const char *revTxid, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
@@ -625,10 +643,10 @@ CW_STATUS CWS_send_append_revision(const char *utxoTxid, const char *attachId, s
 	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_insert_revision(const char *revTxid, size_t bytePos, const char *attachId, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
@@ -640,10 +658,10 @@ CW_STATUS CWS_send_insert_revision(const char *utxoTxid, size_t bytePos, const c
 	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t bytesToDel, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_delete_revision(const char *revTxid, size_t startPos, size_t bytesToDel, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	if (bytesToDel < 1) { fprintf(stderr, "CWS_send_delete_revision provided with invalid number of bytes to delete\n"); return CW_CALL_NO; }
 
 	CW_OPCODE scriptBytes[FILE_DATA_BUF]; CW_OPCODE *scriptPtr = scriptBytes;
@@ -659,16 +677,16 @@ CW_STATUS CWS_send_delete_revision(const char *utxoTxid, size_t startPos, size_t
 	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
-CW_STATUS CWS_send_empty_revision(const char *utxoTxid, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
+CW_STATUS CWS_send_empty_revision(const char *revTxid, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	CW_OPCODE scriptBytes[FILE_DATA_BUF]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	if (!scriptSz) { scriptPtr[scriptSz++] = CW_OP_PUSHNO; }
 
-	return CWS_send_revision(utxoTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
+	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
 void CWS_gen_script_push_int(uint32_t val, CW_OPCODE *scriptPtr, size_t *scriptSz) {
@@ -747,7 +765,7 @@ CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params) {
 	return status;
 }
 
-CW_STATUS CWS_set_revision_lock(const char *revTxid, bool unlock, const char *name, struct CWS_params *csp) {
+CW_STATUS CWS_set_revision_lock(const char *name, const char *revTxid, bool unlock, struct CWS_params *csp) {
 	if (name && !CW_is_valid_name(name)) {
 		fprintf(stderr, "CWS_set_revision_lock provided with name that is too long (maximum %lu characters)\n", CW_NAME_MAX_LEN);
 		return CW_CALL_NO;
@@ -762,12 +780,17 @@ CW_STATUS CWS_set_revision_lock(const char *revTxid, bool unlock, const char *na
 	if (name) { strncat(rName, name, CW_NAME_MAX_LEN); }
 
 	struct CWS_utxo revUtxo;
-	init_rev_CWS_utxo(&revUtxo, revTxid);
+	if (revTxid) { init_rev_CWS_utxo(&revUtxo, revTxid); }
 	
-	status = setRevisionLock(&revUtxo, unlock, rName, csp, &rp);
+	if ((status = setRevisionLock(name ? rName : NULL, revTxid ? &revUtxo : NULL, unlock, csp, &rp)) == CW_CALL_NO) {
+		if (unlock) {
+			fprintf(stderr, "Failed to unlock revisioning utxo, name and/or utxo is not stored as a revision lock; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+		} else {
+			fprintf(stderr, "Failed to lock revisioning utxo, name and/or utxo is already locked; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+		}
+	}
 
 	cleanupRpc(&rp);
-
 	return status;
 }
 
@@ -776,37 +799,19 @@ CW_STATUS CWS_get_stored_revision_txid_by_name(const char *name, struct CWS_para
 
 	struct CWS_rpc_pack rp;
 	if ((status = initRpc(csp, &rp)) != CW_OK) { cleanupRpc(&rp); return status; }
-		
-	status = CW_CALL_NO;
 
-	const char *rName;
-	const char *rTxid;
-	int rVout;
+	json_t *rUtxo = json_object_get(rp.revisionLocks, name);
+	if (!rUtxo) { status = CW_CALL_NO; goto cleanup; }
 
-	size_t i;
-	json_t *lock;
-	json_array_foreach(rp.revisionLocks, i, lock) {
-		rName = json_string_value(json_object_get(lock, "name"));
-		if (!rName) {
+	if (revTxid) {
+		const char *rTxid = json_string_value(json_object_get(rUtxo, "txid"));
+		int rVout = json_integer_value(json_object_get(rUtxo, "vout"));
+		if (!rTxid || rVout != CW_REVISION_INPUT_VOUT) {
 			fprintf(stderr, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
 			status = CW_DATADIR_NO;
 			goto cleanup;
 		}
-		if (strcmp(name, rName) == 0) {
-			rTxid = json_string_value(json_object_get(lock, "txid"));
-			rVout = json_integer_value(json_object_get(lock, "vout"));
-			if (!rTxid || !rVout) {
-				fprintf(stderr, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
-				status = CW_DATADIR_NO;
-				goto cleanup;
-			}
-			if (rVout != CW_REVISION_INPUT_VOUT) { continue; }
-
-			revTxid[0] = 0;
-			strncat(revTxid, rTxid, CW_TXID_CHARS);
-			status = CW_OK;
-			goto cleanup;
-		}
+		revTxid[0] = 0; strncat(revTxid, rTxid, CW_TXID_CHARS);
 	}
 
 	cleanup:
@@ -963,9 +968,19 @@ const char *CWS_errno_to_msg(int errNo) {
 
 /* ---------------------------------------------------------------------------------- */
 
+static inline void init_CWS_utxo(struct CWS_utxo *u, const char *txid, int vout) {
+	u->txid[0] = 0; strncat(u->txid, txid, CW_TXID_CHARS);
+	u->vout = vout;
+}
+
 static inline void init_rev_CWS_utxo(struct CWS_utxo *u, const char *txid) {
 	u->txid[0] = 0; strncat(u->txid, txid, CW_TXID_CHARS);
 	u->vout = CW_REVISION_INPUT_VOUT;
+}
+
+static inline void copy_CWS_utxo(struct CWS_utxo *dest, struct CWS_utxo *source) {
+	dest->txid[0] = 0; strncat(dest->txid, source->txid, CW_TXID_CHARS);
+	dest->vout = source->vout;
 }
 
 static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, RPC_METHOD_ID rpcMethodI, json_t *params, json_t **jsonResult) {
@@ -1041,7 +1056,6 @@ static CW_STATUS lockRevisionUnspents(json_t *revisionLocks, bool unlock, struct
 	json_t *jsonResult = NULL;
         json_t *params = NULL;
         json_t *utxos = NULL;
-        json_t *utxo = NULL;
 
         if ((params = json_array()) == NULL || (utxos = json_array()) == NULL) {
                 perror("json_array() failed");
@@ -1050,19 +1064,9 @@ static CW_STATUS lockRevisionUnspents(json_t *revisionLocks, bool unlock, struct
                 return CW_SYS_ERR;
         }
 
-	size_t i;
-	json_t *lock;
-	json_array_foreach(revisionLocks, i, lock) {
-		if ((utxo = json_deep_copy(lock)) == NULL) {
-			perror("json_deep_copy() failed");
-			json_decref(utxos);
-			json_decref(params);
-			return CW_SYS_ERR;
-		}	
-		json_object_del(utxo, "name");
-		json_array_append(utxos, utxo);
-		json_decref(utxo);
-	} 
+	const char *key;
+	json_t *unspent;
+	json_object_foreach(revisionLocks, key, unspent) { json_array_append(utxos, unspent); } 
 
         json_array_append_new(params, json_boolean(unlock));
         json_array_append(params, utxos);
@@ -1076,48 +1080,74 @@ static CW_STATUS lockRevisionUnspents(json_t *revisionLocks, bool unlock, struct
         return status;	
 }
 
-static CW_STATUS setRevisionLock(struct CWS_utxo *utxo, bool unlock, char *name, struct CWS_params *csp, struct CWS_rpc_pack *rp) {
+static CW_STATUS setRevisionLock(char *name, struct CWS_utxo *utxo, bool unlock, struct CWS_params *csp, struct CWS_rpc_pack *rp) {
+	CW_STATUS status = CW_OK;
+
 	const char *rName;
 	const char *rTxid;
 	int rVout;
-	bool alreadyThere = false;
+	json_t *rUtxo;
 
-	size_t i;
-	json_t *locked;
-	json_array_foreach(rp->revisionLocks, i, locked) {
-		rName = json_string_value(json_object_get(locked, "name"));	
-		rTxid = json_string_value(json_object_get(locked, "txid"));
-		rVout = json_integer_value(json_object_get(locked, "vout"));
-		if (!rName || !rTxid || !rVout) {
+	json_t *lock;
+	json_t *locks;
+	struct CWS_utxo lockUtxo;
+	if (utxo) { copy_CWS_utxo(&lockUtxo, utxo); }
+	else { init_CWS_utxo(&lockUtxo, "", 0); }
+
+	if (name && name[0] != 0 && (rUtxo = json_object_get(rp->revisionLocks, name))) {
+		if (unlock) {
+			rTxid = json_string_value(json_object_get(rUtxo, "txid"));
+			rVout = json_integer_value(json_object_get(rUtxo, "vout"));
+			if (!rTxid || rVout != CW_REVISION_INPUT_VOUT) {
+				fprintf(stderr, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
+				return CW_DATADIR_NO;
+			}
+
+			init_CWS_utxo(&lockUtxo, rTxid, rVout);
+			if (utxo) { copy_CWS_utxo(utxo, &lockUtxo); }
+
+			json_object_del(rp->revisionLocks, name);
+			goto lock;
+		} else { return CW_CALL_NO; }
+	}
+	
+	if (unlock && !utxo) { return CW_CALL_NO; }
+
+	json_object_foreach(rp->revisionLocks, rName, rUtxo) {
+		rTxid = json_string_value(json_object_get(rUtxo, "txid"));
+		rVout = json_integer_value(json_object_get(rUtxo, "vout"));
+		if (!rTxid || rVout != CW_REVISION_INPUT_VOUT) {
 			fprintf(stderr, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
 			return CW_DATADIR_NO;
 		}
 
 		if (strcmp(rTxid, utxo->txid) == 0 && rVout == utxo->vout) {
 			if (unlock) {
-				name[0] = 0; strncat(name, rName, CW_NAME_MAX_LEN);
-				json_array_remove(rp->revisionLocks, i--);
-			} else if (strcmp(rName, name) == 0) { alreadyThere = true; break; }
+				init_CWS_utxo(&lockUtxo, rTxid, rVout);
+				if (name) { name[0] = 0; strncat(name, rName, CW_NAME_MAX_LEN); }
+				json_object_del(rp->revisionLocks, rName);
+				goto lock;
+			} else { return CW_CALL_NO; }
 		}
 	}
 
-	CW_STATUS status = CW_OK;
+	if (unlock) { return CW_CALL_NO; }
 
-	json_t *lock = json_object();
+	lock:
+	lock = json_object();
 	if (!lock) { perror("json_object() failed"); return CW_SYS_ERR; }
-	json_t *lockArr = json_array();
-	if (!lockArr) { perror("json_array() failed"); json_decref(lock); return CW_SYS_ERR; }
-	json_object_set_new(lock, "name", json_string(name));
-	json_object_set_new(lock, "txid", json_string(utxo->txid));
-	json_object_set_new(lock, "vout", json_integer(utxo->vout));
-	json_array_append(lockArr, lock);
-	status = lockRevisionUnspents(lockArr, unlock, rp);
-	json_decref(lockArr);
-
-	if (!unlock && !alreadyThere) { json_array_append(rp->revisionLocks, lock); }
+	locks = json_object();
+	if (!locks) { perror("json_object() failed"); json_decref(lock); return CW_SYS_ERR; }
+	json_object_set_new(lock, "txid", json_string(lockUtxo.txid));
+	json_object_set_new(lock, "vout", json_integer(lockUtxo.vout));
+	json_object_set(locks, !unlock ? name : "", lock);
 	json_decref(lock);
 
-	if (json_dump_file(rp->revisionLocks, rp->revLocksPath, JSON_INDENT(4)) != 0) { perror("json_dump_file() failed"); return CW_SYS_ERR; }
+	if (!unlock) { json_object_update_missing(rp->revisionLocks, locks); }
+	status = lockRevisionUnspents(locks, unlock, rp);
+	json_decref(locks);
+
+	if (status == CW_OK && json_dump_file(rp->revisionLocks, rp->revLocksPath, JSON_INDENT(4)) != 0) { perror("json_dump_file() failed"); return CW_SYS_ERR; }
 	return status;
 }
 
@@ -1778,7 +1808,7 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
 
 	// write recovery data to recovery stream
 	rewind(recoveryData);
-	if (!copyStreamData(params->recoveryStream, recoveryData)) { err = true; goto cleanup; }
+	if (copyStreamData(params->recoveryStream, recoveryData) != COPY_OK) { err = true; goto cleanup; }
 
 	cleanup:
 		freeDynamicMemory(&info);
@@ -2078,10 +2108,12 @@ static inline CW_STATUS sendFromPath(const char *path, bool asDir, struct CWS_rp
 }
 
 static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack) {
+	// initialize bitcoin RPC client
 	bitcoinrpc_global_init();
 	rpcPack->cli = bitcoinrpc_cl_init_params(params->rpcUser, params->rpcPass, params->rpcServer, params->rpcPort);
 	if (rpcPack->cli == NULL) { perror("bitcoinrpc_cl_init_params() failed"); return CWS_RPC_ERR;  }	
 
+	// initialize RPC methods to be used
 	BITCOINRPC_METHOD method;
 	json_t *mParams;
 	char *nonStdName;
@@ -2140,6 +2172,7 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 		if (nonStdName != NULL) { bitcoinrpc_method_set_nonstandard(rpcPack->methods[i], nonStdName); }
 	}	
 
+	// initialize all rpcPack variables
 	rpcPack->txsToSend = 0;
 	rpcPack->reservedUtxos = NULL;
 	rpcPack->reservedUtxosCount = 0;
@@ -2152,6 +2185,7 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 	rpcPack->justCounting = false;
 	rpcPack->justTxCounting = false;
 
+	// construct path to revision locks from params
 	rpcPack->revLocksPath = NULL;
 	struct stat st;
 	if (stat(params->datadir, &st) == -1) { perror("stat() failed on data directory"); return CW_SYS_ERR; }
@@ -2162,6 +2196,7 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 	if ((rpcPack->revLocksPath = malloc(revLocksPathSz)) == NULL) { perror("malloc failed"); return CW_SYS_ERR; }
 	snprintf(rpcPack->revLocksPath, revLocksPathSz, "%s%s%s", params->datadir, appendSlash ? "/" : "", CW_DATADIR_REVISIONS_FILE);
 
+	// load revision locks and ensure locked unspents
 	rpcPack->revisionLocks = NULL;
 	if (access(rpcPack->revLocksPath, F_OK) == 0) {
 		json_error_t e;

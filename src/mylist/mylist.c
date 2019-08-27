@@ -29,6 +29,16 @@ struct Node *findNode(struct List *list, const void *dataSought, int (*compar)(c
         return t;
 }
 
+size_t listLength(struct List *list) {
+	size_t count = 0;
+	struct Node *c = list->head;
+	while (c) {
+		c = c->next;
+		++count;
+	}
+	return count;
+}
+
 void *popFront(struct List *list) {
 	if (isEmptyList(list)) {
 		return NULL;

@@ -8,14 +8,17 @@ int main(int argc, char **argv) {
 	char *mongodb = NULL;
 	char *bitdbNode = BITDB_DEFAULT;
 
-	char *getDirPath = NULL;
+	bool getInfo = false;
 	bool getDirIndex = false;
-
+	
 	int c;
-	while ((c = getopt(argc, argv, ":Dlm:b:")) != -1) {
-		switch (c) {	
+	while ((c = getopt(argc, argv, ":Dilm:b:")) != -1) {
+		switch (c) {		
 			case 'D':
 				getDirIndex = true;
+				break;
+			case 'i':
+				getInfo = true;	
 				break;
 			case 'l':
 				mongodb = MONGODB_LOCAL_ADDR;
@@ -50,16 +53,57 @@ int main(int argc, char **argv) {
 
 	struct CWG_params params;
 	init_CWG_params(&params, mongodb, bitdbNode, NULL);
-	params.dirPath = getDirPath;
 
 	int getFd = STDOUT_FILENO;
 	FILE *dirStream = NULL;
-	if (getDirIndex) {
+	CW_STATUS status;
+	if (getInfo) {
+		char *name;
+		int rev;
+		if (CW_is_valid_nametag_id(toget, &rev, &name)) {
+			struct CWG_nametag_info info;
+			init_CWG_nametag_info(&info);
+			if ((status = CWG_get_nametag_info(name, rev, &params, &info)) == CW_OK) {
+				if (info.revisionTxid) { printf("Script is mutable.\nRevision UTXO: TXID %s, VOUT %d.\n", info.revisionTxid, CW_REVISION_INPUT_VOUT); }	
+				else {
+					printf("Script is immutable.\n");
+					if (*info.nameRefs) { printf("NOTE: Contains nametag reference(s) which may have mutable scripting.\n"); }
+				}
+				if (rev < 0) { printf("On revision %d.\n", info.revision); }
+				else if (rev > info.revision) { printf("Actual revision %d.\n", info.revision); }
+				if (*info.nameRefs) {
+					printf("Name(s) referenced: ");
+					char **nameRefs = info.nameRefs;
+					while (*nameRefs) {
+						printf("'%s'", *nameRefs++);
+						if (*nameRefs) { printf(", "); }
+					}
+					printf(".\n");
+				}
+				if (*info.txidRefs) {
+					printf("TXID(s) referenced: ");
+					char **txidRefs = info.txidRefs;
+					while (*txidRefs) {
+						printf("%s", *txidRefs++);
+						if (*txidRefs) { printf(", "); }
+					}
+					printf(".\n");
+				}
+			}
+			destroy_CWG_nametag_info(&info);
+			goto end;
+		}
+		else {
+			fprintf(stderr, "Unsupported ID type for getting info.\n");
+			exit(1);
+		}
+	}
+	else if (getDirIndex) {
 		if ((dirStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }	
 		getFd = fileno(dirStream);
 	}
 
-	CW_STATUS status = CWG_get_by_id(toget, &params, getFd);
+	status = CWG_get_by_id(toget, &params, getFd);
 
 	if (status == CW_OK && getDirIndex) {
 		rewind(dirStream);
@@ -67,10 +111,10 @@ int main(int argc, char **argv) {
 	}
 	if (dirStream) { fclose(dirStream); }
 
-	if (status != CW_OK) { 
-		fprintf(stderr, "\nGet failed, error code %d: %s.\n", status, CWG_errno_to_msg(status));
-		exit(1);
-	}
-
-	return 0;
+	end:
+		if (status != CW_OK) { 
+			fprintf(stderr, "\nGet failed, error code %d: %s.\n", status, CWG_errno_to_msg(status));
+			exit(1);
+		}
+		return 0;
 }

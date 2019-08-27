@@ -36,6 +36,9 @@ static inline int isEmptyList(struct List *list)
     return (list->head == 0);
 }
 
+// counts the number of items in list
+size_t listLength(struct List *list);
+
 // removes first node from the list, deallocating memory
 // returns the data pointer that was stored in the node, or NULL on empty list
 void *popFront(struct List *list);

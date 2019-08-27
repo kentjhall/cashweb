@@ -1,5 +1,5 @@
 CC = gcc
-AM_CFLAGS = -g -Wall -fPIC
+AM_CFLAGS = -g -Wall -O0 -fPIC
 AM_LDFLAGS = -g
 
 lib_LIBRARIES = libcashgettools.a
