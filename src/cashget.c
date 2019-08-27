@@ -40,7 +40,8 @@ int main(int argc, char **argv) {
 				}
 				exit(1);
 			default:
-				fprintf(stderr, "getopt() unknown error\n"); exit(1);
+				fprintf(stderr, "getopt() unknown error\n");
+				exit(1);
 		}
 	}
 
@@ -91,6 +92,17 @@ int main(int argc, char **argv) {
 				}
 			}
 			destroy_CWG_nametag_info(&info);
+			goto end;
+		}
+		else if (CW_is_valid_txid(toget)) {
+			struct CWG_file_info info;
+			init_CWG_file_info(&info);
+			if ((status = CWG_get_file_info(toget, &params, &info)) == CW_OK) {
+				printf("Chain Length: %d\nTree Depth: %d\nType Value: %d%s\nProtocol Version: %d\n\nMIME type: %s\n",
+					info.metadata.length, info.metadata.depth,
+					info.metadata.type, info.metadata.type == CW_T_DIR ? " (directory index)" : "", info.metadata.pVer,
+					info.mimetype[0] ? info.mimetype : "unspecified");
+			}
 			goto end;
 		}
 		else {

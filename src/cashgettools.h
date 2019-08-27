@@ -105,13 +105,23 @@ static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *s
 	dest->datadir = source->datadir;
 }
 
+/*
+ * struct for carrying info on file at specific txid; stores metadata and interpreted mimetype string
+ */
 struct CWG_file_info {
 	struct CW_file_metadata metadata;
-	char (*saveMimeStr)[CWG_MIMESTR_BUF];
+	char mimetype[CWG_MIMESTR_BUF];
 };
 
 /*
- * convenience struct for packing info on a nametag when analyzing; pointers must be exclusively heap-allocated
+ * initializes struct CWG_file_info
+ */
+static inline void init_CWG_file_info(struct CWG_file_info *cfi) {
+	cfi->mimetype[0] = 0;
+}
+
+/*
+ * struct for carrying info on a nametag when analyzing; pointers must be exclusively heap-allocated
  * always make sure to initialize on use and destroy afterward
  * revisionTxid: the txid to be used for further revisions on the nametag; will be NULL if immutable
  * revision: the revision that the nametag is up to
@@ -177,6 +187,12 @@ CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
  * if foundHandler specified, will call to indicate if file is found before writing
  */
 CW_STATUS CWG_get_by_name(const char *name, int revision, struct CWG_params *params, int fd);
+
+/*
+ * gets file info by txid and writes to given struct CWG_file_info
+ * if info->mimetype results in empty string, file has no specified mimetype (most likely CW_T_FILE or CW_T_DIR); may be treated as binary data
+ */
+CW_STATUS CWG_get_file_info(const char *txid, struct CWG_params *params, struct CWG_file_info *info);
 
 /*
  * gets nametag info by name/revision and writes to given struct CWG_nametag_info

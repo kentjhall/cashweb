@@ -85,6 +85,16 @@ static inline void init_CW_file_metadata(struct CW_file_metadata *md, CW_TYPE cw
 	md->pVer = CW_P_VER;
 }
 
+/*
+ * copies struct CW_file_metadata from source to dest
+ */
+static inline void copy_CW_file_metadata(struct CW_file_metadata *dest, struct CW_file_metadata *source) {
+	dest->length = source->length;
+	dest->depth = source->depth;
+	dest->type = source->type;
+	dest->pVer = source->pVer;
+}
+
 /* calculates number of bytes for file metadata (single field and whole) */
 #define CW_MD_BYTES(md_field) sizeof(((struct CW_file_metadata *)0)->md_field)
 #define CW_METADATA_BYTES (CW_MD_BYTES(length)+\

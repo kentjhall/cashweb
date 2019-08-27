@@ -1,5 +1,6 @@
 #include <cashgettools.h>
 #include <microhttpd.h>
+#include <getopt.h>
 
 #define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
@@ -276,12 +277,36 @@ static int requestHandler(void *cls,
 }
 
 int main(int argc, char **argv) {
-	for (int i=1; i<argc; i++) {
-		if (strncmp("--port=", argv[i], 7) == 0) { port = atoi(argv[i]+7); }
-		if (strncmp("--mongodb=", argv[i], 10) == 0) { mongodb = argv[i]+10; }
-		if (strncmp("--mongodb-local", argv[i], 15) == 0) { mongodb = MONGODB_LOCAL_ADDR; }
-		if (strncmp("--bitdb=", argv[i], 8) == 0) { bitdbNode = argv[i]+8; }
-	}
+	int c;
+	while ((c = getopt(argc, argv, ":p:m:lb:")) != -1) {
+		switch (c) {
+			case 'p':
+				port = atoi(optarg);
+				break;
+			case 'm':
+				mongodb = optarg;
+				break;
+			case 'l':
+				mongodb = MONGODB_LOCAL_ADDR;
+				break;
+			case 'b':
+				bitdbNode = optarg;
+				break;
+			case ':':
+				fprintf(stderr, "Option -%c requires an argument.\n", optopt);
+				exit(1);
+			case '?':
+				if (isprint(optopt)) {
+					fprintf(stderr, "Unknown option `-%c'.\n", optopt);
+				} else {
+					fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);	
+				}
+				exit(1);
+			default:
+				fprintf(stderr, "getopt() unknown error\n");
+				exit(1);
+		}
+	}	
 
 	struct MHD_Daemon *d;
 	if ((d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
