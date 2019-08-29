@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <limits.h>
 #include <ctype.h>
 #include <string.h>
 #include <math.h>
@@ -49,7 +50,7 @@ typedef uint8_t CW_OPCODE;
 #define CW_OP_WRITEFROMSTORED (CW_OP_TERM-13)
 #define CW_OP_WRITESOMEFROMSTORED (CW_OP_TERM-14)
 #define CW_OP_DROPSTORED (CW_OP_TERM-16)
-#define CW_OP_PATHREPLACE (CW_OP_TERM-15)
+#define CW_OP_WRITEPATHLINK (CW_OP_TERM-15)
 #define CW_OP_PUSHSTRX (CW_OP_PUSHSTR+1)
 #define CW_OP_PUSHSTR ((CW_OPCODE)205)
 #define CW_OP_PUSHNO ((CW_OPCODE)0)
@@ -151,7 +152,7 @@ static inline bool CW_is_valid_name(const char *name) { size_t nameLen = strlen(
  * checks if given string is a valid nametag id by cashweb protocol standards for prefix and length
  * if so, writes revision and name pointer (points to location in passed id string) to passed memory locations (can be NULL if not desired)
  */
-static inline bool CW_is_valid_nametag_id(const char *id, int *rev, char **name) {
+static inline bool CW_is_valid_nametag_id(const char *id, int *rev, const char **name) {
 	char *pre;
 	if ((pre = strstr(id, CW_NAMETAG_PREFIX))) {
 		char *nameStr = pre + CW_NAMETAG_PREFIX_LEN;
@@ -177,7 +178,7 @@ static inline bool CW_is_valid_nametag_id(const char *id, int *rev, char **name)
    does NOT check for validity of contained id (whether it be nametag id or txid) beyond its length
  * if valid, copies id and path pointer (points to location in passed pathId string) to passed memory locations (can be NULL if not desired)
  */
-static inline bool CW_is_valid_path_id(const char *pathId, char *id, char **path) {
+static inline bool CW_is_valid_path_id(const char *pathId, char *id, const char **path) {
 	char *idPath;
 	if ((idPath = strstr(pathId, "/"))) {
 		size_t idLen = idPath - pathId;
@@ -195,7 +196,18 @@ static inline bool CW_is_valid_path_id(const char *pathId, char *id, char **path
  * does not ascertain any information about it; will need to be specific with above functions if this is desired
  */
 static inline bool CW_is_valid_cashweb_id(const char *id) {
-	return CW_is_valid_path_id(id, NULL, NULL) || CW_is_valid_nametag_id(id, NULL, NULL) || CW_is_valid_txid(id);
+	char idEnc[CW_NAMETAG_ID_MAX_LEN+1];
+	return (CW_is_valid_path_id(id, idEnc, NULL) && CW_is_valid_cashweb_id(idEnc)) || CW_is_valid_nametag_id(id, NULL, NULL) || CW_is_valid_txid(id);
+}
+
+/*
+ * constructs valid cashweb nametag ID from name and revision
+ */
+static inline void CW_construct_nametag_id(const char *name, int revision, char (*nametagId)[CW_NAMETAG_ID_MAX_LEN+1]) {
+	(*nametagId)[0] = 0;
+	if (revision >= 0) { snprintf(*nametagId, sizeof(*nametagId), "%d", revision); }
+	strcat(*nametagId, CW_NAMETAG_PREFIX);
+	strcat(*nametagId, name);
 }
 
 #endif

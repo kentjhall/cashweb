@@ -737,7 +737,7 @@ bool CWS_gen_script_writefrom_txid(const char *txid, CW_OPCODE *scriptPtr, size_
 }
 
 bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *scriptSz) {
-	char *name;
+	const char *name;
 	int rev;
 	if (CW_is_valid_nametag_id(id, &rev, &name)) {
 		if (rev >= 0) { fprintf(stderr, "nametag/revision scripting doesn't support attaching specific revision of nametag\n"); return false; }
@@ -746,16 +746,16 @@ bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *s
 	} else { return CW_is_valid_txid(id) ? CWS_gen_script_writefrom_txid(id, scriptPtr, scriptSz) : false; }
 }
 
-void CWS_gen_script_pathredirect(const char *toReplace, const char *replacement, CW_OPCODE *scriptPtr, size_t *scriptSz) {
+void CWS_gen_script_pathlink(const char *toReplace, const char *replacement, CW_OPCODE *scriptPtr, size_t *scriptSz) {
 	CWS_gen_script_push_str(replacement, scriptPtr, scriptSz);
 	CWS_gen_script_push_str(toReplace, scriptPtr, scriptSz);
-	scriptPtr[(*scriptSz)++] = CW_OP_PATHREPLACE;
+	scriptPtr[(*scriptSz)++] = CW_OP_WRITEPATHLINK;
 }
 
 void CWS_gen_script_standard_start(struct CWS_revision_pack *rvp, struct CWS_params *params, CW_OPCODE *scriptPtr, size_t *scriptSz) {
 	params->revToAddr = rvp->transferAddr;
 	if (!rvp->immutable) { scriptPtr[(*scriptSz)++] = CW_OP_NEXTREV; }
-	if (rvp->pathToReplace && rvp->pathReplacement) { CWS_gen_script_pathredirect(rvp->pathToReplace, rvp->pathReplacement, scriptPtr, scriptSz); }
+	if (rvp->pathToReplace && rvp->pathReplacement) { CWS_gen_script_pathlink(rvp->pathToReplace, rvp->pathReplacement, scriptPtr, scriptSz); }
 }
 
 CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params) {

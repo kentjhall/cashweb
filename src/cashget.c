@@ -10,7 +10,7 @@ int main(int argc, char **argv) {
 
 	bool getInfo = false;
 	bool getDirIndex = false;
-	
+
 	int c;
 	while ((c = getopt(argc, argv, ":Dilm:b:")) != -1) {
 		switch (c) {		
@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
 	FILE *dirStream = NULL;
 	CW_STATUS status;
 	if (getInfo) {
-		char *name;
+		const char *name;
 		int rev;
 		if (CW_is_valid_nametag_id(toget, &rev, &name)) {
 			struct CWG_nametag_info info;
@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
 		}
 	}
 	else if (getDirIndex) {
-		if ((dirStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }	
+		if ((dirStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }		
 		getFd = fileno(dirStream);
 	}
 

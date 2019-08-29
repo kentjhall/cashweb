@@ -276,7 +276,7 @@ bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *s
  * reads/writes to scriptSz as going (for tracking position in script)
  * must ensure adequate space is allocated to scriptPtr memory location
  */
-void CWS_gen_script_pathredirect(const char *toReplace, const char *replacement, CW_OPCODE *scriptPtr, size_t *scriptSz);
+void CWS_gen_script_pathlink(const char *toReplace, const char *replacement, CW_OPCODE *scriptPtr, size_t *scriptSz);
 
 /*
  * constructs standard script beginning from given struct CWS_revision_pack (pertaining to immutability, path replacement)

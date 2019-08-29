@@ -30,15 +30,12 @@
  * mongodbCli: Optionally initialize/set mongoc client yourself (do NOT set mongodb if this is the case), but this probably isn't necessary;
  * 	       is included for internal management by cashgettools
  * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
- * bitdbRequestLimit: Specify whether or not BitDB Node has request limit
- * dirPath: Forces file at requested ID to be treated as directory index, and gets at requested path;
- 	    allows getting at path even when getting by CWG_get_by_txid or CWG_get_by_name
- * dirPathReplace: Optionally allow a requested path to be replaced by nametag scripting; set NULL if not desired.
- 		   If set, string length of zero indicates to allow replacement by script, but not mandated;
-		   otherwise, will replace with set string if not displaced by script (soft replacement).
- * dirPathReplaceToFree: Specifies whether dirPathReplace points to heap-allocated memory that needs to be freed on replacement; primarily for internal use.
- 			 Should function if set true when initial dirPathReplace points to heap-allocated memory,
-			 but is strongly recommended that freeing any passed pointer be handled by the user instead
+ * bitdbRequestLimit: Specify whether or not BitDB Node has request limit 
+ * dirPath: Forces requested file to be treated as directory index (checked for validity) and gets at path dirPath;
+ 	    May be useful if getting by means other than cashweb path ID
+ * forceDir: Forces requested file to be treated as directory index;
+ 	     this means if true, an invalid directory index will return error CWG_IS_DIR_NO, even if file is valid.
+	     Even if dirPath is specified, will be ignored in favor of writing directory index data at requested identifier
  * saveMimeStr: Optionally interpret/save file's mimetype string to this memory location;
  		pass pointer to char array of length CWG_MIMESTR_BUF (this #define is available in header).
 		Will result as string of length 0 if file is of type CW_T_FILE, CW_T_DIR, or otherwise invalid value
@@ -54,8 +51,7 @@ struct CWG_params {
 	const char *bitdbNode;
 	bool bitdbRequestLimit;
 	char *dirPath;
-	char *dirPathReplace;
-	bool dirPathReplaceToFree;
+	bool forceDir;
 	char (*saveMimeStr)[CWG_MIMESTR_BUF];
 	void (*foundHandler) (CW_STATUS, void *, int);
 	void *foundHandleData;
@@ -78,8 +74,7 @@ static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, 
 	cgp->bitdbNode = bitdbNode;
 	cgp->bitdbRequestLimit = true;
 	cgp->dirPath = NULL;
-	cgp->dirPathReplace = "";
-	cgp->dirPathReplaceToFree = false;
+	cgp->forceDir = false;
 	cgp->saveMimeStr = saveMimeStr;
 	if (cgp->saveMimeStr) { memset(*cgp->saveMimeStr, 0, sizeof(*cgp->saveMimeStr)); }
 	cgp->foundHandler = NULL;
@@ -96,8 +91,7 @@ static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *s
 	dest->mongodbCli = source->mongodbCli;
 	dest->bitdbNode = source->bitdbNode;
 	dest->dirPath = source->dirPath;
-	dest->dirPathReplace = source->dirPathReplace;
-	dest->dirPathReplaceToFree = source->dirPathReplaceToFree;
+	dest->forceDir = source->forceDir;
 	dest->saveMimeStr = source->saveMimeStr;
 	dest->foundHandler = source->foundHandler;
 	dest->foundHandleData = source->foundHandleData;
@@ -203,11 +197,12 @@ CW_STATUS CWG_get_nametag_info(const char *name, int revision, struct CWG_params
 /*
  * reads from specified file stream to ascertain the desired file identifier from given directory/path;
    if path is prepended with '/', this will be ignored (i.e. handled, but not necessary)
- * writes identifier to specified location in memory; ensure CW_NAMETAG_ID_MAX_LEN+1 allocated if this could be nametag reference, or CW_TXID_CHARS+1 otherwise;
-   writes remaining path to subPath if only partial path used (presumed to be referencing another directory), or NULL if full path used
+ * writes identifier to specified location in memory,
+   and remaining path to subPath if only partial path used (presumed to be referencing another directory), or NULL if full path used
  * pass NULL for subPath if only accepting exact match (won't match a partial path)
+ * both subPath and pathId must be freed afterward
  */
-CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char const **subPath, char *pathId);
+CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char **subPath, char **pathId);
 
 /*
  * reads directory index data and dumps as readable JSON format to given stream
