@@ -1,5 +1,6 @@
 #include "cashwebutils.h"
 #include "cashgettools.h"
+#include <pthread.h>
 #include <b64/b64.h>
 #include <mylist/mylist.h>
 
@@ -8,6 +9,7 @@
 
 /* MongoDB constants */
 #define MONGODB_STR_HEX_PREFIX "OP_RETURN "
+#define MONGODB_APPNAME "cashgettools"
 
 /* BitDB HTTP constants */
 #define BITDB_API_VER 3
@@ -19,7 +21,7 @@
 #define BITDB_QUERY_INFO_TAG "i"
 #define BITDB_QUERY_TXID_TAG "t"
 #define BITDB_QUERY_DATA_TAG "d"
-#define BITDB_REQUEST_TIMEOUT 10L
+#define BITDB_REQUEST_TIMEOUT 20L
 
 /* Fetch typing */
 typedef enum FetchType {
@@ -526,6 +528,36 @@ CW_STATUS CWG_dirindex_raw_to_json(FILE *indexFp, FILE *indexJsonFp) {
 		return status;
 }
 
+CW_STATUS CWG_init_mongo_pool(const char *mongodbAddr, struct CWG_params *params) {
+	mongoc_init();
+
+	bson_error_t error;  
+	mongoc_uri_t *uri = mongoc_uri_new_with_error(mongodbAddr, &error);
+	if (!uri) {
+		fprintf(stderr, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
+		mongoc_cleanup();
+		return CW_CALL_NO;
+	}
+
+	params->mongodbCliPool = mongoc_client_pool_new(uri);
+	mongoc_uri_destroy(uri);	
+	if (!params->mongodbCliPool) {
+		fprintf(stderr, "ERROR: cashgettools failed to establish client with MongoDB\n");
+		mongoc_cleanup();
+		return CWG_FETCH_ERR;
+	}
+	mongoc_client_pool_set_error_api(params->mongodbCliPool, MONGOC_ERROR_API_VERSION_2);
+	mongoc_client_pool_set_appname(params->mongodbCliPool, MONGODB_APPNAME);
+
+	return CW_OK;
+}
+
+void CWG_cleanup_mongo_pool(struct CWG_params *params) {
+	mongoc_client_pool_destroy(params->mongodbCliPool);
+	params->mongodbCliPool = NULL;
+	mongoc_cleanup();
+}
+
 const char *CWG_errno_to_msg(int errNo) {
 	switch (errNo) {
 		case CW_DATADIR_NO:
@@ -709,7 +741,7 @@ static CW_STATUS writeHexDataStr(const char *hexDataStr, int suffixLen, int fd) 
 
 	if ((bytesToWrite = hexStrToByteArr(hexDataStr, suffixLen, fileByteData)) < 0) {
 		return CWG_FILE_ERR;
-	}
+	}	
 
 	ssize_t n;
 	if ((n = write(fd, fileByteData, bytesToWrite)) < bytesToWrite) {
@@ -1011,6 +1043,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 	char *token;
 	const char *str;
 	const char *txid;
+	const char *inTxid;
 	int vout;
 	size_t hexPrefixLen = strlen(MONGODB_STR_HEX_PREFIX);
 	bool matched;
@@ -1042,19 +1075,29 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 				if (type == BY_INTXID) {
 					// gets json array at key 'out' -> object at array index 0 -> object at key 'e' -> object at key 'i' (.in[0].e.i)
 					vout = json_integer_value(json_object_get(json_object_get(json_array_get(json_object_get(resJson, "in"), 0), "e"), "i"));
-					if (vout != CW_REVISION_INPUT_VOUT) { continue; }
+					inTxid = json_string_value(json_object_get(json_object_get(json_array_get(json_object_get(resJson, "in"), 0), "e"), "h"));
+					if (!inTxid) {
+						jsonDump = json_dumps(resJson, 0);
+						json_decref(resJson);
+						fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
+						free(jsonDump);
+						status = CWG_FETCH_ERR;
+						break;
+					}
+					if (vout != CW_REVISION_INPUT_VOUT || strcmp(inTxid, ids[i]) != 0) { json_decref(resJson); continue; }
 				}
 
 				// gets json array at key 'out' -> object at array index 0 -> object at key 'str' (.out[0].str)
 				str = json_string_value(json_object_get(json_array_get(json_object_get(resJson, "out"), 0), "str"));	
 				if (!str) {
 					jsonDump = json_dumps(resJson, 0);
+					json_decref(resJson);
 					fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
 					free(jsonDump);
 					status = CWG_FETCH_ERR;
 					break;
 				} 
-				if (strncmp(str, MONGODB_STR_HEX_PREFIX, hexPrefixLen) != 0) { status = CWG_FILE_ERR; break; }
+				if (strncmp(str, MONGODB_STR_HEX_PREFIX, hexPrefixLen) != 0) { status = CWG_FILE_ERR; json_decref(resJson); break; }
 
 				hexData[0] = 0; strncat(hexData, str+hexPrefixLen, CW_TX_DATA_CHARS);
 				if ((token = strchr(hexData, ' '))) { *token = 0; }
@@ -1065,6 +1108,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 					else { txid = json_string_value(json_object_get(json_object_get(resJson, "tx"), "h")); }	
 					if (!txid) {
 						jsonDump = json_dumps(resJson, 0);
+						json_decref(resJson);
 						fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
 						free(jsonDump);
 						status = CWG_FETCH_ERR;
@@ -1072,6 +1116,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 					}
 					txids[i][0] = 0; strncat(txids[i], txid, CW_TXID_CHARS);
 				}
+				json_decref(resJson);
 				matched = true;
 				break;
 			}
@@ -1103,7 +1148,6 @@ static inline CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE 
 
 static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[], int suffixLen, int depth,
 			    	  struct CWG_params *params, struct CW_file_metadata *md, int fd) {
-
 	char *partialTxid;
 	int partialTxidFill = partialTxids != NULL && (partialTxid = popFront(partialTxids[0])) != NULL ?
 			      CW_TXID_CHARS-strlen(partialTxid) : 0;	
@@ -1219,7 +1263,7 @@ static CW_STATUS traverseFileChain(const char *hexDataStart, struct CWG_params *
 				goto cleanup;
 			}
 		} 
-		strcpy(hexData, hexDataNext);
+		memcpy(hexData, hexDataNext, sizeof(hexData));
 	}
 	
 	cleanup:
@@ -1455,7 +1499,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 		case CW_OP_STOREFROMNAMETAG:
 		case CW_OP_STOREFROMPREV:
 		{
-			char tmpname[] = P_tmpdir"CWscriptstore-XXXXXX";
+			char tmpname[] = "/tmp/CWscriptstore-XXXXXX";
 			int tfd = mkstemp(tmpname);
 			unlink(tmpname);
 			if (tfd < 0) { perror("mkstemp() failed"); return CW_SYS_ERR; }
@@ -1914,42 +1958,64 @@ static CW_STATUS getFileById(const char *id, List *fetchedNames, struct CWG_para
 }
 
 static CW_STATUS initFetcher(struct CWG_params *params) {
-	if (params->mongodb) {
-		mongoc_init();
-		bson_error_t error;	
-		mongoc_uri_t *uri;
-		if (!(uri = mongoc_uri_new_with_error(params->mongodb, &error))) {
-			fprintf(stderr, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
-			mongoc_cleanup();
-			return CW_SYS_ERR;
+	if (params->mongodb || params->mongodbCli || params->mongodbCliPool) {
+		if (params->mongodbCliPool) {
+			params->mongodbCli = mongoc_client_pool_pop(params->mongodbCliPool);
 		}
-		params->mongodbCli = mongoc_client_new_from_uri(uri);
-		mongoc_uri_destroy(uri);	
-		if (!params->mongodbCli) {
-			fprintf(stderr, "ERROR: cashgettools failed to establish client with MongoDB\n");
-			mongoc_cleanup();
-			return CWG_FETCH_ERR;
-		}
-		mongoc_client_set_appname(params->mongodbCli, "cashgettools");
+		else if (!params->mongodbCli) { 
+			mongoc_init();
+			bson_error_t error;	
+			mongoc_uri_t *uri;
+			if (!(uri = mongoc_uri_new_with_error(params->mongodb, &error))) {
+				fprintf(stderr, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
+				mongoc_cleanup();
+				return CW_CALL_NO;
+			}
+			params->mongodbCli = mongoc_client_new_from_uri(uri);	
+			mongoc_uri_destroy(uri);	
+			if (!params->mongodbCli) {
+				fprintf(stderr, "ERROR: cashgettools failed to establish client with MongoDB\n");
+				mongoc_cleanup();
+				return CWG_FETCH_ERR;
+			}
+			mongoc_client_set_error_api(params->mongodbCli, MONGOC_ERROR_API_VERSION_2);
+			/*
+			unsigned long tid = (unsigned long)pthread_self();
+			char *appnameGen = "cashgettools-";
+			char dummy[2];
+			char appname[strlen(appnameGen) + snprintf(dummy, sizeof(dummy), "%lu", tid) + 1];
+			if (snprintf(appname, sizeof(appname), "%s%ld", appnameGen, tid) >= sizeof(appname)) {
+				fprintf(stderr, "MongoDB appname truncated; problem with cashgettools\n");
+				cleanupFetcher(params);
+				return CW_SYS_ERR;
+			}
+			*/
+			mongoc_client_set_appname(params->mongodbCli, MONGODB_APPNAME);
+		}	
 	} 
 	else if (params->bitdbNode) {
 		curl_global_init(CURL_GLOBAL_DEFAULT);
 		if (params->bitdbRequestLimit) { srandom(time(NULL)); }
 	}	
-	else if (!params->mongodbCli)  {
+	else {
 		fprintf(stderr, "ERROR: cashgettools requires either MongoDB or BitDB Node address to be specified\n");
-		return CW_SYS_ERR;
+		return CW_CALL_NO;
 	}
 
 	return CW_OK;
 }
 
 static void cleanupFetcher(struct CWG_params *params) {
-	if (params->mongodb && params->mongodbCli) {
-		mongoc_client_destroy(params->mongodbCli);
-		params->mongodbCli = NULL;
-		mongoc_cleanup();
-	} 
+	if (params->mongodbCli) {
+		if (params->mongodbCliPool) {
+			mongoc_client_pool_push(params->mongodbCliPool, params->mongodbCli);
+		}
+		else if (params->mongodb) {
+			mongoc_client_destroy(params->mongodbCli);
+			params->mongodbCli = NULL;
+			mongoc_cleanup();
+		}
+	}
 	else if (params->bitdbNode) { curl_global_cleanup(); }
 }
 

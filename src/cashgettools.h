@@ -26,9 +26,12 @@
 
 /*
  * params for getting
- * mongodb: MongoDB address (assumed to be populated by BitDB Node); only specify if not using the latter
- * mongodbCli: Optionally initialize/set mongoc client yourself (do NOT set mongodb if this is the case), but this probably isn't necessary;
- * 	       is included for internal management by cashgettools
+ * mongodb: MongoDB address (assumed to be populated by BitDB Node); indicates for cashgettools to handle initialization/cleanup of mongoc environment/client
+ * mongodbCli: Optionally initialize/set mongoc client yourself; if so, is the user's responsibility to cleanup mongoc client and environment.
+ 	       Do NOT set mongodb address above if this is the case; only one of these should be set, or behavior is undefined
+  	       Is primarily included for internal management by cashgettools
+ * mongodbCliPool: Optionally initialize/set mongoc client pool yourself, for use in multi-threaded scenarios; if so, must handle cleanup of mongoc pool/environment;
+ * 		   may utilize CWG_init_mongo_pool and CWG_cleanup_mongo_pool to this end
  * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
  * bitdbRequestLimit: Specify whether or not BitDB Node has request limit 
  * dirPath: Forces requested file to be treated as directory index (checked for validity) and gets at path dirPath;
@@ -48,6 +51,7 @@
 struct CWG_params {
 	const char *mongodb;
 	mongoc_client_t *mongodbCli;
+	mongoc_client_pool_t *mongodbCliPool;
 	const char *bitdbNode;
 	bool bitdbRequestLimit;
 	char *dirPath;
@@ -71,6 +75,7 @@ static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, 
 	} 
 	cgp->mongodb = mongodb;
 	cgp->mongodbCli = NULL;
+	cgp->mongodbCliPool = NULL;
 	cgp->bitdbNode = bitdbNode;
 	cgp->bitdbRequestLimit = true;
 	cgp->dirPath = NULL;
@@ -89,6 +94,7 @@ static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, 
 static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
 	dest->mongodb = source->mongodb;
 	dest->mongodbCli = source->mongodbCli;
+	dest->mongodbCliPool = source->mongodbCliPool;
 	dest->bitdbNode = source->bitdbNode;
 	dest->dirPath = source->dirPath;
 	dest->forceDir = source->forceDir;
@@ -164,6 +170,8 @@ static inline void destroy_CWG_nametag_info(struct CWG_nametag_info *cni) {
    2) name prefixed with CW_NAMETAG_PREFIX (e.g. $coolcashwebname, gets latest revision)
    3) name prefixed with revision number and CW_NAMETAG_PREFIX (e.g. 0$coolcashwebname, gets first revision)
    4) any above form of ID preceding a path (e.g. 0$coolcashwebname/coolpath/coolfile.cash)
+ * if foundHandler specified, will call to indicate if file is found before writing
+ * it recommended that fd be set blocking (~O_NONBLOCK)
  */
 CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd);
 
@@ -171,6 +179,7 @@ CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd);
  * gets the file at the specified txid and writes to given file descriptor
  * queries at specified BitDB-populated MongoDB or BitDB HTTP endpoint
  * if foundHandler specified, will call to indicate if file is found before writing
+ * it recommended that fd be set blocking (~O_NONBLOCK)
  */
 CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
 
@@ -179,6 +188,7 @@ CW_STATUS CWG_get_by_txid(const char *txid, struct CWG_params *params, int fd);
  * specify revision for versioning; CW_REV_LATEST for latest revision
  * queries at specified BitDB-populated MongoDB or BitDB HTTP endpoint
  * if foundHandler specified, will call to indicate if file is found before writing
+ * it recommended that fd be set blocking (~O_NONBLOCK)
  */
 CW_STATUS CWG_get_by_name(const char *name, int revision, struct CWG_params *params, int fd);
 
@@ -208,6 +218,19 @@ CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char 
  * reads directory index data and dumps as readable JSON format to given stream
  */
 CW_STATUS CWG_dirindex_raw_to_json(FILE *indexFp, FILE *indexJsonFp);
+
+/*
+ * initializes MongoDB environment and client pool for multi-threaded scenarios
+ * will set params->mongodbCliPool on success
+ * must call CWG_cleanup_mongo_pool later on
+ */
+CW_STATUS CWG_init_mongo_pool(const char *mongodbAddr, struct CWG_params *params);
+
+/*
+ * cleans up MongoDB client pool (stored in params) and environment;
+ * params->mongodbCliPool will be set NULL
+ */
+void CWG_cleanup_mongo_pool(struct CWG_params *params);
 
 /*
  * returns generic error message by error code

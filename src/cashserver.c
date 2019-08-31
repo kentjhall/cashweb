@@ -5,7 +5,7 @@
 #define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
 #define CS_PORT_DEFAULT 80
-#define TMP_DIRFILE_PATH_DEFAULT P_tmpdir
+#define TMP_DIRFILE_PATH_DEFAULT "/tmp/"
 #define TMP_DIRFILE_TIMEOUT_DEFAULT 20
 
 typedef int CS_CW_STATUS;
@@ -21,12 +21,10 @@ typedef int CS_CW_STATUS;
 
 #define DOT_COUNT(h,c) for (c=0; h[c]; h[c]=='.' ? c++ : *h++);
 
-static uint16_t port = CS_PORT_DEFAULT;
-static char *mongodb = NULL;
-static char *bitdbNode = BITDB_DEFAULT;
 static bool dirBySubdomain = true;
 static const char *tmpDirfilePath = TMP_DIRFILE_PATH_DEFAULT;
 static unsigned int tmpDirfileTimeout = TMP_DIRFILE_TIMEOUT_DEFAULT;
+static struct CWG_params genGetParams;
 
 struct cashRequestData {
 	const char *cwId;
@@ -209,7 +207,7 @@ static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_
 	}
 
 	int dirFildes;
-	if ((dirFildes = mkstemp(tmpDirfileName)) > -1) {
+	if ((dirFildes = open(tmpDirfileName, O_WRONLY | O_CREAT, 0600)) > -1) {
 		fprintf(stderr, "%s: saving requested directory index at identifier '%s' - %s\n", clntip, dirId, tmpDirfileName);
 		struct CWG_params paramsD;
 		copy_CWG_params(&paramsD, params);
@@ -249,6 +247,8 @@ static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_
 		return cashGetDirPathId(dirReq, params, pathId);
 	}
 
+	fprintf(stderr, "ERROR: failed to save/read directory index at %s\n", tmpDirfileName);
+	perror("mkstemp() failed");
 	return CS_SYS_ERR;
 }
 
@@ -259,9 +259,9 @@ static CS_CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, 
 	initCashRequestData(&rd, clntip, mimeType);
 
 	struct CWG_params getParams;
-	init_CWG_params(&getParams, mongodb, bitdbNode, &mimeType);
-	getParams.foundHandler = &cashFoundHandler;	
+	copy_CWG_params(&getParams, &genGetParams);
 	getParams.foundHandleData = &rd;
+	getParams.saveMimeStr = &mimeType;
 
 	const char *idQuery = rd.cwId = url+1;
 	if (!CW_is_valid_cashweb_id(idQuery)) { cashFoundHandler(CS_REQUEST_CWID_NO, NULL, sockfd); return CS_REQUEST_CWID_NO; } 
@@ -273,7 +273,7 @@ static CS_CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, 
 	char *pathId = NULL;
 	char justId[CW_NAMETAG_ID_MAX_LEN];
 	const char *pathPtr;
-	if (CW_is_valid_path_id(idQuery, justId, &pathPtr)) {
+	if (tmpDirfileTimeout > 0 && CW_is_valid_path_id(idQuery, justId, &pathPtr)) {
 		reqPathReplace[0] = 0;
 		if (idQuery[idQueryLen-1] == '/') {
 			strcat(reqPathReplace, pathPtr);
@@ -307,9 +307,9 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(const char *host, const char *u
 	initCashRequestData(&rd, clntip, mimeType);
 
 	struct CWG_params getParams;
-	init_CWG_params(&getParams, mongodb, bitdbNode, &mimeType);
-	getParams.foundHandler = &cashFoundHandler;	
+	copy_CWG_params(&getParams, &genGetParams);
 	getParams.foundHandleData = &rd;
+	getParams.saveMimeStr = &mimeType;
 
 	int endPos = strlen(host);
 	int counter = 0;
@@ -338,8 +338,8 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(const char *host, const char *u
 
 	CW_STATUS status = CW_OK;
 	char *pathId = NULL;
-	CS_CW_STATUS tmpdirStatus;
-	if ((tmpdirStatus = cashGetDirPathId(&rd, &getParams, &pathId)) == CW_OK) {
+	CS_CW_STATUS tmpdirStatus = CW_OK;
+	if (tmpDirfileTimeout > 0 && (tmpdirStatus = cashGetDirPathId(&rd, &getParams, &pathId)) == CW_OK) {
 		fprintf(stderr, "%s: fetching file at identifier '%s'\n", clntip, pathId);
 		getParams.dirPath = NULL;
 		status = CWG_get_by_id(pathId, &getParams, sockfd);
@@ -385,9 +385,18 @@ static int requestHandler(void *cls,
 	const union MHD_ConnectionInfo *info_fd = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CONNECTION_FD);
 	const union MHD_ConnectionInfo *info_addr = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS);
 	const char *clntip = inet_ntoa(((struct sockaddr_in *) info_addr->client_addr)->sin_addr);
-	
-	CS_CW_STATUS status = cashRequestHandle(connection, url, clntip, info_fd->connect_fd);
+	int sockfd = info_fd->connect_fd;
 
+	CS_CW_STATUS status;
+
+	int flags = fcntl(sockfd, F_GETFL, 0);
+	if (flags == -1) { perror("fcntl() failed on getting flags for socket descriptor"); status = CS_SYS_ERR; goto print; }
+	flags &= ~O_NONBLOCK;
+	if (fcntl(sockfd, F_SETFL, flags) == -1) { perror("fcntl() failed on setting flags for socket descriptor"); status = CS_SYS_ERR; goto print; }
+	
+	status = cashRequestHandle(connection, url, clntip, info_fd->connect_fd);
+
+	print:
 	if (status == CW_OK) { fprintf(stderr, "%s: requested file fetched and served\n", clntip); }
 	else if (status == CS_REQUEST_HOST_NO) { fprintf(stderr, "%s: bad request, no host header\n", clntip); }
 	else if (status == CS_REQUEST_CWID_NO) { fprintf(stderr, "%s: bad request %s, invalid identifier\n", clntip, url); }
@@ -398,7 +407,11 @@ static int requestHandler(void *cls,
 }
 
 int main(int argc, char **argv) {
+	unsigned short port = CS_PORT_DEFAULT;
+	char *mongodb = NULL;
+	char *bitdbNode = BITDB_DEFAULT;
 	bool no = false;
+
 	int c;
 	while ((c = getopt(argc, argv, ":nht:d:p:m:lb:")) != -1) {
 		switch (c) {
@@ -443,6 +456,10 @@ int main(int argc, char **argv) {
 		}
 	}	
 
+	init_CWG_params(&genGetParams, NULL, bitdbNode, NULL);
+	genGetParams.foundHandler = &cashFoundHandler;
+
+	if (mongodb) { CWG_init_mongo_pool(mongodb, &genGetParams); }
 	struct MHD_Daemon *d;
 	if ((d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
 				  port,
@@ -452,7 +469,10 @@ int main(int argc, char **argv) {
 				  NULL,
 				  MHD_OPTION_END)) == NULL) { perror("MHD_start_daemon() failed"); exit(1); }
 	fprintf(stderr, "Starting cashserver on port %u... (source is %s at %s)\n", port, mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : bitdbNode);
+
 	(void) getc (stdin);
 	MHD_stop_daemon(d);
+	if (mongodb) { CWG_cleanup_mongo_pool(&genGetParams); } 
+
 	return 0;
 }
