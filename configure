@@ -1429,8 +1429,8 @@ Optional Packages:
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --with-cashserver       specify whether or not to build cashserver binary,
                           default=yes @@
-  --with-cashsend         specify whether or not to build cashsend binary,
-                          default=yes @@
+  --with-cashsend         specify whether or not to build cashsendtools
+                          library + cashsend binary, default=yes @@
   --with-pic[=PKGS]       try to use only PIC/non-PIC objects [default=use
                           both]
   --with-aix-soname=aix|svr4|both

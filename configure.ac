@@ -13,7 +13,7 @@ AC_ARG_WITH([cashserver],
 	[],
 	[with_cashserver=yes])
 AC_ARG_WITH([cashsend],
-	[AS_HELP_STRING([--with-cashsend], [specify whether or not to build cashsend binary, default=yes] @@)],
+	[AS_HELP_STRING([--with-cashsend], [specify whether or not to build cashsendtools library + cashsend binary, default=yes] @@)],
 	[],
 	[with_cashsend=yes])
 

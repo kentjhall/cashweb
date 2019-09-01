@@ -1983,17 +1983,6 @@ static CW_STATUS initFetcher(struct CWG_params *params) {
 				return CWG_FETCH_ERR;
 			}
 			mongoc_client_set_error_api(params->mongodbCli, MONGOC_ERROR_API_VERSION_2);
-			/*
-			unsigned long tid = (unsigned long)pthread_self();
-			char *appnameGen = "cashgettools-";
-			char dummy[2];
-			char appname[strlen(appnameGen) + snprintf(dummy, sizeof(dummy), "%lu", tid) + 1];
-			if (snprintf(appname, sizeof(appname), "%s%ld", appnameGen, tid) >= sizeof(appname)) {
-				fprintf(CWG_err_stream, "MongoDB appname truncated; problem with cashgettools\n");
-				cleanupFetcher(params);
-				return CW_SYS_ERR;
-			}
-			*/
 			mongoc_client_set_appname(params->mongodbCli, MONGODB_APPNAME);
 		}	
 	} 

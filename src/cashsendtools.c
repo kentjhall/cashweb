@@ -29,7 +29,7 @@
 
 /* stream for logging errors; defaults to CWS_err_stream */
 FILE *CWS_err_stream = NULL;
-#define CWS_err_stream (CWS_err_stream ? CWS_err_stream : CWS_err_stream)
+#define CWS_err_stream (CWS_err_stream ? CWS_err_stream : stderr)
 #define perror(str) fprintf(CWS_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
 
 /* rpc method identifiers */
@@ -1852,11 +1852,13 @@ static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp
 			}
 		} else { hexChunk[0] = 0; }
 		strcat(hexChunk, txid);
-		if (end && pdHexStr) {
+		if (end) {
 			if ((status = hexAppendMetadata(&md, hexChunk)) != CW_OK) { return status; }
-			const char *hexDatas[2] = { hexChunkPtr, pdHexStr };
-			if ((status = sendTx(hexDatas, sizeof(hexDatas)/sizeof(hexDatas[0]), end, rp, txid)) != CW_OK) { return status; }
-			break;
+			if (pdHexStr) { 
+				const char *hexDatas[2] = { hexChunkPtr, pdHexStr };
+				if ((status = sendTx(hexDatas, sizeof(hexDatas)/sizeof(hexDatas[0]), end, rp, txid)) != CW_OK) { return status; }
+				break;
+			}
 		}
 		if ((status = sendTx(&hexChunkPtr, 1, end, rp, txid)) != CW_OK) { return status; }
 		if (end) { break; }
