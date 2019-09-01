@@ -1,5 +1,6 @@
 #include "cashwebutils.h"
 #include "cashsendtools.h"
+#include <errno.h>
 #include <libbitcoinrpc/bitcoinrpc.h>
 
 /* general constants */
@@ -25,6 +26,11 @@
 #define TX_OUTPUT_SZ 34
 #define TX_DATA_BASE_SZ 10
 #define TX_SZ_CAP 100000
+
+/* stream for logging errors; defaults to CWS_err_stream */
+FILE *CWS_err_stream = NULL;
+#define CWS_err_stream (CWS_err_stream ? CWS_err_stream : CWS_err_stream)
+#define perror(str) fprintf(CWS_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
 
 /* rpc method identifiers */
 typedef enum RpcMethod {
@@ -477,7 +483,7 @@ CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CW
 
 CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
 	if (!CW_is_valid_name(name)) {
-		fprintf(stderr, "CWS_send_nametag provided with name that is too long (maximum %lu characters)\n", CW_NAME_MAX_LEN);
+		fprintf(CWS_err_stream, "CWS_send_nametag provided with name that is too long (maximum %lu characters)\n", CW_NAME_MAX_LEN);
 		return CW_CALL_NO;
 	}
 
@@ -515,7 +521,7 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 	} else { rpcPack.txsToSend = params->fragUtxos; }
 
 	if ((status = sendBySender(&sender, NULL, resTxid)) == CW_CALL_NO) {
-		fprintf(stderr, "CWS_send_nametag attempted to process name that is too long (%zu characters); problem with cashsendtools\n", strlen(name));
+		fprintf(CWS_err_stream, "CWS_send_nametag attempted to process name that is too long (%zu characters); problem with cashsendtools\n", strlen(name));
 	}
 	if (status != CW_OK) { goto cleanup; }
 
@@ -524,9 +530,9 @@ CW_STATUS CWS_send_nametag(const char *name, const CW_OPCODE *script, size_t scr
 		struct CWS_utxo lock;
 		init_rev_CWS_utxo(&lock, resTxid);
 		if ((status = setRevisionLock((char *)name, &lock, false, params, &rpcPack)) == CW_CALL_NO) {
-			fprintf(stderr, "Failed to lock revisioning utxo, name is already locked; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "Failed to lock revisioning utxo, name is already locked; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 		} else if (status != CW_OK) {
-			fprintf(stderr, "Revisioning utxo lock failed; this may need to be done manually, check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "Revisioning utxo lock failed; this may need to be done manually, check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 			goto cleanup;
 		}	
 	}
@@ -543,13 +549,13 @@ CW_STATUS CWS_send_standard_nametag(const char *name, const char *attachId, stru
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
-	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(CWS_err_stream, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 
 	return CWS_send_nametag(name, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
 
 CW_STATUS CWS_send_revision(const char *revTxid, const CW_OPCODE *script, size_t scriptSz, bool immutable, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (!CW_is_valid_txid(revTxid)) { fprintf(stderr, "CWS_send_revision provided with revision txid of invalid format\n"); return CW_CALL_NO; }
+	if (!CW_is_valid_txid(revTxid)) { fprintf(CWS_err_stream, "CWS_send_revision provided with revision txid of invalid format\n"); return CW_CALL_NO; }
 
 	CW_STATUS status;
 
@@ -577,7 +583,7 @@ CW_STATUS CWS_send_revision(const char *revTxid, const CW_OPCODE *script, size_t
 	struct CWS_utxo inUtxo;
 	init_rev_CWS_utxo(&inUtxo, revTxid);
 	if ((status = setRevisionLock(name, &inUtxo, true, params, &rpcPack)) == CW_CALL_NO) {
-		fprintf(stderr, "Revision txid is not stored as a revision lock; check %s in data directory", CW_DATADIR_REVISIONS_FILE);
+		fprintf(CWS_err_stream, "Revision txid is not stored as a revision lock; check %s in data directory", CW_DATADIR_REVISIONS_FILE);
 		goto cleanup;
 	} else if (status != CW_OK) { goto relock; }
 
@@ -591,16 +597,16 @@ CW_STATUS CWS_send_revision(const char *revTxid, const CW_OPCODE *script, size_t
 	} else { rpcPack.txsToSend = params->fragUtxos; }
 
 	if ((status = sendBySender(&sender, NULL, resTxid)) == CWS_INPUTS_NO) {
-		fprintf(stderr, "RPC reporting bad UTXO(s); check that UTXO specified for CWS_send_revision is owned by this wallet\n");
+		fprintf(CWS_err_stream, "RPC reporting bad UTXO(s); check that UTXO specified for CWS_send_revision is owned by this wallet\n");
 	} else if (status != CW_OK) { goto relock; }
 
 	struct CWS_utxo resUtxo;
 	init_rev_CWS_utxo(&resUtxo, resTxid);
 	if (!immutable && !rpcPack.forceOutputAddrLast) {
 		if ((status = setRevisionLock(name, &resUtxo, false, params, &rpcPack)) == CW_CALL_NO) {
-			fprintf(stderr, "Failed to lock revisioning utxo, name is already locked; check %s in data directory; problem with cashsendtools\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "Failed to lock revisioning utxo, name is already locked; check %s in data directory; problem with cashsendtools\n", CW_DATADIR_REVISIONS_FILE);
 		} else if (status != CW_OK) {
-			fprintf(stderr, "Revisioning utxo lock failed; this may need to be done manually, check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "Revisioning utxo lock failed; this may need to be done manually, check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 		}	
 	}		
 	goto cleanup;
@@ -620,7 +626,7 @@ CW_STATUS CWS_send_replace_revision(const char *revTxid, const char *attachId, s
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
-	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(CWS_err_stream, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
 	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
@@ -630,7 +636,7 @@ CW_STATUS CWS_send_prepend_revision(const char *revTxid, const char *attachId, s
 	CW_OPCODE scriptBytes[FILE_DATA_BUF + (strlen(attachId)-CW_NAMETAG_PREFIX_LEN)]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
-	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(CWS_err_stream, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 
 	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
 }
@@ -640,7 +646,7 @@ CW_STATUS CWS_send_append_revision(const char *revTxid, const char *attachId, st
 	size_t scriptSz = 0;
 	CWS_gen_script_standard_start(rvp, params, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_WRITEFROMPREV;
-	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(CWS_err_stream, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_TERM;
 
 	return CWS_send_revision(revTxid, scriptBytes, scriptSz, rvp->immutable, params, fundsUsed, resTxid);
@@ -653,7 +659,7 @@ CW_STATUS CWS_send_insert_revision(const char *revTxid, size_t bytePos, const ch
 	scriptPtr[scriptSz++] = CW_OP_STOREFROMPREV;
 	CWS_gen_script_push_int(bytePos-1, scriptPtr, &scriptSz);
 	scriptPtr[scriptSz++] = CW_OP_WRITESOMEFROMSTORED;
-	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(stderr, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
+	if (!CWS_gen_script_writefrom_id(attachId, scriptPtr, &scriptSz)) { fprintf(CWS_err_stream, "invalid attachId provided for nametag/revisioning\n"); return CW_CALL_NO; }
 	scriptPtr[scriptSz++] = CW_OP_WRITEFROMSTORED;
 	scriptPtr[scriptSz++] = CW_OP_DROPSTORED;
 	scriptPtr[scriptSz++] = CW_OP_TERM;
@@ -662,7 +668,7 @@ CW_STATUS CWS_send_insert_revision(const char *revTxid, size_t bytePos, const ch
 }
 
 CW_STATUS CWS_send_delete_revision(const char *revTxid, size_t startPos, size_t bytesToDel, struct CWS_revision_pack *rvp, struct CWS_params *params, double *fundsUsed, char *resTxid) {
-	if (bytesToDel < 1) { fprintf(stderr, "CWS_send_delete_revision provided with invalid number of bytes to delete\n"); return CW_CALL_NO; }
+	if (bytesToDel < 1) { fprintf(CWS_err_stream, "CWS_send_delete_revision provided with invalid number of bytes to delete\n"); return CW_CALL_NO; }
 
 	CW_OPCODE scriptBytes[FILE_DATA_BUF]; CW_OPCODE *scriptPtr = scriptBytes;
 	size_t scriptSz = 0;
@@ -740,7 +746,7 @@ bool CWS_gen_script_writefrom_id(const char *id, CW_OPCODE *scriptPtr, size_t *s
 	const char *name;
 	int rev;
 	if (CW_is_valid_nametag_id(id, &rev, &name)) {
-		if (rev >= 0) { fprintf(stderr, "nametag/revision scripting doesn't support attaching specific revision of nametag\n"); return false; }
+		if (rev >= 0) { fprintf(CWS_err_stream, "nametag/revision scripting doesn't support attaching specific revision of nametag\n"); return false; }
 		CWS_gen_script_writefrom_nametag(name, scriptPtr, scriptSz);
 		return true;
 	} else { return CW_is_valid_txid(id) ? CWS_gen_script_writefrom_txid(id, scriptPtr, scriptSz) : false; }
@@ -767,7 +773,7 @@ CW_STATUS CWS_wallet_lock_revision_utxos(struct CWS_params *params) {
 
 CW_STATUS CWS_set_revision_lock(const char *name, const char *revTxid, bool unlock, struct CWS_params *csp) {
 	if (name && !CW_is_valid_name(name)) {
-		fprintf(stderr, "CWS_set_revision_lock provided with name that is too long (maximum %lu characters)\n", CW_NAME_MAX_LEN);
+		fprintf(CWS_err_stream, "CWS_set_revision_lock provided with name that is too long (maximum %lu characters)\n", CW_NAME_MAX_LEN);
 		return CW_CALL_NO;
 	}
 	
@@ -784,9 +790,9 @@ CW_STATUS CWS_set_revision_lock(const char *name, const char *revTxid, bool unlo
 	
 	if ((status = setRevisionLock(name ? rName : NULL, revTxid ? &revUtxo : NULL, unlock, csp, &rp)) == CW_CALL_NO) {
 		if (unlock) {
-			fprintf(stderr, "Failed to unlock revisioning utxo, name and/or utxo is not stored as a revision lock; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "Failed to unlock revisioning utxo, name and/or utxo is not stored as a revision lock; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 		} else {
-			fprintf(stderr, "Failed to lock revisioning utxo, name and/or utxo is already locked; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "Failed to lock revisioning utxo, name and/or utxo is already locked; check %s in data directory\n", CW_DATADIR_REVISIONS_FILE);
 		}
 	}
 
@@ -807,7 +813,7 @@ CW_STATUS CWS_get_stored_revision_txid_by_name(const char *name, struct CWS_para
 		const char *rTxid = json_string_value(json_object_get(rUtxo, "txid"));
 		int rVout = json_integer_value(json_object_get(rUtxo, "vout"));
 		if (!rTxid || rVout != CW_REVISION_INPUT_VOUT) {
-			fprintf(stderr, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
 			status = CW_DATADIR_NO;
 			goto cleanup;
 		}
@@ -849,8 +855,7 @@ CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params
 
 	// open protocol-specific mime.types file
 	if ((mimeTypes = fopen(mtFilePath, "r")) == NULL) {
-		fprintf(stderr, "fopen() failed on path %s; unable to open cashweb mime.types\n", mtFilePath);
-		perror(NULL);
+		fprintf(CWS_err_stream, "fopen() failed on path %s; unable to open cashweb mime.types: %s\n", mtFilePath, strerror(errno));
 		status = CW_SYS_ERR;
 		goto cleanup;
 	}	
@@ -890,12 +895,12 @@ CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params
 CW_STATUS CWS_dirindex_json_to_raw(FILE *indexJsonFp, FILE *indexFp) {
 	json_error_t e;
 	json_t *indexJson;
-	if ((indexJson = json_loadf(indexJsonFp, 0, &e)) == NULL) { fprintf(stderr, "json_loadf() failed\nMessage: %s\n", e.text); return CW_SYS_ERR; }
+	if ((indexJson = json_loadf(indexJsonFp, 0, &e)) == NULL) { fprintf(CWS_err_stream, "json_loadf() failed\nMessage: %s\n", e.text); return CW_SYS_ERR; }
 
 	CW_STATUS status = CW_OK;
 
 	size_t numEntries = json_object_size(indexJson);
-	if (numEntries < 1) { fprintf(stderr, "CWS_dirindex_json_to_raw provided with empty JSON data\n"); json_decref(indexJson); return CW_CALL_NO; }
+	if (numEntries < 1) { fprintf(CWS_err_stream, "CWS_dirindex_json_to_raw provided with empty JSON data\n"); json_decref(indexJson); return CW_CALL_NO; }
 	char txidsByteData[numEntries*CW_TXID_BYTES];
 
 	size_t tCount = 0;
@@ -910,12 +915,12 @@ CW_STATUS CWS_dirindex_json_to_raw(FILE *indexJsonFp, FILE *indexFp) {
 		strcat(dirPath, path);
 
 		if (tCount+nCount >= numEntries) {
-			fprintf(stderr, "invalid numEntries calculated in CWS_dirindex_json_to_raw; problem with cashsendtools\n");
+			fprintf(CWS_err_stream, "invalid numEntries calculated in CWS_dirindex_json_to_raw; problem with cashsendtools\n");
 			status = CW_SYS_ERR;
 			goto cleanup;
 		}
 		if ((id = json_string_value(idVal)) == NULL) {
-			fprintf(stderr, "CWS_dirindex_json_to_raw provided with empty JSON data\n");
+			fprintf(CWS_err_stream, "CWS_dirindex_json_to_raw provided with empty JSON data\n");
 			status = CW_CALL_NO;
 			goto cleanup;
 		}
@@ -927,14 +932,14 @@ CW_STATUS CWS_dirindex_json_to_raw(FILE *indexJsonFp, FILE *indexFp) {
 		}
 		else {
 			if (hexStrToByteArr(id, 0, txidsByteData+(tCount++ * CW_TXID_BYTES)) != CW_TXID_BYTES) {
-				fprintf(stderr, "CWS_dirindex_json_to_raw provided JSON contains invalid txid(s)\n");
+				fprintf(CWS_err_stream, "CWS_dirindex_json_to_raw provided JSON contains invalid txid(s)\n");
 				status = CW_CALL_NO;
 				goto cleanup;
 			}
 		}
 	}
 	if (tCount+nCount < numEntries) {
-		fprintf(stderr, "invalid numEntries calculated in CWS_dirindex_json_to_raw; problem with cashsendtools\n");
+		fprintf(CWS_err_stream, "invalid numEntries calculated in CWS_dirindex_json_to_raw; problem with cashsendtools\n");
 		status = CW_SYS_ERR;
 		goto cleanup;
 	}
@@ -990,16 +995,16 @@ static CW_STATUS rpcCallAttempt(struct CWS_rpc_pack *rp, RPC_METHOD_ID rpcMethod
 	CW_STATUS status = CW_OK;
 
 	struct bitcoinrpc_method *rpcMethod = rp->methods[rpcMethodI];
-	if (!rpcMethod) { fprintf(stderr, "rpc method (identifier %d) not initialized; probably an issue with cashsendtools\n", rpcMethodI);
+	if (!rpcMethod) { fprintf(CWS_err_stream, "rpc method (identifier %d) not initialized; probably an issue with cashsendtools\n", rpcMethodI);
 			  status = CW_SYS_ERR; goto cleanup; }
 	if (params != NULL && bitcoinrpc_method_set_params(rpcMethod, params) != BITCOINRPCE_OK) {
-		fprintf(stderr, "count not set params for rpc method (identifier %d); probably an issue with cashsendtools\n", rpcMethodI);
+		fprintf(CWS_err_stream, "count not set params for rpc method (identifier %d); probably an issue with cashsendtools\n", rpcMethodI);
 		status = CW_SYS_ERR;
 		goto cleanup;
 	}
 	bitcoinrpc_call(rp->cli, rpcMethod, bResponse, &bError);	
 
-	if (bError.code != BITCOINRPCE_OK) { fprintf(stderr, "rpc error %d [%s]\n", bError.code, bError.msg); status = CWS_RPC_ERR; goto cleanup; }
+	if (bError.code != BITCOINRPCE_OK) { fprintf(CWS_err_stream, "rpc error %d [%s]\n", bError.code, bError.msg); status = CWS_RPC_ERR; goto cleanup; }
 
 	json_t *jsonResponse = bitcoinrpc_resp_get(bResponse);
 	*jsonResult = json_object_get(jsonResponse, "result");
@@ -1023,7 +1028,7 @@ static CW_STATUS rpcCall(struct CWS_rpc_pack *rp, RPC_METHOD_ID rpcMethodI, json
 	CW_STATUS status;
 	while ((status = rpcCallAttempt(rp, rpcMethodI, params, jsonResult)) == CWS_RPC_ERR) {
 		if (!printed) {
-			fprintf(stderr, "\nRPC request failed, please ensure bitcoind is running and configured correctly; retrying...\n");
+			fprintf(CWS_err_stream, "\nRPC request failed, please ensure bitcoind is running and configured correctly; retrying...\n");
 			printed = true;
 		}
 		sleep(ERR_WAIT_CYCLE);
@@ -1099,7 +1104,7 @@ static CW_STATUS setRevisionLock(char *name, struct CWS_utxo *utxo, bool unlock,
 			rTxid = json_string_value(json_object_get(rUtxo, "txid"));
 			rVout = json_integer_value(json_object_get(rUtxo, "vout"));
 			if (!rTxid || rVout != CW_REVISION_INPUT_VOUT) {
-				fprintf(stderr, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
+				fprintf(CWS_err_stream, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
 				return CW_DATADIR_NO;
 			}
 
@@ -1117,7 +1122,7 @@ static CW_STATUS setRevisionLock(char *name, struct CWS_utxo *utxo, bool unlock,
 		rTxid = json_string_value(json_object_get(rUtxo, "txid"));
 		rVout = json_integer_value(json_object_get(rUtxo, "vout"));
 		if (!rTxid || rVout != CW_REVISION_INPUT_VOUT) {
-			fprintf(stderr, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
+			fprintf(CWS_err_stream, "%s formatting is invalid; check file in data directory\n", CW_DATADIR_REVISIONS_FILE);
 			return CW_DATADIR_NO;
 		}
 
@@ -1215,7 +1220,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		txDataSz += txDataSize((hexLen = strlen(hexDatas[i])), &extraByte);
 		if (hexDatasC > 1) {
 			if ((dataSz = hexLen/2) > 255) {
-				fprintf(stderr, "sendTxAttempt() doesn't support data >255 bytes; cashsendtools may need revision if this standard has changed\n");
+				fprintf(CWS_err_stream, "sendTxAttempt() doesn't support data >255 bytes; cashsendtools may need revision if this standard has changed\n");
 				
 				if (!rp->reservedUtxos) { json_decref(unspents); }	
 				return CW_SYS_ERR;
@@ -1233,7 +1238,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	bool tinyChange = isLast && rp->forceTinyChangeLast;
 	bool distributed = false;
 	if (unspents != rp->reservedUtxos && rp->txsToSend > numUnspents && rp->txsToSend >= TX_MAX_0CONF_CHAIN) {
-		if (useUnconfirmed && sameFee && !rp->justCounting) { fprintf(stderr, "Distributing UTXOs..."); }
+		if (useUnconfirmed && sameFee && !rp->justCounting) { fprintf(CWS_err_stream, "Distributing UTXOs..."); }
 		distributed = true;
 		reuseChangeOutCount = (rp->txsToSend - 1) - (numUnspents - 1);
 		reuseChangeAmnt = feePerByte*(TX_BASE_SZ+TX_INPUT_SZ+TX_OUTPUT_SZ+TX_DATA_BASE_SZ+CW_TX_RAW_DATA_BYTES) + TX_TINYCHANGE_AMNT;
@@ -1475,7 +1480,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	if (tinyChange) {
 		char tinyChangeAmntStr[B_AMNT_STR_BUF];
 		if (snprintf(tinyChangeAmntStr, B_AMNT_STR_BUF, "%.8f", TX_TINYCHANGE_AMNT) >= B_AMNT_STR_BUF) {
-			fprintf(stderr, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
+			fprintf(CWS_err_stream, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
 			json_decref(inputParams);
 			json_decref(outputParams);
 			return CW_SYS_ERR;
@@ -1502,7 +1507,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	// create reuse change amount string
 	char reuseChangeAmntStr[B_AMNT_STR_BUF];
 	if (snprintf(reuseChangeAmntStr, B_AMNT_STR_BUF, "%.8f", reuseChangeAmnt) >= B_AMNT_STR_BUF) {
-		fprintf(stderr, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
+		fprintf(CWS_err_stream, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
 		json_decref(inputParams);
 		json_decref(outputParams);
 		return CW_SYS_ERR;
@@ -1528,7 +1533,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		// create change amount string
 		char changeAmntStr[B_AMNT_STR_BUF];
 		if (snprintf(changeAmntStr, B_AMNT_STR_BUF, "%.8f", changeAmnt) >= B_AMNT_STR_BUF) {
-			fprintf(stderr, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
+			fprintf(CWS_err_stream, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
 			json_decref(inputParams);
 			json_decref(outputParams);
 			return CW_SYS_ERR;
@@ -1575,7 +1580,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	// edit raw transaction for extra hex datas if present
 	if (hexDatasC > 1) {
 		if (++txDataSz > 255) {
-			fprintf(stderr, "collective hex datas too big; sendTxAttempt() may need update in cashsendtools if the standard has changed\n");
+			fprintf(CWS_err_stream, "collective hex datas too big; sendTxAttempt() may need update in cashsendtools if the standard has changed\n");
 			free(rawTx);
 			return CW_SYS_ERR;
 		}
@@ -1584,19 +1589,19 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		byteArrToHexStr((const char *)txDataSzByte, 1, txDataSzHex);
 		char *rtEditPtr; char *rtEditPtrS;
 		if ((rtEditPtr = rtEditPtrS = strstr(rawTx, txHexData)) == NULL) {
-			fprintf(stderr, "rawTx parsing error in sendTxAttempt(), attached hex data not found; problem with cashsendtools\n");
+			fprintf(CWS_err_stream, "rawTx parsing error in sendTxAttempt(), attached hex data not found; problem with cashsendtools\n");
 			free(rawTx);
 			return CW_SYS_ERR;
 		}
 		bool opRetFound = false;
 		for (; !(opRetFound = !strncmp(rtEditPtr, TX_OP_RETURN, 2)) && rtEditPtr-rawTx > 0; rtEditPtr -= 2);
 		if (!opRetFound) {
-			fprintf(stderr, "rawTx parsing error in sendTxAttempt(), op return code not found; problem with cashsendtools\n");
+			fprintf(CWS_err_stream, "rawTx parsing error in sendTxAttempt(), op return code not found; problem with cashsendtools\n");
 			free(rawTx);
 			return CW_SYS_ERR;
 		}
 		if ((rtEditPtr -= 2)-rawTx <= 0) {
-			fprintf(stderr, "rawTx parsing error in sendTxAttempt(), parsing rawTx arrived at invalid location; problem with cashsendtools\n");
+			fprintf(CWS_err_stream, "rawTx parsing error in sendTxAttempt(), parsing rawTx arrived at invalid location; problem with cashsendtools\n");
 			free(rawTx);
 			return CW_SYS_ERR;
 		}
@@ -1605,7 +1610,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		rtEditPtr += 2 + 2;
 		int removed = rtEditPtrS - rtEditPtr;
 		if (removed < 0) {
-			fprintf(stderr, "rawTx parsing error in sendTxAttempt(), editing pointer locations wrong; problem with cashsendtools\n");
+			fprintf(CWS_err_stream, "rawTx parsing error in sendTxAttempt(), editing pointer locations wrong; problem with cashsendtools\n");
 			free(rawTx);
 			return CW_SYS_ERR;
 		}
@@ -1625,7 +1630,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	json_decref(params);
 	if (status == CWS_RPC_NO) {
 		json_decref(jsonResult);
-		fprintf(stderr, "error occurred in signing raw transaction; problem with cashsendtools\n\nraw tx:\n%s\n\n",
+		fprintf(CWS_err_stream, "error occurred in signing raw transaction; problem with cashsendtools\n\nraw tx:\n%s\n\n",
 			rawTx);
 		free(rawTx);
 		return status;
@@ -1653,13 +1658,13 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		rp->costCount += fee + changeLost;
 		strncpy(resTxid, json_string_value(jsonResult), CW_TXID_CHARS);
 		resTxid[CW_TXID_CHARS] = 0;
-		fprintf(stderr, "-");
+		fprintf(CWS_err_stream, "-");
 	} else if (status == CWS_RPC_NO) {
 		const char *msg = json_string_value(json_object_get(jsonResult, "message"));
 		if (strstr(msg, "too-long-mempool-chain")) { status = CWS_CONFIRMS_NO; }
 		else if (strstr(msg, "insufficient priority")) { status = CWS_FEE_NO; }
 		else if (strstr(msg, "txn-mempool-conflict") || strstr(msg, "Missing inputs")) { status = CWS_INPUTS_NO; }
-		else { fprintf(stderr, "\nunhandled RPC error on sendrawtransaction\n"); }
+		else { fprintf(CWS_err_stream, "\nunhandled RPC error on sendrawtransaction\n"); }
 	} else {
 		if (jsonResult) { json_decref(jsonResult); }
 		return status;
@@ -1694,7 +1699,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		}
 
 		if (distributed && rp->reservedUtxosCount >= rp->txsToSend && rp->txsToSend >= TX_MAX_0CONF_CHAIN && !rp->justCounting) {
-			fprintf(stderr, "Waiting on 1-conf...");
+			fprintf(CWS_err_stream, "Waiting on 1-conf...");
 			int confs;
 			json_t *params;
 			if ((params = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
@@ -1735,32 +1740,32 @@ static CW_STATUS sendTx(const char **hexDatas, size_t hexDatasC, bool isLast, st
 			case CWS_FUNDS_NO:
 				if ((checkBalStatus = checkBalance(rp, &balance)) != CW_OK) { return checkBalStatus; }
 				do {
-					if (!printed) { fprintf(stderr, "Insufficient balance, send more funds..."); printed = true; }
+					if (!printed) { fprintf(CWS_err_stream, "Insufficient balance, send more funds..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
 					if ((checkBalStatus = checkBalance(rp, &balanceN)) != CW_OK) { return checkBalStatus; }
 				} while (balanceN <= balance);
 				break;
 			case CWS_CONFIRMS_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, isLast, rp, false, true, resTxid)) == CWS_CONFIRMS_NO) {
-					if (!printed) { fprintf(stderr, "Waiting on confirmations..."); printed = true; }
+					if (!printed) { fprintf(CWS_err_stream, "Waiting on confirmations..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
 				}
 				break;
 			case CWS_FEE_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, isLast, rp, true, false, resTxid)) == CWS_FEE_NO) {
-					if (!printed) { fprintf(stderr, "Fee problem, attempting to resolve..."); printed = true; }
+					if (!printed) { fprintf(CWS_err_stream, "Fee problem, attempting to resolve..."); printed = true; }
 				}
 				break;
 			case CWS_INPUTS_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, isLast, rp, true, true, resTxid)) == CWS_INPUTS_NO) {
 					if (isLast && rp->forceInputUtxoLast) { break; }
-					if (!printed) { fprintf(stderr, "Bad UTXOs, attempting to resolve..."); printed = true; }
+					if (!printed) { fprintf(CWS_err_stream, "Bad UTXOs, attempting to resolve..."); printed = true; }
 					if (rp->reservedUtxos && json_array_size(rp->reservedUtxos) == 0 && ++count >= 2) { break; }
 				}
 				if (status == CWS_INPUTS_NO) { return status; }
 				break;
 			case CWS_RPC_NO:
-				fprintf(stderr, "RPC response error: %s\n", rp->errMsg);
+				fprintf(CWS_err_stream, "RPC response error: %s\n", rp->errMsg);
 				return status;
 			default:
 				return status;
@@ -1801,7 +1806,7 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
 	}
 
 	// this should not happen, but checks for NULL recovery stream just in case
-	if (!params->recoveryStream) { fprintf(stderr, "\nrecoveryStream is NULL pointer"); err = true; goto cleanup; }
+	if (!params->recoveryStream) { fprintf(CWS_err_stream, "\nrecoveryStream is NULL pointer"); err = true; goto cleanup; }
 
 	// write recovery info string to recovery stream	
 	if (fputs(info.data, params->recoveryStream) == EOF) { perror("fputs() failed"); err = true; goto cleanup; }
@@ -1812,7 +1817,7 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
 
 	cleanup:
 		freeDynamicMemory(&info);
-		if (err) { fprintf(stderr, "\nERROR: failed to write recovery data\n"); }
+		if (err) { fprintf(CWS_err_stream, "\nERROR: failed to write recovery data\n"); }
 		return !err;
 }
 
@@ -1955,11 +1960,11 @@ static CW_STATUS sendFileTree(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp,
 		if (status != CW_OK && status != CW_CALL_NO && recover) {
 			if (fundsLost) { *fundsLost = rp->costCount; }
 			if (depth > 0) {
-				fprintf(stderr, "\nError met, saving recovery data...\n");
+				fprintf(CWS_err_stream, "\nError met, saving recovery data...\n");
 				if (saveRecoveryData(fp, depth, params)) {
-					fprintf(stderr, "Recovery data saved!\n");
+					fprintf(CWS_err_stream, "Recovery data saved!\n");
 					if (fundsLost) { *fundsLost -= safeCost; }
-				} else { fprintf(stderr, "Failed to save recovery data; progress lost\n"); }
+				} else { fprintf(CWS_err_stream, "Failed to save recovery data; progress lost\n"); }
 			}
 		}
 		return status;
@@ -1967,7 +1972,7 @@ static CW_STATUS sendFileTree(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp,
 
 static CW_STATUS sendFileFromStream(FILE *stream, int sDepth, char *pdHexStr, struct CWS_rpc_pack *rp, struct CWS_params *params, double *fundsLost, char *resTxid) {
 	if (params->cwType == CW_T_MIMESET && !rp->justCounting) {
-		fprintf(stderr, "WARNING: params specified type CW_T_MIMESET, but cashsendtools cannot determine mimetype when sending from stream;\n"
+		fprintf(CWS_err_stream, "WARNING: params specified type CW_T_MIMESET, but cashsendtools cannot determine mimetype when sending from stream;\n"
 				 "defaulting to CW_T_FILE\n");
 		params->cwType = CW_T_FILE;
 	}
@@ -1975,7 +1980,7 @@ static CW_STATUS sendFileFromStream(FILE *stream, int sDepth, char *pdHexStr, st
 
 	status = sendFileTree(stream, pdHexStr, rp, params, sDepth, fundsLost, resTxid);
 
-	if (!rp->justCounting) { fprintf(stderr, "\n"); }
+	if (!rp->justCounting) { fprintf(CWS_err_stream, "\n"); }
 	return status;
 }
 
@@ -1988,7 +1993,7 @@ static CW_STATUS sendFileFromPath(const char *path, struct CWS_rpc_pack *rp, str
 	if (params->cwType == CW_T_MIMESET) {
 		if ((status = CWS_set_cw_mime_type_by_extension(path, params)) != CW_OK) { goto cleanup; }
 		if (!rp->justCounting && params->cwType == CW_T_FILE) {
-			fprintf(stderr, "\ncashsendtools failed to match '%s' to anything in mime.types; defaults to CW_T_FILE\n", path);
+			fprintf(CWS_err_stream, "\ncashsendtools failed to match '%s' to anything in mime.types; defaults to CW_T_FILE\n", path);
 		}
 	}
 
@@ -2052,18 +2057,18 @@ static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rp, stru
 	FTSENT *p;
 	while ((p = fts_read(ftsp)) != NULL && count < numFiles) {
 		if (p->fts_info == FTS_F && strncmp(p->fts_path, path, pathLen) == 0) {
-			if (!rp->justCounting) { fprintf(stderr, "Sending %s...", p->fts_path+pathLen); }
+			if (!rp->justCounting) { fprintf(CWS_err_stream, "Sending %s...", p->fts_path+pathLen); }
 
 			// create a clean copy of params for every file, as they may be altered during send
 			copy_CWS_params(&fileParams, params);
 
 			if ((status = sendFileFromPath(p->fts_path, rp, &fileParams, fundsLost, txid)) != CW_OK) { goto cleanup; }
-			if (!rp->justCounting) { fprintf(stderr, "%s\n\n", txid); }
+			if (!rp->justCounting) { fprintf(CWS_err_stream, "%s\n\n", txid); }
 
 			if (!params->dirOmitIndex || params->saveDirStream) {
 				// txids are stored as byte data (rather than hex string) in txidsByteData
 				if (hexStrToByteArr(txid, 0, txidsByteData+(count*CW_TXID_BYTES)) != CW_TXID_BYTES) {
-					fprintf(stderr, "invalid txid from sendFile(); problem with cashsendtools\n");
+					fprintf(CWS_err_stream, "invalid txid from sendFile(); problem with cashsendtools\n");
 					status = CW_SYS_ERR;
 					goto cleanup;
 				}
@@ -2088,7 +2093,7 @@ static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rp, stru
 		if (!params->dirOmitIndex) {
 			// send directory index
 			rewind(dirFp);
-			if (!rp->justCounting) { fprintf(stderr, "Sending directory index..."); }
+			if (!rp->justCounting) { fprintf(CWS_err_stream, "Sending directory index..."); }
 			struct CWS_params dirIndexParams;
 			copy_CWS_params(&dirIndexParams, params);
 			dirIndexParams.cwType = CW_T_DIR;
@@ -2165,8 +2170,7 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 		rpcPack->methods[i] = bitcoinrpc_method_init_params(method, mParams);
 		if (mParams != NULL) { json_decref(mParams); }
 		if (rpcPack->methods[i] == NULL) {
-			fprintf(stderr, "bitcoinrpc_method_init() failed for rpc method %d\n", i);
-			perror(NULL);
+			fprintf(CWS_err_stream, "bitcoinrpc_method_init() failed for rpc method %d: %s\n", i, strerror(errno));
 			return CW_SYS_ERR;
 		}
 		if (nonStdName != NULL) { bitcoinrpc_method_set_nonstandard(rpcPack->methods[i], nonStdName); }
@@ -2201,7 +2205,7 @@ static CW_STATUS initRpc(struct CWS_params *params, struct CWS_rpc_pack *rpcPack
 	if (access(rpcPack->revLocksPath, F_OK) == 0) {
 		json_error_t e;
 		if ((rpcPack->revisionLocks = json_load_file(rpcPack->revLocksPath, 0, &e)) == NULL) {
-			fprintf(stderr, "json_load_file() failed\nMessage:%s\n", e.text);
+			fprintf(CWS_err_stream, "json_load_file() failed\nMessage:%s\n", e.text);
 			return CW_SYS_ERR;
 		}	
 		CW_STATUS lockStatus = lockRevisionUnspents(rpcPack->revisionLocks, false, rpcPack);	
@@ -2262,7 +2266,7 @@ static CW_STATUS countBySender(struct CWS_sender *sender, size_t *txCount, doubl
 	else if (sender->fromPath) {
 		status = sender->fromPath(sender->path, sender->asDir, sender->rp, sender->csp, NULL, dummyTxid);
 	}
-	else { fprintf(stderr, "no send func specified in struct CWS_sender; problem with cashsendtools"); status = CW_SYS_ERR; }
+	else { fprintf(CWS_err_stream, "no send func specified in struct CWS_sender; problem with cashsendtools"); status = CW_SYS_ERR; }
 
 	sender->rp->justTxCounting = false;
 	sender->rp->justCounting = false;
@@ -2284,7 +2288,7 @@ static CW_STATUS sendBySender(struct CWS_sender *sender, double *fundsLost, char
 	else if (sender->fromPath) {
 		status = sender->fromPath(sender->path, sender->asDir, sender->rp, sender->csp, fundsLost, resTxid);
 	}
-	else { fprintf(stderr, "no send func specified in struct CWS_sender; problem with cashsendtools"); status = CW_SYS_ERR; }
+	else { fprintf(CWS_err_stream, "no send func specified in struct CWS_sender; problem with cashsendtools"); status = CW_SYS_ERR; }
 
 	return status;
 }

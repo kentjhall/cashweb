@@ -24,6 +24,9 @@
 /* required array size if passing saveMimeStr in params */
 #define CWG_MIMESTR_BUF 256
 
+/* can be set to redirect cashgettools error logging; defaults to stderr */
+extern FILE *CWG_err_stream;
+
 /*
  * params for getting
  * mongodb: MongoDB address (assumed to be populated by BitDB Node); indicates for cashgettools to handle initialization/cleanup of mongoc environment/client

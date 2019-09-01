@@ -16,6 +16,9 @@
 /* data directory paths for cashsendtools */
 #define CW_DATADIR_REVISIONS_FILE "revision_locks.json"
 
+/* can be set to redirect cashsendtools error logging; defaults to stderr */
+extern FILE *CWS_err_stream;
+
 /*
  * params for sending
  * rpcServer: RPC address

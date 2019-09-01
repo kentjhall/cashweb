@@ -23,6 +23,11 @@
 #define BITDB_QUERY_DATA_TAG "d"
 #define BITDB_REQUEST_TIMEOUT 20L
 
+/* stream for logging errors; defaults to stderr */
+FILE *CWG_err_stream = NULL;
+#define CWG_err_stream (CWG_err_stream ? CWG_err_stream : stderr)
+#define perror(str) fprintf(CWG_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
+
 /* Fetch typing */
 typedef enum FetchType {
 	BY_TXID,
@@ -300,7 +305,7 @@ CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd) {
 	if ((status = initFetcher(params)) != CW_OK) { return status; } 
 
 	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
-	if ((status = getFileByIdPath(id, params->dirPath, NULL, params, fd)) == CW_CALL_NO) { fprintf(stderr, "CWG_get_by_id provided with invalid identifier\n"); }
+	if ((status = getFileByIdPath(id, params->dirPath, NULL, params, fd)) == CW_CALL_NO) { fprintf(CWG_err_stream, "CWG_get_by_id provided with invalid identifier\n"); }
 	params->foundHandler = savePtr;
 	
 	cleanupFetcher(params);
@@ -511,7 +516,7 @@ CW_STATUS CWG_dirindex_raw_to_json(FILE *indexFp, FILE *indexJsonFp) {
 		byteArrToHexStr(pathTxidBytes, CW_TXID_BYTES, txid);
 
 		if ((path = popFront(&paths)) == NULL) {
-			fprintf(stderr, "unexpected empty list in CWG_dirindex_raw_to_json; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "unexpected empty list in CWG_dirindex_raw_to_json; problem with cashgettools\n");
 			status = CW_SYS_ERR;
 			goto cleanup;
 		}
@@ -534,7 +539,7 @@ CW_STATUS CWG_init_mongo_pool(const char *mongodbAddr, struct CWG_params *params
 	bson_error_t error;  
 	mongoc_uri_t *uri = mongoc_uri_new_with_error(mongodbAddr, &error);
 	if (!uri) {
-		fprintf(stderr, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
+		fprintf(CWG_err_stream, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
 		mongoc_cleanup();
 		return CW_CALL_NO;
 	}
@@ -542,7 +547,7 @@ CW_STATUS CWG_init_mongo_pool(const char *mongodbAddr, struct CWG_params *params
 	params->mongodbCliPool = mongoc_client_pool_new(uri);
 	mongoc_uri_destroy(uri);	
 	if (!params->mongodbCliPool) {
-		fprintf(stderr, "ERROR: cashgettools failed to establish client with MongoDB\n");
+		fprintf(CWG_err_stream, "ERROR: cashgettools failed to establish client with MongoDB\n");
 		mongoc_cleanup();
 		return CWG_FETCH_ERR;
 	}
@@ -640,7 +645,7 @@ static bool counter_copy_CWG_nametag_info(struct CWG_nametag_info *cni, struct C
 	for (i=0; i<nameRefsCount; i++) {
 		if (((cni->nameRefs)[i] = popFront(&cnc->nameRefs)) == NULL) {
 			// list will be NULL-terminated in this case, so cleanup can be handled normally
-			fprintf(stderr, "incorrect listLength() calculation; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "incorrect listLength() calculation; problem with cashgettools\n");
 			return false;
 		}
 	}
@@ -651,7 +656,7 @@ static bool counter_copy_CWG_nametag_info(struct CWG_nametag_info *cni, struct C
 	for (i=0; i<txidRefsCount; i++) {
 		if (((cni->txidRefs)[i] = popFront(&cnc->txidRefs)) == NULL) {
 			// list will be NULL-terminated in this case, so cleanup can be handled normally
-			fprintf(stderr, "incorrect listLength() calculation; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "incorrect listLength() calculation; problem with cashgettools\n");
 			return false;
 		}
 	}
@@ -662,7 +667,7 @@ static bool counter_copy_CWG_nametag_info(struct CWG_nametag_info *cni, struct C
 
 static void protocolCheck(uint16_t pVer) {
 	if (pVer > CW_P_VER) {
-		fprintf(stderr, "WARNING: requested file signals a newer cashweb protocol version than this client uses (client: CWP %u, file: CWP %u).\nWill attempt to read anyway, in case this is inaccurate or the protocol upgrade is trivial.\nIf there is a new protocol version available, it is recommended you upgrade.\n", CW_P_VER, pVer);
+		fprintf(CWG_err_stream, "WARNING: requested file signals a newer cashweb protocol version than this client uses (client: CWP %u, file: CWP %u).\nWill attempt to read anyway, in case this is inaccurate or the protocol upgrade is trivial.\nIf there is a new protocol version available, it is recommended you upgrade.\n", CW_P_VER, pVer);
 	}
 }
 
@@ -692,8 +697,7 @@ static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 
 	// open protocol-specific mime.types file
 	if ((mimeTypes = fopen(mtFilePath, "r")) == NULL) {
-		fprintf(stderr, "fopen() failed on path %s; unable to open cashweb mime.types\n", mtFilePath);
-		perror(NULL);
+		fprintf(CWG_err_stream, "fopen() failed on path %s; unable to open cashweb mime.types: %s\n", mtFilePath, strerror(errno));
 		status = CW_SYS_ERR;
 		goto cleanup;
 	}	
@@ -709,7 +713,7 @@ static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 		if (++type != cwType) { continue; }
 
 		if ((lineDataPtr = strchr(line.data, '\t')) == NULL) {
-			fprintf(stderr, "unable to parse for mimetype string, mime.types may be invalid; defaults to cashgettools MIME_STR_DEFAULT\n");
+			fprintf(CWG_err_stream, "unable to parse for mimetype string, mime.types may be invalid; defaults to cashgettools MIME_STR_DEFAULT\n");
 			mimeFileBad = true;
 			break;
 
@@ -725,7 +729,7 @@ static CW_STATUS cwTypeToMimeStr(CW_TYPE cwType, struct CWG_params *cgp) {
 	// defaults to MIME_STR_DEFAULT if type not found
 	if (!matched) {
 		if (!mimeFileBad) {
-			fprintf(stderr, "invalid cashweb type (numeric %u); defaults to MIME_STR_DEFAULT\n", cwType);
+			fprintf(CWG_err_stream, "invalid cashweb type (numeric %u); defaults to MIME_STR_DEFAULT\n", cwType);
 		}
 	}
 
@@ -792,7 +796,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 
 	CURL *curl;
 	CURLcode res;
-	if (!(curl = curl_easy_init())) { fprintf(stderr, "curl_easy_init() failed\n"); return CWG_FETCH_ERR; }
+	if (!(curl = curl_easy_init())) { fprintf(CWG_err_stream, "curl_easy_init() failed\n"); return CWG_FETCH_ERR; }
 
 	int printed = 0;
 	// construct query
@@ -807,7 +811,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 				break;
 			case BY_NAMETAG:
 				if (strlen(ids[i])-strlen(CW_NAMETAG_PREFIX) > CW_NAME_MAX_LEN) {
-					fprintf(stderr, "cashgettools: nametag queried is too long\n");
+					fprintf(CWG_err_stream, "cashgettools: nametag queried is too long\n");
 					free(idQuery);
 					curl_easy_cleanup(curl);
 					return CW_CALL_NO;
@@ -815,13 +819,13 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 				printed = snprintf(idQuery+strlen(idQuery), BITDB_ID_QUERY_BUF_SZ, "{\"out.s2\":\"%s\"},", ids[i]);
 				break;
 			default:
-				fprintf(stderr, "invalid FETCH_TYPE; problem with cashgettools\n");
+				fprintf(CWG_err_stream, "invalid FETCH_TYPE; problem with cashgettools\n");
 				free(idQuery);
 				curl_easy_cleanup(curl);
 				return CW_SYS_ERR;
 		}
 		if (printed >= BITDB_ID_QUERY_BUF_SZ) {
-			fprintf(stderr, "BITDB_ID_QUERY_BUF_SZ set too small; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "BITDB_ID_QUERY_BUF_SZ set too small; problem with cashgettools\n");
 			free(idQuery);
 			curl_easy_cleanup(curl);
 			return CW_SYS_ERR;
@@ -842,13 +846,13 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 			printed = snprintf(respHandler, sizeof(respHandler), "{%s:.out[0].h1,%s:.out[0].s2,%s:.tx.h}", BITDB_QUERY_DATA_TAG, BITDB_QUERY_ID_TAG, BITDB_QUERY_TXID_TAG);
 			break;
 		default:
-			fprintf(stderr, "invalid FETCH_TYPE; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "invalid FETCH_TYPE; problem with cashgettools\n");
 			free(idQuery);
 			curl_easy_cleanup(curl);
 			return CW_SYS_ERR;
 	}
 	if (printed >= sizeof(respHandler)) {
-		fprintf(stderr, "BITDB_RESPHANDLE_QUERY_BUF_SZ set too small; problem with cashgettools\n");
+		fprintf(CWG_err_stream, "BITDB_RESPHANDLE_QUERY_BUF_SZ set too small; problem with cashgettools\n");
 		free(idQuery);
 		curl_easy_cleanup(curl);
 		return CW_SYS_ERR;
@@ -864,7 +868,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 	    	  BITDB_API_VER, idQuery, specifiers, respHandler);
 	free(idQuery);
 	if (printed >= sizeof(query)) {
-		fprintf(stderr, "BITDB_QUERY_BUF_SZ set too small; problem with cashgettools\n");
+		fprintf(CWG_err_stream, "BITDB_QUERY_BUF_SZ set too small; problem with cashgettools\n");
 		curl_easy_cleanup(curl);
 		return CW_SYS_ERR;
 	}
@@ -903,7 +907,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 	if (headers) { curl_slist_free_all(headers); }
 	curl_easy_cleanup(curl);
 	if (res != CURLE_OK) {
-		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+		fprintf(CWG_err_stream, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
 		fclose(respFp);
 		return CWG_FETCH_ERR;
 	} 
@@ -926,12 +930,12 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 			goto cleanup;
 		}
 		else if (strstr(respMsg, "html")) {
-			fprintf(stderr, "HTML response error unhandled in cashgettools:\n%s\n", respMsg);
+			fprintf(CWG_err_stream, "HTML response error unhandled in cashgettools:\n%s\n", respMsg);
 			status = CWG_FETCH_ERR;
 			goto cleanup;
 		}
 		else {
-			fprintf(stderr, "jansson error in parsing response from BitDB node: %s\nResponse:\n%s\n", jsonError.text, respMsg);
+			fprintf(CWG_err_stream, "jansson error in parsing response from BitDB node: %s\nResponse:\n%s\n", jsonError.text, respMsg);
 			status = CW_SYS_ERR;
 			goto cleanup;
 		}
@@ -953,7 +957,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 		for (int a=0; a<sizeof(jsonArrs)/sizeof(jsonArrs[0]); a++) {
 			if (!jsonArrs[a]) {
 				jsonDump = json_dumps(respJson, 0);
-				fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
+				fprintf(CWG_err_stream, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
 				free(jsonDump);
 				status = CWG_FETCH_ERR;
 				goto cleanup;
@@ -964,7 +968,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 				    (dataHex = json_string_value(json_object_get(dataJson, BITDB_QUERY_DATA_TAG))) == NULL) {
 				    	if (dataId && json_is_null(json_object_get(dataJson, BITDB_QUERY_DATA_TAG))) { continue; }
 				    	jsonDump = json_dumps(jsonArrs[a], 0);
-					fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
+					fprintf(CWG_err_stream, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
 					free(jsonDump);
 					status = CWG_FETCH_ERR; goto cleanup;
 				}
@@ -976,7 +980,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 						if (type == BY_TXID) { dataTxid = dataId; }
 						else if ((dataTxid = json_string_value(json_object_get(dataJson, BITDB_QUERY_TXID_TAG))) == NULL) {
 							jsonDump = json_dumps(jsonArrs[a], 0);
-							fprintf(stderr, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
+							fprintf(CWG_err_stream, "BitDB node responded with unexpected JSON format:\n%s\n", jsonDump);
 							free(jsonDump);
 							status = CWG_FETCH_ERR; goto cleanup;		
 						}
@@ -1028,7 +1032,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 					"skip", BCON_INT64(nth-1));
 			break;
 		default:
-			fprintf(stderr, "invalid FETCH_TYPE; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "invalid FETCH_TYPE; problem with cashgettools\n");
 			goto cleanup;
 	}	
 
@@ -1067,7 +1071,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 				resJson = json_loads(resStr, JSON_ALLOW_NUL, &jsonError);
 				bson_free(resStr);
 				if (resJson == NULL) {
-					fprintf(stderr, "jansson error in parsing result from MongoDB query: %s\nResponse:\n%s\n", jsonError.text, resStr);
+					fprintf(CWG_err_stream, "jansson error in parsing result from MongoDB query: %s\nResponse:\n%s\n", jsonError.text, resStr);
 					status = CW_SYS_ERR;
 					break;
 				}
@@ -1079,7 +1083,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 					if (!inTxid) {
 						jsonDump = json_dumps(resJson, 0);
 						json_decref(resJson);
-						fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
+						fprintf(CWG_err_stream, "invalid response from MongoDB:\n%s\n", jsonDump);
 						free(jsonDump);
 						status = CWG_FETCH_ERR;
 						break;
@@ -1092,7 +1096,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 				if (!str) {
 					jsonDump = json_dumps(resJson, 0);
 					json_decref(resJson);
-					fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
+					fprintf(CWG_err_stream, "invalid response from MongoDB:\n%s\n", jsonDump);
 					free(jsonDump);
 					status = CWG_FETCH_ERR;
 					break;
@@ -1109,7 +1113,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 					if (!txid) {
 						jsonDump = json_dumps(resJson, 0);
 						json_decref(resJson);
-						fprintf(stderr, "invalid response from MongoDB:\n%s\n", jsonDump);
+						fprintf(CWG_err_stream, "invalid response from MongoDB:\n%s\n", jsonDump);
 						free(jsonDump);
 						status = CWG_FETCH_ERR;
 						break;
@@ -1121,7 +1125,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 				break;
 			}
 			if (mongoc_cursor_error(cursor, &error)) {
-				fprintf(stderr, "ERROR: MongoDB query failed\nMessage: %s\n", error.message);
+				fprintf(CWG_err_stream, "ERROR: MongoDB query failed\nMessage: %s\n", error.message);
 				status = CWG_FETCH_ERR;
 			} 
 			mongoc_cursor_destroy(cursor);
@@ -1141,7 +1145,7 @@ static inline CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE 
 	if (params->mongodbCli) { return fetchHexDataMongoDB(ids, count, type,  params->mongodbCli, txids, hexDataAll); }
 	else if (params->bitdbNode) { return fetchHexDataBitDBNode(ids, count, type, params->bitdbNode, params->bitdbRequestLimit, txids, hexDataAll); }
 	else {
-		fprintf(stderr, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set in cashgettools implementation\n");
+		fprintf(CWG_err_stream, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set in cashgettools implementation\n");
 		return CW_CALL_NO;
 	}
 }
@@ -1428,7 +1432,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 				n = n->next;
 			}
 			if (status == CW_OK && isEmptyList(&scriptStreams)) {
-				fprintf(stderr, "scriptStreams empty in execScriptCode(); problem with cashgettools\n");
+				fprintf(CWG_err_stream, "scriptStreams empty in execScriptCode(); problem with cashgettools\n");
 				status = CW_SYS_ERR;
 			}
 			if (status != CW_OK) {
@@ -1450,7 +1454,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 				scriptStream = n->data;
 
 				if ((savePosPtr = popFront(&scriptStreamsSavePos)) == NULL) {
-					fprintf(stderr, "scriptStreamsSavePos invalid size in execScriptCode(); problem with cashgettools\n");
+					fprintf(CWG_err_stream, "scriptStreamsSavePos invalid size in execScriptCode(); problem with cashgettools\n");
 					status = CW_SYS_ERR;
 					break;
 				}
@@ -1587,7 +1591,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 			int *tfdPtr = peekFront(fdStack);	
 			if (!tfdPtr) { return CWG_SCRIPT_ERR; }
 			tfd = *tfdPtr;
-			if (fcntl(tfd, F_GETFD) == -1) { fprintf(stderr, "invalid fildes during script execution; problem with cashgettools\n"); return CW_SYS_ERR; }
+			if (fcntl(tfd, F_GETFD) == -1) { fprintf(CWG_err_stream, "invalid fildes during script execution; problem with cashgettools\n"); return CW_SYS_ERR; }
 			if (lseek(tfd, offset, whence) < 0) { return CWG_SCRIPT_ERR; }
 
 			return CW_OK;
@@ -1620,7 +1624,7 @@ static CW_STATUS execScriptCode(CW_OPCODE c, FILE *scriptStream, List *stack, Li
 			if (!tfdPtr) { return CWG_SCRIPT_ERR; }
 			tfd = *tfdPtr;
 
-			if (fcntl(tfd, F_GETFD) == -1) { fprintf(stderr, "invalid fildes during script execution; problem with cashgettools\n"); return CW_SYS_ERR; }
+			if (fcntl(tfd, F_GETFD) == -1) { fprintf(CWG_err_stream, "invalid fildes during script execution; problem with cashgettools\n"); return CW_SYS_ERR; }
 
 			size_t toWrite = (size_t)some;
 			if (toWrite == 0 && !writeAll) { return CWG_SCRIPT_ERR; }
@@ -1720,12 +1724,12 @@ static CW_STATUS execScript(struct CWG_script_pack *sp, struct CWG_params *param
 	FILE *scriptStream;
 	if (sp->revTxid) {
 		if ((scriptStream = peekFront(sp->scriptStreams)) == NULL) {
-			fprintf(stderr, "mylist peekFront() failed on scriptStreams; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "mylist peekFront() failed on scriptStreams; problem with cashgettools\n");
 			return CW_SYS_ERR;
 		}
 	} else {
 		if ((scriptStream = peekAt(sp->scriptStreams, sp->atRev)) == NULL) {
-			fprintf(stderr, "mylist peekAt() failed on scriptStreams for atRev; problem with cashgettools\n");
+			fprintf(CWG_err_stream, "mylist peekAt() failed on scriptStreams for atRev; problem with cashgettools\n");
 			return CW_SYS_ERR;
 		}
 	}
@@ -1795,7 +1799,7 @@ static CW_STATUS getScriptByInTxid(const char *inTxid, struct CWG_params *params
 
 static CW_STATUS getScriptByNametag(const char *name, struct CWG_params *params, char **txidPtr, FILE *stream) {
 	if (!CW_is_valid_name(name)) {
-		fprintf(stderr, "cashgettools: nametag specified for get is too long (maximum %lu characters)\n", CW_NAME_MAX_LEN);
+		fprintf(CWG_err_stream, "cashgettools: nametag specified for get is too long (maximum %lu characters)\n", CW_NAME_MAX_LEN);
 		return CW_CALL_NO;
 	}
 
@@ -1851,7 +1855,7 @@ static CW_STATUS getFileByNametag(const char *name, int revision, List *fetchedN
 	CW_STATUS status;	
 
 	char revTxid[CW_TXID_CHARS+1]; char *revTxidPtr = revTxid;
-	FILE *scriptStream = NULL;		
+	FILE *scriptStream = NULL;
 
 	List scriptStreams;
 	initList(&scriptStreams);
@@ -1967,14 +1971,14 @@ static CW_STATUS initFetcher(struct CWG_params *params) {
 			bson_error_t error;	
 			mongoc_uri_t *uri;
 			if (!(uri = mongoc_uri_new_with_error(params->mongodb, &error))) {
-				fprintf(stderr, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
+				fprintf(CWG_err_stream, "ERROR: cashgettools failed to parse provided MongoDB URI: %s\nMessage: %s\n", params->mongodb, error.message);
 				mongoc_cleanup();
 				return CW_CALL_NO;
 			}
 			params->mongodbCli = mongoc_client_new_from_uri(uri);	
 			mongoc_uri_destroy(uri);	
 			if (!params->mongodbCli) {
-				fprintf(stderr, "ERROR: cashgettools failed to establish client with MongoDB\n");
+				fprintf(CWG_err_stream, "ERROR: cashgettools failed to establish client with MongoDB\n");
 				mongoc_cleanup();
 				return CWG_FETCH_ERR;
 			}
@@ -1985,7 +1989,7 @@ static CW_STATUS initFetcher(struct CWG_params *params) {
 			char dummy[2];
 			char appname[strlen(appnameGen) + snprintf(dummy, sizeof(dummy), "%lu", tid) + 1];
 			if (snprintf(appname, sizeof(appname), "%s%ld", appnameGen, tid) >= sizeof(appname)) {
-				fprintf(stderr, "MongoDB appname truncated; problem with cashgettools\n");
+				fprintf(CWG_err_stream, "MongoDB appname truncated; problem with cashgettools\n");
 				cleanupFetcher(params);
 				return CW_SYS_ERR;
 			}
@@ -1998,7 +2002,7 @@ static CW_STATUS initFetcher(struct CWG_params *params) {
 		if (params->bitdbRequestLimit) { srandom(time(NULL)); }
 	}	
 	else {
-		fprintf(stderr, "ERROR: cashgettools requires either MongoDB or BitDB Node address to be specified\n");
+		fprintf(CWG_err_stream, "ERROR: cashgettools requires either MongoDB or BitDB Node address to be specified\n");
 		return CW_CALL_NO;
 	}
 
