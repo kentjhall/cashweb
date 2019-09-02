@@ -32,19 +32,19 @@ To install the build dependencies on Ubuntu, enter the following command:
 
 ## Build/install
 
-Please make sure that you have all the required dependencies installed.
+Please make sure that you have all the required dependencies installed.<br/>
 Then type in the project folder:
 
     ./autogen.sh && ./configure
 
-NOTE: Append flag --without-cashsend to omit the cashsendtools library + cashsend executable.
+NOTE: Append flag --without-cashsend to omit the cashsendtools library + cashsend executable.<br/>
       Append flag --without-cashserver to omit the cashserver executable.
 
 Then type in:
 	
     make && make install
 
-NOTE: 'make install' may require sudo privileges.
+NOTE: 'make install' may require sudo privileges.<br/>
 This will build the libraries + executables and install to your system.
 
 If you want to clean up compiled files and start from scratch:
@@ -82,10 +82,10 @@ and/or
 
     -lcashsendtools
 
-For further information, see the header file(s): [`src/cashgettools.h`](./src/cashgettools.h), [`src/cashsendtools.h`](./src/cashsendtools.h).
+For further information, see the header file(s): [`src/cashgettools.h`](./src/cashgettools.h), [`src/cashsendtools.h`](./src/cashsendtools.h).<br/>
 Dedicated documentation is not yet available.
 
-*Please notice that the code is in the very early stage of development.*
+*Please notice that the code is in the very early stage of development; highly experimental.*
 
 
 ## License
