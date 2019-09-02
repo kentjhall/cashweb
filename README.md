@@ -1,4 +1,4 @@
-# CashWeb: cashgettools library + cashget/cashserver executables, and cashsendtools library + cashsend executable
+# CashWeb: libraries + executables
 
 C libraries and useful executables for sending/getting from the Bitcoin Cash blockchain under the CashWeb protocol.
 
