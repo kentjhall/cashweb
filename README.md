@@ -11,14 +11,18 @@ These dependencies are required:
  ------------|------------------------------|----------------------------------------------------------------------------------------
   mongoc     | querying MongoDB directly    | tested with libmongoc-dev-1.9.2+dfsg-1build1 on Ubuntu; mongo-c-driver-1.14.0 on macOS
   curl       | querying BitDB HTTP endpoint | tested with libcurl4-openssl-dev-7.58.0-2ubuntu3.7 on Ubuntu; curl-7.65.3 on macOS
-  jansson    | JSON parsing                 | tested with libjansson-dev-2.11-1 on Ubuntu; jansson-2.12 on macOS
+  jansson    | JSON parsing/creation        | tested with libjansson-dev-2.11-1 on Ubuntu; jansson-2.12 on macOS
 
 Required for cashsendtools/cashsend:
 
+ Library     | Purpose                      | Description
+ ------------|------------------------------|----------------------------------------------------------------------------------------
   uuid       | generate UUIDs               | tested with uuid-dev-2.31.1-0.4ubuntu3.3 on Ubuntu; ossp-uuid-1.6.2 on macOS
 
 Required for cashserver:
 
+ Library     | Purpose                      | Description
+ ------------|------------------------------|----------------------------------------------------------------------------------------
   microhttpd | basic HTTP server functions  | tested with libmicrohttpd-dev-0.9.59-1 on Ubuntu; libmicrohttpd-0.9.63 on macOS
 
 To install the build dependencies on Ubuntu, enter the following command:
