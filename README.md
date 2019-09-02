@@ -37,8 +37,9 @@ Then type in the project folder:
 
     ./autogen.sh && ./configure
 
-NOTE: Append flag --without-cashsend to omit the cashsendtools library + cashsend executable.<br/>
-      Append flag --without-cashserver to omit the cashserver executable.
+NOTE:<br/>
+Append flag --without-cashsend to omit the cashsendtools library + cashsend executable.<br/>
+Append flag --without-cashserver to omit the cashserver executable.
 
 Then type in:
 	
