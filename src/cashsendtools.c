@@ -1839,7 +1839,6 @@ static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp
 	struct CW_file_metadata md;
 	init_CW_file_metadata(&md, cwType);
 	md.depth = treeDepth;
-	fprintf(stderr, "depth: %d\n", md.depth);
 	int loc = 0;
 
 	if (fseek(fp, -toRead, SEEK_END) != 0) { perror("fseek() SEEK_END failed"); return CW_SYS_ERR; }
@@ -1855,7 +1854,6 @@ static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp
 		strcat(hexChunk, txid);
 		if (end) {
 			if ((status = hexAppendMetadata(&md, hexChunk)) != CW_OK) { return status; }
-			fprintf(stderr, "final: depth - %d, length - %d\n", md.depth, md.length);
 			if (pdHexStr) { 
 				const char *hexDatas[2] = { hexChunkPtr, pdHexStr };
 				if ((status = sendTx(hexDatas, sizeof(hexDatas)/sizeof(hexDatas[0]), end, rp, txid)) != CW_OK) { return status; }
@@ -1865,7 +1863,6 @@ static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp
 		if ((status = sendTx(&hexChunkPtr, 1, end, rp, txid)) != CW_OK) { return status; }
 		if (end) { break; }
 		++md.length;
-		fprintf(stderr, "length: %d\n", md.length);
 		if (begin) { toRead -= treeDepth ? CW_TXID_CHARS : CW_TXID_BYTES; begin = false; }
 		if ((loc = ftell(fp))-read < toRead) {
 			if (loc-read < toRead-metadataLen) { end = true; }
