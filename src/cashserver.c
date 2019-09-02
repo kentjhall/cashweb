@@ -471,6 +471,7 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "Starting cashserver on port %u... (source is %s at %s)\n", port, mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : bitdbNode);
 
 	(void) getc (stdin);
+	fprintf(stderr, "Stopping cashserver...\n");
 	MHD_stop_daemon(d);
 	if (mongodb) { CWG_cleanup_mongo_pool(&genGetParams); } 
 
