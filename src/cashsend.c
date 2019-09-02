@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nmfrelDIN:RBAC:X:T:P:L:Ut:d:u:p:a:o:")) != -1) {
+	while ((c = getopt(argc, argv, ":nmft:relDIN:RBAC:X:T:P:L:Uu:p:a:o:d:")) != -1) {
 		switch (c) {
 			case 'n':
 				no = true;
@@ -43,6 +43,9 @@ int main(int argc, char **argv) {
 				params.fragUtxos = no ? 0 : params.fragUtxos;
 				no = false;
 				break;	
+			case 't':
+				params.maxTreeDepth = atoi(optarg);
+				break;
 			case 'r':
 				recover = no ? false : true;
 				no = false;
@@ -98,13 +101,7 @@ int main(int argc, char **argv) {
 			case 'U':
 				unlock = no ? false : true;
 				no = false;
-				break;
-			case 't':
-				params.maxTreeDepth = atoi(optarg);
-				break;
-			case 'd':
-				params.datadir = optarg;
-				break;
+				break;		
 			case 'u':
 				params.rpcUser = optarg;
 				break;
@@ -116,6 +113,9 @@ int main(int argc, char **argv) {
 				break;
 			case 'o':
 				params.rpcPort = atoi(optarg);
+				break;
+			case 'd':
+				params.datadir = optarg;
 				break;
 			case ':':
 				fprintf (stderr, "Option -%c requires an argument.\n", optopt);
