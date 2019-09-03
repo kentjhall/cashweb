@@ -2,7 +2,6 @@
 #define __CASHGETTOOLS_H__
 
 #include "cashwebuni.h"
-#include <curl/curl.h>
 #include <mongoc.h>
 
 /* cashgettools status codes */

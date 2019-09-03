@@ -30,13 +30,13 @@ int main(int argc, char **argv) {
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nmft:relDIN:RBAC:X:T:P:L:Uu:p:a:o:d:")) != -1) {
+	while ((c = getopt(argc, argv, ":nmft:relO:EDIN:RBAC:X:T:P:L:Uu:p:a:o:d:")) != -1) {
 		switch (c) {
 			case 'n':
 				no = true;
 				break;
 			case 'm':
-				params.cwType = no ? CW_T_FILE : CW_T_MIMESET;
+				params.cwType = no ? params.cwType : CW_T_MIMESET;
 				no = false;
 				break;
 			case 'f':
@@ -57,6 +57,14 @@ int main(int argc, char **argv) {
 			case 'l':
 				justLockUnspents = no ? false : true;
 				no = false;
+				break;
+			case 'O':
+				params.dirOmitIndex = true;
+				params.saveDirStream = fopen(optarg, "w");
+				if (!params.saveDirStream) { perror("fopen() failed"); exit(1); }
+				break;
+			case 'E':
+				params.cwType = no ? params.cwType : CW_T_DIR;
 				break;
 			case 'D':
 				isDirIndex = no ? false : true;
@@ -281,9 +289,10 @@ int main(int argc, char **argv) {
 			status = CWS_send_from_stream(dirIndexStream, &params, &totalCost, &lostCost, txid);
 		}
 		else if (fromStdin) {
-			params.cwType = CW_T_FILE;	
+			if (params.cwType == CW_T_MIMESET) { params.cwType = CW_T_FILE;	}
 			status = CWS_send_from_stream(isDirIndex ? dirIndexStream : stdin, &params, &totalCost, &lostCost, txid);
 		} else {
+			fprintf(stderr, "%u\n", params.cwType);
 			status = CWS_send_from_path(tosend, &params, &totalCost, &lostCost, txid);
 		}
 	}
@@ -332,6 +341,7 @@ int main(int argc, char **argv) {
 
 	cleanup:
 		fclose(recoveryStream);
+		if (params.saveDirStream) { fclose(params.saveDirStream); }
 		if (dirIndexStream) { fclose(dirIndexStream); }
 		return exitcode;
 }

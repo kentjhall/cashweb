@@ -6,16 +6,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <limits.h>
-#include <ctype.h>
 #include <string.h>
-#include <math.h>
-#include <time.h>
-#include <arpa/inet.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <jansson.h>
+#include <ctype.h>
+#include <limits.h>
 
 #define CW_P_VER 0
 
@@ -205,7 +198,7 @@ static inline bool CW_is_valid_cashweb_id(const char *id) {
  */
 static inline void CW_construct_nametag_id(const char *name, int revision, char (*nametagId)[CW_NAMETAG_ID_MAX_LEN+1]) {
 	(*nametagId)[0] = 0;
-	if (revision >= 0) { snprintf(*nametagId, sizeof(*nametagId), "%d", revision); }
+	if (revision >= 0) { snprintf(*nametagId, CW_REV_STR_MAX_LEN+1, "%d", revision); }
 	strcat(*nametagId, CW_NAMETAG_PREFIX);
 	strcat(*nametagId, name);
 }

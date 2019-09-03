@@ -1,6 +1,7 @@
 #include "cashwebutils.h"
 #include "cashsendtools.h"
 #include <errno.h>
+#include <fts.h>
 #include <libbitcoinrpc/bitcoinrpc.h>
 
 /* general constants */
@@ -27,10 +28,14 @@
 #define TX_DATA_BASE_SZ 10
 #define TX_SZ_CAP 100000
 
-/* stream for logging errors; defaults to CWS_err_stream */
+/* stream for logging errors; defaults to stderr */
 FILE *CWS_err_stream = NULL;
 #define CWS_err_stream (CWS_err_stream ? CWS_err_stream : stderr)
 #define perror(str) fprintf(CWS_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
+
+/* stream for logging progress/details; defaults to stderr */
+FILE *CWS_log_stream = NULL;
+#define CWS_log_stream (CWS_log_stream ? CWS_log_stream : stderr)
 
 /* rpc method identifiers */
 typedef enum RpcMethod {
@@ -1238,7 +1243,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	bool tinyChange = isLast && rp->forceTinyChangeLast;
 	bool distributed = false;
 	if (unspents != rp->reservedUtxos && rp->txsToSend > numUnspents && rp->txsToSend >= TX_MAX_0CONF_CHAIN) {
-		if (useUnconfirmed && sameFee && !rp->justCounting) { fprintf(CWS_err_stream, "Distributing UTXOs..."); }
+		if (useUnconfirmed && sameFee && !rp->justCounting) { fprintf(CWS_log_stream, "Distributing UTXOs..."); }
 		distributed = true;
 		reuseChangeOutCount = (rp->txsToSend - 1) - (numUnspents - 1);
 		reuseChangeAmnt = feePerByte*(TX_BASE_SZ+TX_INPUT_SZ+TX_OUTPUT_SZ+TX_DATA_BASE_SZ+CW_TX_RAW_DATA_BYTES) + TX_TINYCHANGE_AMNT;
@@ -1699,7 +1704,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		}
 
 		if (distributed && rp->reservedUtxosCount >= rp->txsToSend && rp->txsToSend >= TX_MAX_0CONF_CHAIN && !rp->justCounting) {
-			fprintf(CWS_err_stream, "Waiting on 1-conf...");
+			fprintf(CWS_log_stream, "Waiting on 1-conf...");
 			int confs;
 			json_t *params;
 			if ((params = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
@@ -1740,26 +1745,26 @@ static CW_STATUS sendTx(const char **hexDatas, size_t hexDatasC, bool isLast, st
 			case CWS_FUNDS_NO:
 				if ((checkBalStatus = checkBalance(rp, &balance)) != CW_OK) { return checkBalStatus; }
 				do {
-					if (!printed) { fprintf(CWS_err_stream, "Insufficient balance, send more funds..."); printed = true; }
+					if (!printed) { fprintf(CWS_log_stream, "Insufficient balance, send more funds..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
 					if ((checkBalStatus = checkBalance(rp, &balanceN)) != CW_OK) { return checkBalStatus; }
 				} while (balanceN <= balance);
 				break;
 			case CWS_CONFIRMS_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, isLast, rp, false, true, resTxid)) == CWS_CONFIRMS_NO) {
-					if (!printed) { fprintf(CWS_err_stream, "Waiting on confirmations..."); printed = true; }
+					if (!printed) { fprintf(CWS_log_stream, "Waiting on confirmations..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
 				}
 				break;
 			case CWS_FEE_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, isLast, rp, true, false, resTxid)) == CWS_FEE_NO) {
-					if (!printed) { fprintf(CWS_err_stream, "Fee problem, attempting to resolve..."); printed = true; }
+					if (!printed) { fprintf(CWS_log_stream, "Fee problem, attempting to resolve..."); printed = true; }
 				}
 				break;
 			case CWS_INPUTS_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, isLast, rp, true, true, resTxid)) == CWS_INPUTS_NO) {
 					if (isLast && rp->forceInputUtxoLast) { break; }
-					if (!printed) { fprintf(CWS_err_stream, "Bad UTXOs, attempting to resolve..."); printed = true; }
+					if (!printed) { fprintf(CWS_log_stream, "Bad UTXOs, attempting to resolve..."); printed = true; }
 					if (rp->reservedUtxos && json_array_size(rp->reservedUtxos) == 0 && ++count >= 2) { break; }
 				}
 				if (status == CWS_INPUTS_NO) { return status; }
@@ -1806,7 +1811,7 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
 	}
 
 	// this should not happen, but checks for NULL recovery stream just in case
-	if (!params->recoveryStream) { fprintf(CWS_err_stream, "\nrecoveryStream is NULL pointer"); err = true; goto cleanup; }
+	if (!params->recoveryStream) { fprintf(CWS_err_stream, "ERROR: params->recoveryStream is NULL pointer\n"); err = true; goto cleanup; }
 
 	// write recovery info string to recovery stream	
 	if (fputs(info.data, params->recoveryStream) == EOF) { perror("fputs() failed"); err = true; goto cleanup; }
@@ -1817,7 +1822,7 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
 
 	cleanup:
 		freeDynamicMemory(&info);
-		if (err) { fprintf(CWS_err_stream, "\nERROR: failed to write recovery data\n"); }
+		if (err) { fprintf(CWS_err_stream, "ERROR: failed to write recovery data\n"); }
 		return !err;
 }
 
@@ -1963,11 +1968,11 @@ static CW_STATUS sendFileTree(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp,
 		if (status != CW_OK && status != CW_CALL_NO && recover) {
 			if (fundsLost) { *fundsLost = rp->costCount; }
 			if (depth > 0) {
-				fprintf(CWS_err_stream, "\nError met, saving recovery data...\n");
+				fprintf(CWS_log_stream, "\nError met, saving recovery data...\n");
 				if (saveRecoveryData(fp, depth, params)) {
-					fprintf(CWS_err_stream, "Recovery data saved!\n");
+					fprintf(CWS_log_stream, "Recovery data saved!\n");
 					if (fundsLost) { *fundsLost -= safeCost; }
-				} else { fprintf(CWS_err_stream, "Failed to save recovery data; progress lost\n"); }
+				} else { fprintf(CWS_log_stream, "Failed to save recovery data; progress lost\n"); }
 			}
 		}
 		return status;
@@ -1983,7 +1988,7 @@ static CW_STATUS sendFileFromStream(FILE *stream, int sDepth, char *pdHexStr, st
 
 	status = sendFileTree(stream, pdHexStr, rp, params, sDepth, fundsLost, resTxid);
 
-	if (!rp->justCounting) { fprintf(CWS_err_stream, "\n"); }
+	if (!rp->justCounting) { fprintf(CWS_log_stream, "\n"); }
 	return status;
 }
 
@@ -2043,9 +2048,9 @@ static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rp, stru
 	}
 	int pathLen = strlen(path);
 
-	if (!params->dirOmitIndex) {
-		if ((dirFp = params->saveDirStream) == NULL &&
-		    (dirFp = tmpfile()) == NULL) {
+	if (!rp->justCounting) {
+		if (params->saveDirStream) { dirFp = params->saveDirStream; }
+		else if (!params->dirOmitIndex && (dirFp = tmpfile()) == NULL) {
 			perror("tmpfile() failed");
 			status = CW_SYS_ERR;
 			goto cleanup;
@@ -2060,22 +2065,21 @@ static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rp, stru
 	FTSENT *p;
 	while ((p = fts_read(ftsp)) != NULL && count < numFiles) {
 		if (p->fts_info == FTS_F && strncmp(p->fts_path, path, pathLen) == 0) {
-			if (!rp->justCounting) { fprintf(CWS_err_stream, "Sending %s...", p->fts_path+pathLen); }
+			if (!rp->justCounting) { fprintf(CWS_log_stream, "Sending %s...", p->fts_path+pathLen); }
 
 			// create a clean copy of params for every file, as they may be altered during send
 			copy_CWS_params(&fileParams, params);
 
 			if ((status = sendFileFromPath(p->fts_path, rp, &fileParams, fundsLost, txid)) != CW_OK) { goto cleanup; }
-			if (!rp->justCounting) { fprintf(CWS_err_stream, "%s\n\n", txid); }
+			if (!rp->justCounting) { fprintf(CWS_log_stream, "%s\n\n", txid); }
 
-			if (!params->dirOmitIndex || params->saveDirStream) {
+			if (dirFp) {
 				// txids are stored as byte data (rather than hex string) in txidsByteData
 				if (hexStrToByteArr(txid, 0, txidsByteData+(count*CW_TXID_BYTES)) != CW_TXID_BYTES) {
-					fprintf(CWS_err_stream, "invalid txid from sendFile(); problem with cashsendtools\n");
+					fprintf(CWS_log_stream, "invalid txid from sendFile(); problem with cashsendtools\n");
 					status = CW_SYS_ERR;
 					goto cleanup;
 				}
-				++count;
 
 				// write file path to directory index
 				if (fprintf(dirFp, "%s\n", p->fts_path+pathLen) < 0) {
@@ -2084,9 +2088,10 @@ static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rp, stru
 					goto cleanup;
 				}
 			}
+			++count;
 		}
 	}
-	if (!params->dirOmitIndex || params->saveDirStream) {
+	if (dirFp) {
 		// necessary empty line between path information and txid byte data
 		if (fprintf(dirFp, "\n") < 0) { perror("fprintf() to dirFp failed"); status = CW_SYS_ERR; goto cleanup; }
 		// write txid byte data to directory index
@@ -2096,16 +2101,16 @@ static CW_STATUS sendDirFromPath(const char *path, struct CWS_rpc_pack *rp, stru
 		if (!params->dirOmitIndex) {
 			// send directory index
 			rewind(dirFp);
-			if (!rp->justCounting) { fprintf(CWS_err_stream, "Sending directory index..."); }
+			if (!rp->justCounting) { fprintf(CWS_log_stream, "%s directory index...", dirFp == params->saveDirStream ? "Saving" : "Sending"); }
 			struct CWS_params dirIndexParams;
 			copy_CWS_params(&dirIndexParams, params);
 			dirIndexParams.cwType = CW_T_DIR;
 			if ((status = sendFileFromStream(dirFp, 0, NULL, rp, &dirIndexParams, fundsLost, resTxid)) != CW_OK) { goto cleanup; }
-		}
+		} else { resTxid[0] = 0; }
 	}
 
 	cleanup:
-		if (dirFp && !params->saveDirStream) { fclose(dirFp); }
+		if (dirFp && dirFp != params->saveDirStream) { fclose(dirFp); }
 		if (ftsp) { fts_close(ftsp); }
 		return status;
 }

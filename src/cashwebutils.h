@@ -5,10 +5,15 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/stat.h>
+#include <math.h>
+#include <time.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <jansson.h>
 
 #define FILE_DATA_BUF 1024
 

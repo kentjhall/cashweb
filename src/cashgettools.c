@@ -1,5 +1,6 @@
 #include "cashwebutils.h"
 #include "cashgettools.h"
+#include <curl/curl.h>
 #include <pthread.h>
 #include <b64/b64.h>
 #include <mylist/mylist.h>
@@ -425,9 +426,6 @@ CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char 
 					break;
 				}
 				else if (line.data[0] == '.') {
-					/* char linkPath[strlen(line.data) + (*subPath ? strlen(*subPath) : 0)]; linkPath[0] = 0; */
-					/* strcat(linkPath, line.data[1] == '/' ? line.data+1 : line.data); */
-					/* if (*subPath) { strcat(linkPath, *subPath); } */
 					status = CWG_dirindex_path_to_identifier(indexFp, line.data[1] == '/' ? line.data+1 : line.data, subPath, pathId);
 					goto cleanup;
 				}

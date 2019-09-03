@@ -10,13 +10,17 @@ int main(int argc, char **argv) {
 
 	bool getInfo = false;
 	bool getDirIndex = false;
+	bool getDirIndexLocal = false;
 
 	int c;
-	while ((c = getopt(argc, argv, ":Dilm:b:")) != -1) {
+	while ((c = getopt(argc, argv, ":JDilm:b:")) != -1) {
 		switch (c) {		
+			case 'J':
+				getDirIndexLocal = true;
+				break;
 			case 'D':
 				getDirIndex = true;
-				break;
+				break;	
 			case 'i':
 				getInfo = true;	
 				break;
@@ -114,10 +118,13 @@ int main(int argc, char **argv) {
 		if ((dirStream = tmpfile()) == NULL) { perror("tmpfile() failed"); exit(1); }		
 		getFd = fileno(dirStream);
 	}
+	else if (getDirIndexLocal) {
+		if ((dirStream = fopen(toget, "rb")) == NULL) { perror("fopen() failed"); exit(1); }
+	}
 
-	status = CWG_get_by_id(toget, &params, getFd);
+	status = !getDirIndexLocal ? CWG_get_by_id(toget, &params, getFd) : CW_OK;
 
-	if (status == CW_OK && getDirIndex) {
+	if (status == CW_OK && (getDirIndex || getDirIndexLocal)) {
 		rewind(dirStream);
 		status = CWG_dirindex_raw_to_json(dirStream, stdout);
 	}

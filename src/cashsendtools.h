@@ -2,7 +2,6 @@
 #define __CASHSENDTOOLS_H__
 
 #include "cashwebuni.h"
-#include <fts.h>
 
 /* cashsendtools status codes */
 #define CWS_RPC_NO CW_SYS_ERR+1
@@ -18,6 +17,9 @@
 
 /* can be set to redirect cashsendtools error logging; defaults to stderr */
 extern FILE *CWS_err_stream;
+
+/* can be set to redirect cashsendtools progress logging; defaults to stderr */
+extern FILE *CWS_log_stream;
 
 /*
  * params for sending
