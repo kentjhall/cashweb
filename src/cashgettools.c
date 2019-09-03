@@ -748,7 +748,7 @@ static CW_STATUS writeHexDataStr(const char *hexDataStr, int suffixLen, int fd) 
 	}	
 
 	ssize_t n;
-	if ((n = write(fd, fileByteData, bytesToWrite)) < bytesToWrite) {
+	if ((n = write(fd, fileByteData, (size_t)bytesToWrite)) < bytesToWrite) {
 		if (n < 0) { perror("write() failed"); }
 		return CWG_WRITE_ERR;
 	}
@@ -1154,20 +1154,22 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 			    	  struct CWG_params *params, struct CW_file_metadata *md, int fd) {
 	char *partialTxid;
 	size_t partialTxidFill = partialTxids != NULL && (partialTxid = popFront(partialTxids[0])) != NULL ?
-			      CW_TXID_CHARS-strlen(partialTxid) : 0;	
+			      	 CW_TXID_CHARS-strlen(partialTxid) : 0;	
 	
 	size_t numChars = strlen(treeHexData+partialTxidFill)-suffixLen;
 	size_t txidsCount = numChars/CW_TXID_CHARS + (partialTxidFill ? 1 : 0);
+	if (!txidsCount && depth) { return CWG_FILE_ERR; }
 
 	CW_STATUS status = CW_OK;
 
 	char *txids[txidsCount ? txidsCount : 1];
 	for (int i=0; i<txidsCount; i++) {
-		if ((txids[i] = malloc(CW_TXID_CHARS+1)) == NULL) { perror("malloc failed"); status  = CW_SYS_ERR; }
+		if (status == CW_SYS_ERR) { txids[i] = NULL; } 
+		else if ((txids[i] = malloc(CW_TXID_CHARS+1)) == NULL) { perror("malloc failed"); status  = CW_SYS_ERR; }
 	}
 	if (status != CW_OK) { goto cleanup; }
 
-	if (partialTxidFill) {
+	if (partialTxidFill && txidsCount) {
 		strcpy(txids[0], partialTxid);
 		strncat(txids[0], treeHexData, partialTxidFill);
 		free(partialTxid);
@@ -1180,31 +1182,39 @@ static CW_STATUS traverseFileTree(const char *treeHexData, List *partialTxids[],
 		txids[i][CW_TXID_CHARS] = 0;
 		txidPtr += CW_TXID_CHARS;
 	}
-	char partialTemp[CW_TXID_CHARS+1]; partialTemp[0] = 0;
-	strncat(partialTemp, txidPtr, numChars-(txidPtr-(treeHexData+partialTxidFill)));
+	char *partialTxidN = malloc(CW_TXID_CHARS+1);
+	if (!partialTxidN) { perror("malloc failed"); status = CW_SYS_ERR; goto cleanup; }
+	partialTxidN[0] = 0; strncat(partialTxidN, txidPtr, numChars-(txidPtr-(treeHexData+partialTxidFill)));
+
+	if (!txidsCount) {
+		if (!addFront(partialTxids[0], partialTxidN)) {
+			perror("mylist addFront() failed");
+			free(partialTxidN);
+			status = CW_SYS_ERR;
+		}
+		goto cleanup;
+	}
 
 	// frees the tree hex data if in recursive call
 	if (depth > 0) { free((char *)treeHexData); }
 
 	char *hexDataAll = malloc(CW_TX_DATA_CHARS*txidsCount + 1);
 	if (hexDataAll == NULL) { perror("malloc failed"); status =  CW_SYS_ERR; goto cleanup; }
-	if (!txidsCount || (status = fetchHexData((const char **)txids, txidsCount, BY_TXID, params, NULL, hexDataAll)) == CW_OK) { 
+	if ((status = fetchHexData((const char **)txids, txidsCount, BY_TXID, params, NULL, hexDataAll)) == CW_OK) { 
 		if (partialTxids != NULL) {
-			char *partialTxidN = malloc(CW_TXID_CHARS+1);
-			if (partialTxidN == NULL) { perror("malloc failed"); free(hexDataAll); status = CW_SYS_ERR; goto cleanup; }
-			strcpy(partialTxidN, partialTemp);
 			if (!addFront(partialTxids[1], partialTxidN)) {
 				perror("mylist addFront() failed");
+				free(partialTxidN);
 				free(hexDataAll);
 				status = CW_SYS_ERR;
 				goto cleanup;
 			}
-		}
+		} else { free(partialTxidN); } 
 
-		if (txidsCount && depth+1 < md->depth) {
+		if (depth+1 < md->depth) {
 			status = traverseFileTree(hexDataAll, partialTxids, 0, depth+1, params, md, fd);
 		} else {
-			if (txidsCount) { status = writeHexDataStr(hexDataAll, 0, fd); }
+			status = writeHexDataStr(hexDataAll, 0, fd);
 			free(hexDataAll);
 			if (status != CW_OK) { goto cleanup; }
 

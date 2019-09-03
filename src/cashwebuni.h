@@ -20,7 +20,7 @@
 #define CW_P_VER 0
 
 /* general status codes */
-typedef int CW_STATUS;
+typedef char CW_STATUS;
 #define CW_OK 0
 #define CW_DATADIR_NO 1
 #define CW_CALL_NO 2
