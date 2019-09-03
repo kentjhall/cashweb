@@ -165,9 +165,9 @@ static void cashFoundHandler(CS_CW_STATUS status, void *requestData, int respfd)
 	}
 }
 
-static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_params *params, char **pathId);
+static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_params *params, int respfd, char **pathId);
 
-static CS_CW_STATUS cashGetDirPathIdFromStream(FILE *dirStream, const char *path, const char *tmpDirfileName, struct CWG_params *params, char **pathId) {
+static CS_CW_STATUS cashGetDirPathIdFromStream(FILE *dirStream, const char *path, const char *tmpDirfileName, struct CWG_params *params, int respfd, char **pathId) {
 	CW_STATUS status;
 	struct cashRequestData *rd = (struct cashRequestData *)params->foundHandleData;
 	const char *clntip = rd->clntip;
@@ -184,7 +184,7 @@ static CS_CW_STATUS cashGetDirPathIdFromStream(FILE *dirStream, const char *path
 			initCashRequestData(&dirReqN, clntip, NULL);
 			dirReqN.cwId = pathIdN;
 			dirReqN.path = subPath;
-			status = cashGetDirPathId(&dirReqN, params, pathId);
+			status = cashGetDirPathId(&dirReqN, params, respfd, pathId);
 		}
 		else if ((*pathId = strdup(pathIdN)) == NULL) { perror("strdup() failed"); status = CW_SYS_ERR; }
 	}
@@ -194,7 +194,7 @@ static CS_CW_STATUS cashGetDirPathIdFromStream(FILE *dirStream, const char *path
 	return status;
 }
 
-static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_params *params, char **pathId) {
+static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_params *params, int respfd, char **pathId) {
 	CW_STATUS status;
 	const char *clntip = dirReq->clntip;
 	const char *path = dirReq->path;
@@ -213,10 +213,10 @@ static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_
 
 	FILE *dirFp;
 	if (access(tmpDirfileName, F_OK) != -1 && (dirFp = fopen(tmpDirfileName, "rb"))) {
-		status = cashGetDirPathIdFromStream(dirFp, path, tmpDirfileName, params, pathId);
+		status = cashGetDirPathIdFromStream(dirFp, path, tmpDirfileName, params, respfd, pathId);
 		if (status == CWG_IN_DIR_NO && dirReq->pathReplace) {
 			rewind(dirFp);
-			status = cashGetDirPathIdFromStream(dirFp, dirReq->pathReplace, tmpDirfileName, params, pathId);
+			status = cashGetDirPathIdFromStream(dirFp, dirReq->pathReplace, tmpDirfileName, params, respfd, pathId);
 		}
 		fclose(dirFp);
 		if (status == CWG_IS_DIR_NO) {
@@ -254,6 +254,7 @@ static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_
 
 		pid_t pid = fork();
 		if (pid == 0) {
+			close(respfd);
 			sleep(tmpDirfileTimeout);		
 			if (unlink(tmpDirfileName) != -1) { fprintf(stderr, "unlinking saved directory index at %s; timeout\n", tmpDirfileName); }
 			exit(0);
@@ -263,7 +264,7 @@ static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_
 			return CS_SYS_ERR;
 		}	
 
-		return cashGetDirPathId(dirReq, params, pathId);
+		return cashGetDirPathId(dirReq, params, respfd, pathId);
 	}
 
 	fprintf(stderr, "ERROR: failed to save/read directory index at %s\n", tmpDirfileName);
@@ -306,7 +307,7 @@ static CS_CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, 
 		dirRd.pathReplace = reqPathReplace;
 
 		CS_CW_STATUS tmpdirStatus;
-		if ((tmpdirStatus = cashGetDirPathId(&dirRd, &getParams, &pathId)) == CW_OK) { idQuery = pathId; }
+		if ((tmpdirStatus = cashGetDirPathId(&dirRd, &getParams, respfd, &pathId)) == CW_OK) { idQuery = pathId; }
 		else if (tmpdirStatus != CS_SYS_ERR) { cashFoundHandler(tmpdirStatus, &rd, respfd); status = tmpdirStatus; goto cleanup; }
 	}
 
@@ -358,7 +359,7 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(const char *host, const char *u
 	CW_STATUS status = CW_OK;
 	char *pathId = NULL;
 	CS_CW_STATUS tmpdirStatus = CW_OK;
-	if (tmpDirfileTimeout > 0 && (tmpdirStatus = cashGetDirPathId(&rd, &getParams, &pathId)) == CW_OK) {
+	if (tmpDirfileTimeout > 0 && (tmpdirStatus = cashGetDirPathId(&rd, &getParams, respfd, &pathId)) == CW_OK) {
 		fprintf(stderr, "%s: fetching file at identifier '%s'\n", clntip, pathId);
 		getParams.dirPath = NULL;
 		status = CWG_get_by_id(pathId, &getParams, respfd);
@@ -518,7 +519,7 @@ int main(int argc, char **argv) {
 
 	if (mongodb) { CWG_init_mongo_pool(mongodb, &genGetParams); }
 	struct MHD_Daemon *d;
-	if ((d = MHD_start_daemon(MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_DEBUG,
+	if ((d = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
 				  port,
 				  NULL,
 				  NULL,
