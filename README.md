@@ -46,13 +46,13 @@ Then type in:
 **NOTE:** *make install* may require sudo privileges<br/>
 This will build the libraries + executables and install to your system.
 
-If you want to clean up compiled files and start from scratch:
-
-    make distclean
-
 To uninstall at any time:
 
     make uninstall
+
+To clean up compiled files and start from scratch:
+
+    make distclean
 
 
 ## Usage
@@ -82,6 +82,10 @@ in your source code and provide the following linker flag(s) during compilation:
 and/or
 
     -lcashsendtools
+
+along with
+
+    -lcurl -ljansson $(pkg-config --libs libmongoc-1.0)
 
 For further information, see the header file(s): [`src/cashgettools.h`](./src/cashgettools.h), [`src/cashsendtools.h`](./src/cashsendtools.h).<br/>
 Dedicated documentation is not yet available.

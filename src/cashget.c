@@ -11,7 +11,7 @@
 	"-b <ARG> | specify BitDB HTTP endpoint URL for querying (default is "BITDB_DEFAULT")\n"\
 	"-m <ARG> | specify MongoDB URI for querying\n"\
 	"-l       | query MongoDB running locally (equivalent to -m "MONGODB_LOCAL_ADDR")\n"\
-	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory "CW_INSTALL_DATADIR_PATH")\n"\
+	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory)\n"\
 	"-J       | convert valid CashWeb directory index locally stored at location <toget> to readable JSON format and write to stdout\n"\
 	"-D       | get CashWeb directory index at valid CashWeb ID <toget>, convert to readable JSON format, and write to stdout\n"\
 	"-i       | get info on CashWeb file or nametag by appropriate CashWeb ID <toget>\n"

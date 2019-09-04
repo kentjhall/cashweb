@@ -12,7 +12,7 @@
 	"-p <ARG>       | specify RPC password (default is '"RPC_PASS_DEFAULT"')\n"\
 	"-a <ARG>       | specify RPC server address (default is "RPC_SERVER_DEFAULT")\n"\
 	"-o <ARG>       | specify RPC server port (default is "RPC_PORT_DEFAULT")\n"\
-	"-d <ARG>       | specify location of valid cashwebtools data directory (default is install directory "CW_INSTALL_DATADIR_PATH")\n"\
+	"-d <ARG>       | specify location of valid cashwebtools data directory (default is install directory)\n"\
 	"-t <ARG>       | specify max tree depth (i.e., allows for file to be downloaded progressively in chunks, rather than all at once)\n"\
 	"-nm            | disable default behavior of interpreting/encoding MIME type when sending from path\n"\
 	"-nf            | disable default cashsendtools behavior of fragmenting UTXOs (not recommended)\n"\

@@ -1,6 +1,7 @@
 #ifndef __CASHWEBUTILS_H__
 #define __CASHWEBUTILS_H__
 
+#include <config.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -14,6 +15,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <jansson.h>
+
+#define CW_INSTALL_DATADIR_PATH DATADIR"/"PACKAGE"/"
 
 #define FILE_DATA_BUF 1024
 

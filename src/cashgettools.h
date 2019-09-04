@@ -2,7 +2,6 @@
 #define __CASHGETTOOLS_H__
 
 #include "cashwebuni.h"
-#include <mongoc.h>
 
 /* cashgettools status codes */
 #define CWG_IN_DIR_NO CW_SYS_ERR+1
@@ -27,84 +26,6 @@
 extern FILE *CWG_err_stream;
 
 /*
- * params for getting
- * mongodb: MongoDB address (assumed to be populated by BitDB Node); indicates for cashgettools to handle initialization/cleanup of mongoc environment/client
- * mongodbCli: Optionally initialize/set mongoc client yourself; if so, is the user's responsibility to cleanup mongoc client and environment.
- 	       Do NOT set mongodb address above if this is the case; only one of these should be set, or behavior is undefined
-  	       Is primarily included for internal management by cashgettools
- * mongodbCliPool: Optionally initialize/set mongoc client pool yourself, for use in multi-threaded scenarios; if so, must handle cleanup of mongoc pool/environment;
- * 		   may utilize CWG_init_mongo_pool and CWG_cleanup_mongo_pool to this end
- * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
- * bitdbRequestLimit: Specify whether or not BitDB Node has request limit 
- * dirPath: Forces requested file to be treated as directory index (checked for validity) and gets at path dirPath;
- 	    May be useful if getting by means other than cashweb path ID
- * forceDir: Forces requested file to be treated as directory index;
- 	     this means if true, an invalid directory index will return error CWG_IS_DIR_NO, even if file is valid.
-	     Even if dirPath is specified, will be ignored in favor of writing directory index data at requested identifier
- * saveMimeStr: Optionally interpret/save file's mimetype string to this memory location;
- 		pass pointer to char array of length CWG_MIMESTR_BUF (this #define is available in header).
-		Will result as string of length 0 if file is of type CW_T_FILE, CW_T_DIR, or otherwise invalid value
- * foundHandler: Function to call when file is found, before writing
- * foundHandleData: Data pointer to pass to foundHandler()
- * foundSuppressErr: Specify an error code to suppress if file is found; <0 for none
- * datadir: specify data directory path for cashwebtools;
- 	    can be left as NULL if cashwebtools is properly installed on system with 'make install'
- */
-struct CWG_params {
-	const char *mongodb;
-	mongoc_client_t *mongodbCli;
-	mongoc_client_pool_t *mongodbCliPool;
-	const char *bitdbNode;
-	bool bitdbRequestLimit;
-	char *dirPath;
-	bool forceDir;
-	char (*saveMimeStr)[CWG_MIMESTR_BUF];
-	void (*foundHandler) (CW_STATUS, void *, int);
-	void *foundHandleData;
-	CW_STATUS foundSuppressErr;
-	const char *datadir;
-};
-
-/*
- * initializes struct CWG_params
- * either MongoDB or BitDB HTTP endpoint address must be specified on init
- * if both specified, will default to MongoDB within cashgettools
- * if saving mime type string is desired, pointer must be passed here for array initialization; otherwise, can be set NULL
- */ 
-static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, char (*saveMimeStr)[CWG_MIMESTR_BUF]) {
-	cgp->mongodb = mongodb;
-	cgp->mongodbCli = NULL;
-	cgp->mongodbCliPool = NULL;
-	cgp->bitdbNode = bitdbNode;
-	cgp->bitdbRequestLimit = true;
-	cgp->dirPath = NULL;
-	cgp->forceDir = false;
-	cgp->saveMimeStr = saveMimeStr;
-	if (cgp->saveMimeStr) { memset(*cgp->saveMimeStr, 0, sizeof(*cgp->saveMimeStr)); }
-	cgp->foundHandler = NULL;
-	cgp->foundHandleData = NULL;
-	cgp->foundSuppressErr = -1;
-	cgp->datadir = CW_INSTALL_DATADIR_PATH;
-}
-
-/*
- * copies struct CWG_params from source to dest
- */
-static inline void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
-	dest->mongodb = source->mongodb;
-	dest->mongodbCli = source->mongodbCli;
-	dest->mongodbCliPool = source->mongodbCliPool;
-	dest->bitdbNode = source->bitdbNode;
-	dest->dirPath = source->dirPath;
-	dest->forceDir = source->forceDir;
-	dest->saveMimeStr = source->saveMimeStr;
-	dest->foundHandler = source->foundHandler;
-	dest->foundHandleData = source->foundHandleData;
-	dest->foundSuppressErr = source->foundSuppressErr;
-	dest->datadir = source->datadir;
-}
-
-/*
  * struct for carrying info on file at specific txid; stores metadata and interpreted mimetype string
  */
 struct CWG_file_info {
@@ -116,7 +37,7 @@ struct CWG_file_info {
  * initializes struct CWG_file_info
  */
 static inline void init_CWG_file_info(struct CWG_file_info *cfi) {
-	cfi->mimetype[0] = 0;
+        cfi->mimetype[0] = 0;
 }
 
 /*
@@ -138,29 +59,83 @@ struct CWG_nametag_info {
  * initializes struct CWG_nametag_info
  */
 static inline void init_CWG_nametag_info(struct CWG_nametag_info *cni) {
-	cni->revisionTxid = NULL;
-	cni->revision = 0;
-	cni->nameRefs = NULL;
-	cni->txidRefs = NULL;
+        cni->revisionTxid = NULL;
+        cni->revision = 0;
+        cni->nameRefs = NULL;
+        cni->txidRefs = NULL;
 }
 
 /*
  * frees heap-allocated data pointed to by given struct CWG_nametag_info
  */
 static inline void destroy_CWG_nametag_info(struct CWG_nametag_info *cni) {
-	if (cni->revisionTxid) { free(cni->revisionTxid); }
-	if (cni->nameRefs) {
-		char **nameRefsPtr = cni->nameRefs;
-		while (*nameRefsPtr) { free(*nameRefsPtr++); }
-		free(cni->nameRefs);
-	}
-	if (cni->txidRefs) {
-		char **txidRefsPtr = cni->txidRefs;
-		while (*txidRefsPtr) { free(*txidRefsPtr++); }
-		free(cni->txidRefs);
-	}
-	init_CWG_nametag_info(cni);
+        if (cni->revisionTxid) { free(cni->revisionTxid); }
+        if (cni->nameRefs) {
+                char **nameRefsPtr = cni->nameRefs;
+                while (*nameRefsPtr) { free(*nameRefsPtr++); }
+                free(cni->nameRefs);
+        }
+        if (cni->txidRefs) {
+                char **txidRefsPtr = cni->txidRefs;
+                while (*txidRefsPtr) { free(*txidRefsPtr++); }
+                free(cni->txidRefs);
+        }
+        init_CWG_nametag_info(cni);
 }
+
+/*
+ * params for getting
+ * mongodb: MongoDB address (assumed to be populated by BitDB Node); indicates for cashgettools to handle initialization/cleanup of mongoc environment/client
+ * mongodbCli: Optionally initialize/set mongoc client yourself; if so, is the user's responsibility to cleanup mongoc client and environment.
+ 	       Do NOT set mongodb address above if this is the case; only one of these should be set, or behavior is undefined;
+	       must be cast from type mongoc_client_t * (as such, MongoC library must be included/linked in user project if user-managed).
+  	       Is primarily included for internal management by cashgettools
+ * mongodbCliPool: Optionally initialize/set mongoc client pool yourself, for use in multi-threaded scenarios; if so, must handle cleanup of mongoc pool/environment;
+		   must be cast from type mongoc_client_pool_t * (as such, MongoC library must be included/linked in user project if user-managed);
+ * 		   may utilize CWG_init_mongo_pool and CWG_cleanup_mongo_pool when not user-managed (recommended)
+ * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
+ * bitdbRequestLimit: Specify whether or not BitDB Node has request limit 
+ * dirPath: Forces requested file to be treated as directory index (checked for validity) and gets at path dirPath;
+ 	    May be useful if getting by means other than cashweb path ID
+ * forceDir: Forces requested file to be treated as directory index;
+ 	     this means if true, an invalid directory index will return error CWG_IS_DIR_NO, even if file is valid.
+	     Even if dirPath is specified, will be ignored in favor of writing directory index data at requested identifier
+ * saveMimeStr: Optionally interpret/save file's mimetype string to this memory location;
+ 		pass pointer to char array of length CWG_MIMESTR_BUF (this #define is available in header).
+		Will result as string of length 0 if file is of type CW_T_FILE, CW_T_DIR, or otherwise invalid value
+ * foundHandler: Function to call when file is found, before writing
+ * foundHandleData: Data pointer to pass to foundHandler()
+ * foundSuppressErr: Specify an error code to suppress if file is found; <0 for none
+ * datadir: specify data directory path for cashwebtools;
+ 	    can be left as NULL if cashwebtools is properly installed on system with 'make install'
+ */
+struct CWG_params {
+	const char *mongodb;
+	void *mongodbCli;
+	void *mongodbCliPool;
+	const char *bitdbNode;
+	bool bitdbRequestLimit;
+	char *dirPath;
+	bool forceDir;
+	char (*saveMimeStr)[CWG_MIMESTR_BUF];
+	void (*foundHandler) (CW_STATUS, void *, int);
+	void *foundHandleData;
+	CW_STATUS foundSuppressErr;
+	const char *datadir;
+};
+
+/*
+ * initializes struct CWG_params
+ * either MongoDB or BitDB HTTP endpoint address must be specified on init
+ * if both specified, will default to MongoDB within cashgettools
+ * if saving mime type string is desired, pointer must be passed here for array initialization; otherwise, can be set NULL
+ */ 
+void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, char (*saveMimeStr)[CWG_MIMESTR_BUF]);
+
+/*
+ * copies struct CWG_params from source to dest
+ */
+void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source);
 
 /*
  * gets the file by protocol-compliant identifier and writes to given file descriptor

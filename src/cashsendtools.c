@@ -289,6 +289,36 @@ static CW_STATUS sendBySender(struct CWS_sender *sender, double *fundsLost, char
 
 /* ------------------------------------- PUBLIC ------------------------------------- */
 
+void init_CWS_params(struct CWS_params *csp, const char *rpcServer, unsigned short rpcPort, const char *rpcUser, const char *rpcPass, FILE *recoveryStream) {
+	csp->rpcServer = rpcServer;
+	csp->rpcPort = rpcPort;
+	csp->rpcUser = rpcUser;
+	csp->rpcPass = rpcPass;
+	csp->maxTreeDepth = -1;
+	csp->cwType = CW_T_FILE;
+	csp->revToAddr = NULL;
+	csp->fragUtxos = 1;
+	csp->dirOmitIndex = false;
+	csp->saveDirStream = NULL;
+	csp->recoveryStream = recoveryStream;
+	csp->datadir = CW_INSTALL_DATADIR_PATH;
+}
+
+void copy_CWS_params(struct CWS_params *dest, struct CWS_params *source) {
+	dest->rpcServer = source->rpcServer;
+	dest->rpcPort = source->rpcPort;
+	dest->rpcUser = source->rpcUser;
+	dest->rpcPass = source->rpcPass;
+	dest->maxTreeDepth = source->maxTreeDepth;
+	dest->cwType = source->cwType;
+	dest->revToAddr = source->revToAddr;
+	dest->fragUtxos = source->fragUtxos;
+	dest->dirOmitIndex = source->dirOmitIndex;
+	dest->saveDirStream = source->saveDirStream;
+	dest->recoveryStream = source->recoveryStream;
+	dest->datadir = source->datadir;
+}
+
 CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double *fundsUsed, double *fundsLost, char *resTxid) {
 	struct stat st;
 	if (stat(path, &st) != 0) { perror("stat() failed"); return CW_SYS_ERR; }

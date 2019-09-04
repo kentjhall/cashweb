@@ -1,7 +1,6 @@
 #ifndef __CASHWEBUNI_H__
 #define __CASHWEBUNI_H__
 
-#include <config.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -115,7 +114,6 @@ static inline void copy_CW_file_metadata(struct CW_file_metadata *dest, struct C
 #define CW_TXID_BYTES 32
 
 /* data directory paths */
-#define CW_INSTALL_DATADIR_PATH DATADIR"/"PACKAGE"/"
 #define CW_DATADIR_MIMETYPES_PATH "CW_mimetypes/"
 
 /* _CHARS for number of chars in hex str */

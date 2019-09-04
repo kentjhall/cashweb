@@ -1,5 +1,7 @@
 #include <cashgettools.h>
 #include <microhttpd.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
 #include <getopt.h>
 
 #define USAGE_STR "usage: %s [FLAGS]\n"
@@ -12,7 +14,7 @@
 	"-p <ARG> | specify hosting port (default if "CS_PORT_DEFAULT")\n"\
 	"-m <ARG> | specify MongoDB URI for querying (default is "MONGODB_LOCAL_ADDR")\n"\
 	"-b <ARG> | specify BitDB HTTP endpoint URL for querying instead of MongoDB\n"\
-	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory "CW_INSTALL_DATADIR_PATH")\n"\
+	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory)\n"\
 	"-ns      | disable default behavior to treat any subdomain (*.X.X) in HTTP host header as a named CashWeb directory request\n"\
 	"-f <ARG> | specify path for temporarily stored directory indexes (default is "TMP_DIRFILE_PATH_DEFAULT")\n"\
 	"-t <ARG> | specify timeout for a temporarily stored directory index to be destroyed (default is "TMP_DIRFILE_TIMEOUT_DEFAULT"s); set 0 for disabling temporary storage\n"

@@ -22,6 +22,26 @@ extern FILE *CWS_err_stream;
 extern FILE *CWS_log_stream;
 
 /*
+ * convenience pack for passing common qualifers to revision functions
+ */
+struct CWS_revision_pack {
+	bool immutable;
+	const char *pathToReplace;
+	const char *pathReplacement;
+	const char *transferAddr;
+};
+
+/*
+ * initializes struct CWS_revision_pack
+ */
+static inline void init_CWS_revision_pack(struct CWS_revision_pack *rvp) {
+        rvp->immutable = false;
+        rvp->pathToReplace = NULL;
+        rvp->pathReplacement = NULL;
+        rvp->transferAddr = NULL;
+}
+
+/*
  * params for sending
  * rpcServer: RPC address
  * rpcPort: RPC port
@@ -60,70 +80,23 @@ struct CWS_params {
  * initializes struct CWS_params
  * rpcServer, rpcPort, rpcUser, and rpcPass are required on init
  */
-static inline void init_CWS_params(struct CWS_params *csp,
-				   const char *rpcServer, unsigned short rpcPort, const char *rpcUser, const char *rpcPass, FILE *recoveryStream) {
-	csp->rpcServer = rpcServer;
-	csp->rpcPort = rpcPort;
-	csp->rpcUser = rpcUser;
-	csp->rpcPass = rpcPass;
-	csp->maxTreeDepth = -1;
-	csp->cwType = CW_T_FILE;
-	csp->revToAddr = NULL;
-	csp->fragUtxos = 1;
-	csp->dirOmitIndex = false;
-	csp->saveDirStream = NULL;
-	csp->recoveryStream = recoveryStream;
-	csp->datadir = CW_INSTALL_DATADIR_PATH;
-}
+void init_CWS_params(struct CWS_params *csp, const char *rpcServer, unsigned short rpcPort, const char *rpcUser, const char *rpcPass, FILE *recoveryStream);
 
 /*
  * copies struct CWS_params from source to dest
  */
-static inline void copy_CWS_params(struct CWS_params *dest, struct CWS_params *source) {
-	dest->rpcServer = source->rpcServer;
-	dest->rpcPort = source->rpcPort;
-	dest->rpcUser = source->rpcUser;
-	dest->rpcPass = source->rpcPass;
-	dest->maxTreeDepth = source->maxTreeDepth;
-	dest->cwType = source->cwType;
-	dest->revToAddr = source->revToAddr;
-	dest->fragUtxos = source->fragUtxos;
-	dest->dirOmitIndex = source->dirOmitIndex;
-	dest->saveDirStream = source->saveDirStream;
-	dest->recoveryStream = source->recoveryStream;
-	dest->datadir = source->datadir;
-}
-
-/*
- * convenience pack for passing common qualifers to revision functions
- */
-struct CWS_revision_pack {
-	bool immutable;
-	const char *pathToReplace;
-	const char *pathReplacement;
-	const char *transferAddr;
-};
-
-/*
- * initializes struct CWS_revision_pack
- */
-static inline void init_CWS_revision_pack(struct CWS_revision_pack *rvp) {
-	rvp->immutable = false;
-	rvp->pathToReplace = NULL;
-	rvp->pathReplacement = NULL;
-	rvp->transferAddr = NULL;
-}
+void copy_CWS_params(struct CWS_params *dest, struct CWS_params *source);
 
 /*
  * determines if given struct CWS_revision_pack contains any new (non-default) information
  */
 static inline bool is_default_CWS_revision_pack(struct CWS_revision_pack *rvp) {
-	struct CWS_revision_pack def;
-	init_CWS_revision_pack(&def);
-	return rvp->immutable == def.immutable &&
-	       rvp->pathToReplace == def.pathToReplace &&
-	       rvp->pathReplacement == def.pathReplacement &&
-	       rvp->transferAddr == def.transferAddr;
+        struct CWS_revision_pack def;
+        init_CWS_revision_pack(&def);
+        return rvp->immutable == def.immutable &&
+               rvp->pathToReplace == def.pathToReplace &&
+               rvp->pathReplacement == def.pathReplacement &&
+               rvp->transferAddr == def.transferAddr;
 }
 
 /*

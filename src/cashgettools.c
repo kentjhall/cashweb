@@ -1,5 +1,6 @@
 #include "cashwebutils.h"
 #include "cashgettools.h"
+#include <mongoc.h>
 #include <curl/curl.h>
 #include <pthread.h>
 #include <b64/b64.h>
@@ -301,6 +302,36 @@ static CW_STATUS getByGetterPath(struct CWG_getter *getter, const char *path, in
 
 /* ------------------------------------- PUBLIC ------------------------------------- */
 
+void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, char (*saveMimeStr)[CWG_MIMESTR_BUF]) {
+	cgp->mongodb = mongodb;
+	cgp->mongodbCli = NULL;
+	cgp->mongodbCliPool = NULL;
+	cgp->bitdbNode = bitdbNode;
+	cgp->bitdbRequestLimit = true;
+	cgp->dirPath = NULL;
+	cgp->forceDir = false;
+	cgp->saveMimeStr = saveMimeStr;
+	if (cgp->saveMimeStr) { memset(*cgp->saveMimeStr, 0, sizeof(*cgp->saveMimeStr)); }
+	cgp->foundHandler = NULL;
+	cgp->foundHandleData = NULL;
+	cgp->foundSuppressErr = -1;
+	cgp->datadir = CW_INSTALL_DATADIR_PATH;
+}
+
+void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
+	dest->mongodb = source->mongodb;
+	dest->mongodbCli = source->mongodbCli;
+	dest->mongodbCliPool = source->mongodbCliPool;
+	dest->bitdbNode = source->bitdbNode;
+	dest->dirPath = source->dirPath;
+	dest->forceDir = source->forceDir;
+	dest->saveMimeStr = source->saveMimeStr;
+	dest->foundHandler = source->foundHandler;
+	dest->foundHandleData = source->foundHandleData;
+	dest->foundSuppressErr = source->foundSuppressErr;
+	dest->datadir = source->datadir;
+}
+
 CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd) {
 	CW_STATUS status;
 	if ((status = initFetcher(params)) != CW_OK) { return status; } 
@@ -542,21 +573,21 @@ CW_STATUS CWG_init_mongo_pool(const char *mongodbAddr, struct CWG_params *params
 		return CW_CALL_NO;
 	}
 
-	params->mongodbCliPool = mongoc_client_pool_new(uri);
+	params->mongodbCliPool = (void *)mongoc_client_pool_new(uri);
 	mongoc_uri_destroy(uri);	
 	if (!params->mongodbCliPool) {
 		fprintf(CWG_err_stream, "ERROR: cashgettools failed to establish client with MongoDB\n");
 		mongoc_cleanup();
 		return CWG_FETCH_ERR;
 	}
-	mongoc_client_pool_set_error_api(params->mongodbCliPool, MONGOC_ERROR_API_VERSION_2);
-	mongoc_client_pool_set_appname(params->mongodbCliPool, MONGODB_APPNAME);
+	mongoc_client_pool_set_error_api((mongoc_client_pool_t *)params->mongodbCliPool, MONGOC_ERROR_API_VERSION_2);
+	mongoc_client_pool_set_appname((mongoc_client_pool_t *)params->mongodbCliPool, MONGODB_APPNAME);
 
 	return CW_OK;
 }
 
 void CWG_cleanup_mongo_pool(struct CWG_params *params) {
-	mongoc_client_pool_destroy(params->mongodbCliPool);
+	mongoc_client_pool_destroy((mongoc_client_pool_t *)params->mongodbCliPool);
 	params->mongodbCliPool = NULL;
 	mongoc_cleanup();
 }
@@ -1140,7 +1171,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 }
 
 static inline CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE type, struct CWG_params *params, char **txids, char *hexDataAll) {
-	if (params->mongodbCli) { return fetchHexDataMongoDB(ids, count, type,  params->mongodbCli, txids, hexDataAll); }
+	if (params->mongodbCli) { return fetchHexDataMongoDB(ids, count, type, (mongoc_client_t *)params->mongodbCli, txids, hexDataAll); }
 	else if (params->bitdbNode) { return fetchHexDataBitDBNode(ids, count, type, params->bitdbNode, params->bitdbRequestLimit, txids, hexDataAll); }
 	else {
 		fprintf(CWG_err_stream, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set in cashgettools implementation\n");
@@ -1973,7 +2004,7 @@ static CW_STATUS getFileById(const char *id, List *fetchedNames, struct CWG_para
 static CW_STATUS initFetcher(struct CWG_params *params) {
 	if (params->mongodb || params->mongodbCli || params->mongodbCliPool) {
 		if (params->mongodbCliPool) {
-			params->mongodbCli = mongoc_client_pool_pop(params->mongodbCliPool);
+			params->mongodbCli = mongoc_client_pool_pop((mongoc_client_pool_t *)params->mongodbCliPool);
 		}
 		else if (!params->mongodbCli) { 
 			mongoc_init();
@@ -1984,15 +2015,15 @@ static CW_STATUS initFetcher(struct CWG_params *params) {
 				mongoc_cleanup();
 				return CW_CALL_NO;
 			}
-			params->mongodbCli = mongoc_client_new_from_uri(uri);	
+			params->mongodbCli = (void *)mongoc_client_new_from_uri(uri);	
 			mongoc_uri_destroy(uri);	
 			if (!params->mongodbCli) {
 				fprintf(CWG_err_stream, "ERROR: cashgettools failed to establish client with MongoDB\n");
 				mongoc_cleanup();
 				return CWG_FETCH_ERR;
 			}
-			mongoc_client_set_error_api(params->mongodbCli, MONGOC_ERROR_API_VERSION_2);
-			mongoc_client_set_appname(params->mongodbCli, MONGODB_APPNAME);
+			mongoc_client_set_error_api((mongoc_client_t *)params->mongodbCli, MONGOC_ERROR_API_VERSION_2);
+			mongoc_client_set_appname((mongoc_client_t *)params->mongodbCli, MONGODB_APPNAME);
 		}	
 	} 
 	else if (params->bitdbNode) {
@@ -2010,10 +2041,10 @@ static CW_STATUS initFetcher(struct CWG_params *params) {
 static void cleanupFetcher(struct CWG_params *params) {
 	if (params->mongodbCli) {
 		if (params->mongodbCliPool) {
-			mongoc_client_pool_push(params->mongodbCliPool, params->mongodbCli);
+			mongoc_client_pool_push((mongoc_client_pool_t *)params->mongodbCliPool, (mongoc_client_t *)params->mongodbCli);
 		}
 		else if (params->mongodb) {
-			mongoc_client_destroy(params->mongodbCli);
+			mongoc_client_destroy((mongoc_client_t *)params->mongodbCli);
 			params->mongodbCli = NULL;
 			mongoc_cleanup();
 		}
