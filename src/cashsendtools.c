@@ -831,8 +831,6 @@ CW_STATUS CWS_get_stored_revision_txid_by_name(const char *name, struct CWS_para
 }
 
 CW_STATUS CWS_set_cw_mime_type_by_extension(const char *fname, struct CWS_params *csp) {
-	if (csp->datadir == NULL) { csp->datadir = CW_INSTALL_DATADIR_PATH; }
-
 	CW_STATUS status = CW_OK;
 	bool matched = false;
 

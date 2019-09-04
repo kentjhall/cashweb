@@ -1,16 +1,49 @@
 #include <cashsendtools.h>
 #include <getopt.h>
 
-#define RPC_SERVER_DEFAULT "127.0.0.1"
-#define RPC_PORT_DEFAULT 8332
+#define USAGE_STR "usage: %s [FLAGS] <tosend>\n"
+#define HELP_STR \
+	USAGE_STR\
+	"\n"\
+	" Flag          | Use\n"\
+	"---------------|---------------------------------------------------------------------------------------------------------------------------------------------\n"\
+	"[none]         | send file at path <tosend> (or from stdin if <tosend> is \"-\") via default RPC settings\n"\
+	"-u <ARG>       | specify RPC user (default is '"RPC_USER_DEFAULT"')\n"\
+	"-p <ARG>       | specify RPC password (default is '"RPC_PASS_DEFAULT"')\n"\
+	"-a <ARG>       | specify RPC server address (default is "RPC_SERVER_DEFAULT")\n"\
+	"-o <ARG>       | specify RPC server port (default is "RPC_PORT_DEFAULT")\n"\
+	"-d <ARG>       | specify location of valid cashwebtools data directory (default is install directory "CW_INSTALL_DATADIR_PATH")\n"\
+	"-t <ARG>       | specify max tree depth (i.e., allows for file to be downloaded progressively in chunks, rather than all at once)\n"\
+	"-nm            | disable default behavior of interpreting/encoding MIME type when sending from path\n"\
+	"-nf            | disable default cashsendtools behavior of fragmenting UTXOs (not recommended)\n"\
+	"-r             | recover prior failed send\n"\
+	"-e             | estimate cost of send (a rather loose approximation under current implementation)\n"\
+	"-O <ARG>       | when sending from directory path, save index to specified location rather than sending to network\n"\
+	"-E             | send as raw directory index (may be product of -O send)\n"\
+	"-D             | send as JSON format directory index\n"\
+	"-N <ARG>       | send standard nametag with specified name that references valid CashWeb ID <tosend> (i.e. to \"name\" the given identifier)\n"\
+	"-R             | send replacement revision that references valid CashWeb ID <tosend>; specify name with -N (i.e. to replace existing identifier for nametag)\n"\
+	"-B             | send prepend revision that references valid CashWeb ID <tosend>; specify name with -N\n"\
+	"-A             | send append revision that references valid CashWeb ID <tosend>; specify name with -N\n"\
+	"-C <ARG>       | send insert revision for specified position that references valid CashWeb ID <tosend>; specify name with -N\n"\
+	"-X <ARG>       | send delete revision to delete <tosend> bytes starting at specified position; specify name with -N\n"\
+	"-P <ARG> <ARG> | specify path link (used with directory nametag/revision) – first path to link, second path being linked to; <tosend> may be omitted\n"\
+	"-I             | used with nametag/revision, script will be verifiably immutable, and revision UTXO will not be locked; <tosend> may be omitted>\n"\
+	"-T <ARG>       | used with nametag/revision, will transfer ownership to specified address (recipient must manually lock); <tosend> may be omitted>\n"\
+	"-l             | ensure all revision locks are locked for sending with bitcoin-cli (may be necessary after restarting bitcoind); <tosend> may be omitted\n"\
+	"-L <ARG>       | lock specified revision txid under name given by <tosend>\n"\
+	"-U             | unlock name given by <tosend>\n"
+
 #define RPC_USER_DEFAULT "root"
 #define RPC_PASS_DEFAULT "bitcoin"
+#define RPC_SERVER_DEFAULT "127.0.0.1"
+#define RPC_PORT_DEFAULT "8332"
 
 int main(int argc, char **argv) {	
 	int exitcode = 0;	
 
 	struct CWS_params params;
-	init_CWS_params(&params, RPC_SERVER_DEFAULT, RPC_PORT_DEFAULT, RPC_USER_DEFAULT, RPC_PASS_DEFAULT, NULL);
+	init_CWS_params(&params, RPC_SERVER_DEFAULT, atoi(RPC_PORT_DEFAULT), RPC_USER_DEFAULT, RPC_PASS_DEFAULT, NULL);
 	params.cwType = CW_T_MIMESET;
 
 	struct CWS_revision_pack revPack;
@@ -21,8 +54,8 @@ int main(int argc, char **argv) {
 	bool revReplace = false;
 	bool revPrepend = false;
 	bool revAppend = false;
-	size_t revInsertPos = 0;
-	size_t revDeleteBytes = 0;
+	ssize_t revInsertPos = -1;
+	ssize_t revDeletePos = -1;
 	char *lock = NULL;
 	bool unlock = false;
 	bool justLockUnspents = false;
@@ -30,33 +63,54 @@ int main(int argc, char **argv) {
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nmft:relO:EDIN:RBAC:X:T:P:L:Uu:p:a:o:d:")) != -1) {
+	while ((c = getopt(argc, argv, ":hu:p:a:o:d:t:nmfreO:EDN:RBAC:X:P:IT:lL:U")) != -1) {
 		switch (c) {
+			case 'h':
+				fprintf(stderr, HELP_STR, argv[0]);
+				exit(0);
+			case 'u':
+				params.rpcUser = optarg;
+				break;
+			case 'p':
+				params.rpcPass = optarg;
+				break;
+			case 'a':
+				params.rpcServer = optarg;
+				break;
+			case 'o':
+				params.rpcPort = atoi(optarg);
+				break;
+			case 'd':
+				params.datadir = optarg;
+				break;
 			case 'n':
 				no = true;
 				break;
+			case 't':
+				params.maxTreeDepth = atoi(optarg);
+				break;
 			case 'm':
-				params.cwType = no ? params.cwType : CW_T_MIMESET;
+				params.cwType = no ? CW_T_FILE : CW_T_MIMESET;
 				no = false;
 				break;
 			case 'f':
 				params.fragUtxos = no ? 0 : params.fragUtxos;
 				no = false;
-				break;	
-			case 't':
-				params.maxTreeDepth = atoi(optarg);
-				break;
+				break;		
 			case 'r':
-				recover = no ? false : true;
-				no = false;
+				recover = true;
 				break;
 			case 'e':
-				estimate = no ? false : true;
-				no = false;
+				estimate = true;
 				break;
 			case 'l':
-				justLockUnspents = no ? false : true;
-				no = false;
+				justLockUnspents = true;
+				break;
+			case 'L':
+				lock = optarg;	
+				break;
+			case 'U':
+				unlock = true;
 				break;
 			case 'O':
 				params.dirOmitIndex = true;
@@ -64,16 +118,11 @@ int main(int argc, char **argv) {
 				if (!params.saveDirStream) { perror("fopen() failed"); exit(1); }
 				break;
 			case 'E':
-				params.cwType = no ? params.cwType : CW_T_DIR;
+				params.cwType = CW_T_DIR;
 				break;
 			case 'D':
-				isDirIndex = no ? false : true;
-				no = false;
-				break;
-			case 'I':
-				revPack.immutable = no ? false : true;
-				no = false;
-				break;
+				isDirIndex = true;
+				break;	
 			case 'N':
 				name = optarg;	
 				break;
@@ -90,11 +139,8 @@ int main(int argc, char **argv) {
 				revInsertPos = atoi(optarg);
 				break;
 			case 'X':
-				revDeleteBytes = atoi(optarg);
-				break;
-			case 'T':
-				revPack.transferAddr = optarg;
-				break;
+				revDeletePos = atoi(optarg);
+				break;		
 			case 'P':
 				revPack.pathToReplace = optarg;
 				if (argc <= optind || (argv[optind][0] == '-' && strlen(argv[optind]) > 1)) {
@@ -103,27 +149,11 @@ int main(int argc, char **argv) {
 				}
 				revPack.pathReplacement = argv[optind++];
 				break;
-			case 'L':
-				lock = optarg;	
-				break;
-			case 'U':
-				unlock = no ? false : true;
-				no = false;
-				break;		
-			case 'u':
-				params.rpcUser = optarg;
-				break;
-			case 'p':
-				params.rpcPass = optarg;
-				break;
-			case 'a':
-				params.rpcServer = optarg;
-				break;
-			case 'o':
-				params.rpcPort = atoi(optarg);
-				break;
-			case 'd':
-				params.datadir = optarg;
+			case 'I':
+				revPack.immutable = true;
+				break;			
+			case 'T':
+				revPack.transferAddr = optarg;
 				break;
 			case ':':
 				fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -142,7 +172,7 @@ int main(int argc, char **argv) {
 	}
 
 	if (argc <= optind && !justLockUnspents && is_default_CWS_revision_pack(&revPack)) {
-		fprintf(stderr, "usage: %s [FLAGS] <tosend>\n", argv[0]);
+		fprintf(stderr, USAGE_STR"\n-h for help\n", argv[0]);
 		exit(1);
 	}	
 
@@ -247,15 +277,15 @@ int main(int argc, char **argv) {
 				tosend = id;
 			}
 
-			if (revReplace || revPrepend || revAppend || revInsertPos > 0 || revDeleteBytes > 0 || !is_default_CWS_revision_pack(&revPack)) {
+			if (revReplace || revPrepend || revAppend || revInsertPos >= 0 || revDeletePos >= 0 || !is_default_CWS_revision_pack(&revPack)) {
 				char revTxid[CW_TXID_CHARS+1]; txid[0] = 0;
 				status = CWS_get_stored_revision_txid_by_name(name, &params, revTxid);
 				if (status == CW_OK) {
 					if (revReplace) { status = CWS_send_replace_revision(revTxid, tosend, &revPack, &params, &totalCost, txid); }
 					else if (revPrepend) { status = CWS_send_prepend_revision(revTxid, tosend, &revPack, &params, &totalCost, txid); }
 					else if (revAppend) { status = CWS_send_append_revision(revTxid, tosend, &revPack, &params, &totalCost, txid); }
-					else if (revInsertPos > 0) { status = CWS_send_insert_revision(revTxid, revInsertPos, tosend, &revPack, &params, &totalCost, txid); }
-					else if (revDeleteBytes > 0) { status = CWS_send_delete_revision(revTxid, atoi(tosend), revDeleteBytes, &revPack, &params, &totalCost, txid);  }
+					else if (revInsertPos >= 0) { status = CWS_send_insert_revision(revTxid, revInsertPos, tosend, &revPack, &params, &totalCost, txid); }
+					else if (revDeletePos >= 0) { status = CWS_send_delete_revision(revTxid, revDeletePos, atoi(tosend), &revPack, &params, &totalCost, txid);  }
 					else if (!is_default_CWS_revision_pack(&revPack)) { status = CWS_send_empty_revision(revTxid, &revPack, &params, &totalCost, txid); }
 					else { fprintf(stderr, "Unexpected behavior; problem with cashsend.c"); status = CW_SYS_ERR; }
 				} else if (status == CW_CALL_NO) {
@@ -292,7 +322,6 @@ int main(int argc, char **argv) {
 			if (params.cwType == CW_T_MIMESET) { params.cwType = CW_T_FILE;	}
 			status = CWS_send_from_stream(isDirIndex ? dirIndexStream : stdin, &params, &totalCost, &lostCost, txid);
 		} else {
-			fprintf(stderr, "%u\n", params.cwType);
 			status = CWS_send_from_path(tosend, &params, &totalCost, &lostCost, txid);
 		}
 	}

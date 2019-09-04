@@ -2,11 +2,27 @@
 #include <microhttpd.h>
 #include <getopt.h>
 
+#define USAGE_STR "usage: %s [FLAGS]\n"
+#define HELP_STR \
+	USAGE_STR\
+	"\n"\
+	" Flag    | Use\n"\
+	"---------|----------------------------------------------------------------------------------------------------------------------------------------------\n"\
+	"[none]   | host CashServer getting by local MongoDB ("MONGODB_LOCAL_ADDR") on port "CS_PORT_DEFAULT"\n"\
+	"-p <ARG> | specify hosting port (default if "CS_PORT_DEFAULT")\n"\
+	"-m <ARG> | specify MongoDB URI for querying (default is "MONGODB_LOCAL_ADDR")\n"\
+	"-b <ARG> | specify BitDB HTTP endpoint URL for querying instead of MongoDB\n"\
+	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory "CW_INSTALL_DATADIR_PATH")\n"\
+	"-ns      | disable default behavior to treat any subdomain (*.X.X) in HTTP host header as a named CashWeb directory request\n"\
+	"-f <ARG> | specify path for temporarily stored directory indexes (default is "TMP_DIRFILE_PATH_DEFAULT")\n"\
+	"-t <ARG> | specify timeout for a temporarily stored directory index to be destroyed (default is "TMP_DIRFILE_TIMEOUT_DEFAULT"s); set 0 for disabling temporary storage\n"
+
+
 #define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
-#define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
-#define CS_PORT_DEFAULT 80
+#define CS_PORT_DEFAULT "80"
+#define DIR_BY_SUBDOMAIN_DEFAULT true
 #define TMP_DIRFILE_PATH_DEFAULT "/tmp/"
-#define TMP_DIRFILE_TIMEOUT_DEFAULT 20
+#define TMP_DIRFILE_TIMEOUT_DEFAULT "20"
 
 typedef char CS_CW_STATUS;
 #define CS_REQUEST_HOST_NO -1
@@ -22,10 +38,10 @@ typedef char CS_CW_STATUS;
 
 #define DOT_COUNT(h,c) for (c=0; h[c]; h[c]=='.' ? c++ : *h++);
 
-static bool dirBySubdomain = true;
-static const char *tmpDirfilePath = TMP_DIRFILE_PATH_DEFAULT;
-static unsigned int tmpDirfileTimeout = TMP_DIRFILE_TIMEOUT_DEFAULT;
 static struct CWG_params genGetParams;
+static bool dirBySubdomain;
+static const char *tmpDirfilePath;
+static unsigned int tmpDirfileTimeout;
 
 struct cashRequestData {
 	const char *cwId;
@@ -465,38 +481,48 @@ static int requestHandler(void *cls,
 }
 
 int main(int argc, char **argv) {
-	unsigned short port = CS_PORT_DEFAULT;
-	char *mongodb = NULL;
-	char *bitdbNode = BITDB_DEFAULT;
-	bool no = false;
+	init_CWG_params(&genGetParams, NULL, NULL, NULL);
+	genGetParams.foundHandler = &cashFoundHandler;
 
+	dirBySubdomain = DIR_BY_SUBDOMAIN_DEFAULT;;
+	tmpDirfilePath = TMP_DIRFILE_PATH_DEFAULT;
+	tmpDirfileTimeout = atoi(TMP_DIRFILE_TIMEOUT_DEFAULT);
+
+	unsigned short port = atoi(CS_PORT_DEFAULT);
+	char *mongodb = MONGODB_LOCAL_ADDR;
+
+	bool no = false;
 	int c;
-	while ((c = getopt(argc, argv, ":nht:d:p:m:lb:")) != -1) {
+	while ((c = getopt(argc, argv, ":hp:m:b:d:nsf:t:")) != -1) {
 		switch (c) {
-			case 'n':
-				no = true;
-				break;
 			case 'h':
-				dirBySubdomain = no ? false : true;
-				no = false;
-				break;
-			case 't':
-				tmpDirfileTimeout = atoi(optarg);
-				break;
-			case 'd':
-				tmpDirfilePath = optarg;
-				break;
+				fprintf(stderr, HELP_STR, argv[0]);
+				exit(0);
 			case 'p':
 				port = atoi(optarg);
 				break;
 			case 'm':
 				mongodb = optarg;
 				break;
-			case 'l':
-				mongodb = MONGODB_LOCAL_ADDR;
-				break;
 			case 'b':
-				bitdbNode = optarg;
+				genGetParams.bitdbNode = optarg;
+				mongodb = NULL;
+				break;
+			case 'd':
+				genGetParams.datadir = optarg;
+				break;
+			case 'n':
+				no = true;
+				break;
+			case 's':
+				dirBySubdomain = no ? false : true;
+				no = false;
+				break;	
+			case 'f':
+				tmpDirfilePath = optarg;
+				break;	
+			case 't':
+				tmpDirfileTimeout = atoi(optarg);
 				break;
 			case ':':
 				fprintf(stderr, "Option -%c requires an argument.\n", optopt);
@@ -512,10 +538,7 @@ int main(int argc, char **argv) {
 				fprintf(stderr, "getopt() unknown error\n");
 				exit(1);
 		}
-	}	
-
-	init_CWG_params(&genGetParams, NULL, bitdbNode, NULL);
-	genGetParams.foundHandler = &cashFoundHandler;
+	}		
 
 	if (mongodb) { CWG_init_mongo_pool(mongodb, &genGetParams); }
 	struct MHD_Daemon *d;
@@ -526,7 +549,7 @@ int main(int argc, char **argv) {
 				  &requestHandler,
 				  NULL,
 				  MHD_OPTION_END)) == NULL) { perror("MHD_start_daemon() failed"); exit(1); }
-	fprintf(stderr, "Starting cashserver on port %u... (source is %s at %s)\n", port, mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : bitdbNode);
+	fprintf(stderr, "Starting cashserver on port %u... (source is %s at %s)\n", port, mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : genGetParams.bitdbNode);
 
 	(void) getc (stdin);
 	fprintf(stderr, "Stopping cashserver...\n");

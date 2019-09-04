@@ -37,13 +37,13 @@ Then type in the project folder:
 
     ./autogen.sh && ./configure
 
-**NOTE:** append flag *--without-cashsend* to omit the cashsendtools library + cashsend executable, and/or *--without-cashserver* to omit the cashserver executable.
+**NOTE:** append flag *--without-cashsend* to omit the cashsendtools library + cashsend executable, and/or *--without-cashserver* to omit the cashserver executable
 
 Then type in:
 	
     make && make install
 
-**NOTE:** *make install* may require sudo privileges.<br/>
+**NOTE:** *make install* may require sudo privileges<br/>
 This will build the libraries + executables and install to your system.
 
 If you want to clean up compiled files and start from scratch:
@@ -64,6 +64,8 @@ Available executables for experimentation with getting, sending, and serving (re
     cashsend [FLAGS] <tosend>
 
     cashserver [FLAGS]
+
+**NOTE:** use flag *-h* for usage details
 
 To use a library, it is enough to include the header file:
 

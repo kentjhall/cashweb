@@ -1,20 +1,50 @@
 #include <cashgettools.h>
 #include <getopt.h>
 
-#define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
+#define USAGE_STR "usage: %s [FLAGS] <toget>\n"
+#define HELP_STR \
+	USAGE_STR\
+	"\n"\
+	" Flag    | Use\n"\
+	"---------|-------------------------------------------------------------------------------------------------------------------------\n"\
+	"[none]   | get file at valid CashWeb ID <toget> and write to stdout\n"\
+	"-b <ARG> | specify BitDB HTTP endpoint URL for querying (default is "BITDB_DEFAULT")\n"\
+	"-m <ARG> | specify MongoDB URI for querying\n"\
+	"-l       | query MongoDB running locally (equivalent to -m "MONGODB_LOCAL_ADDR")\n"\
+	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory "CW_INSTALL_DATADIR_PATH")\n"\
+	"-J       | convert valid CashWeb directory index locally stored at location <toget> to readable JSON format and write to stdout\n"\
+	"-D       | get CashWeb directory index at valid CashWeb ID <toget>, convert to readable JSON format, and write to stdout\n"\
+	"-i       | get info on CashWeb file or nametag by appropriate CashWeb ID <toget>\n"
+
 #define BITDB_DEFAULT "https://bitdb.bitcoin.com/q"
+#define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
 
 int main(int argc, char **argv) {
-	char *mongodb = NULL;
-	char *bitdbNode = BITDB_DEFAULT;
+	struct CWG_params params;
+	init_CWG_params(&params, NULL, BITDB_DEFAULT, NULL);
 
 	bool getInfo = false;
 	bool getDirIndex = false;
 	bool getDirIndexLocal = false;
 
 	int c;
-	while ((c = getopt(argc, argv, ":JDilm:b:")) != -1) {
-		switch (c) {		
+	while ((c = getopt(argc, argv, ":hb:m:ldJDi")) != -1) {
+		switch (c) {			
+			case 'h':
+				fprintf(stderr, HELP_STR, argv[0]);
+				exit(0);
+			case 'b':
+				params.bitdbNode = optarg;
+				break;
+			case 'm':
+				params.mongodb = optarg;
+				break;
+			case 'l':
+				params.mongodb = MONGODB_LOCAL_ADDR;
+				break;	
+			case 'd':
+				params.datadir = optarg;
+				break;
 			case 'J':
 				getDirIndexLocal = true;
 				break;
@@ -23,16 +53,7 @@ int main(int argc, char **argv) {
 				break;	
 			case 'i':
 				getInfo = true;	
-				break;
-			case 'l':
-				mongodb = MONGODB_LOCAL_ADDR;
-				break;
-			case 'm':
-				mongodb = optarg;
-				break;
-			case 'b':
-				bitdbNode = optarg;
-				break;
+				break;	
 			case ':':
 				fprintf(stderr, "Option -%c requires an argument.\n", optopt);
 				exit(1);
@@ -50,14 +71,11 @@ int main(int argc, char **argv) {
 	}
 
 	if (argc <= optind) {
-		fprintf(stderr, "usage: %s [FLAGS] <toget>\n", argv[0]);
+		fprintf(stderr, USAGE_STR"\n-h for help\n", argv[0]);
 		exit(1);
 	}
 
-	char *toget = argv[optind];
-
-	struct CWG_params params;
-	init_CWG_params(&params, mongodb, bitdbNode, NULL);
+	char *toget = argv[optind];	
 
 	int getFd = STDOUT_FILENO;
 	FILE *dirStream = NULL;

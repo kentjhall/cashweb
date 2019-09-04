@@ -72,9 +72,6 @@ struct CWG_params {
  * if saving mime type string is desired, pointer must be passed here for array initialization; otherwise, can be set NULL
  */ 
 static inline void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, char (*saveMimeStr)[CWG_MIMESTR_BUF]) {
-	if (!mongodb && !bitdbNode) {
-		fprintf(stderr, "WARNING: CWG_params must be provided with address for MongoDB or BitDB HTTP endpoint on init\n");
-	} 
 	cgp->mongodb = mongodb;
 	cgp->mongodbCli = NULL;
 	cgp->mongodbCliPool = NULL;
