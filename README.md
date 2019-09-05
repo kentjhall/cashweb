@@ -213,7 +213,7 @@ Dedicated documentation is not yet available.
 
 Proceed with caution, particularly when using *cashsendtools*/*cashsend*–**I do not recommend risking any significant BCH on this for the time being**. Again, this is all highly experimental.
 
-*cashgettools*/*cashget*/*cashserver* all *appear* to be running valgrind-clean for now, but this requires much more testing.
+*cashgettools*/*cashget* seem to be running valgrind-clean for now, but this requires much more testing.
 
 *cashsendtools*/*cashsend* are currently untested valgrind-wise; TODO.
 

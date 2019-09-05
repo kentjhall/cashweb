@@ -15,6 +15,7 @@
 	"-m <ARG> | specify MongoDB URI for querying (default is "MONGODB_LOCAL_ADDR")\n"\
 	"-b <ARG> | specify BitDB HTTP endpoint URL for querying instead of MongoDB\n"\
 	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory)\n"\
+	"-q <ARG> | specify URI prefix to be recognized for making query (default is "URI_QUERY_PREFIX_DEFAULT")\n"\
 	"-ns      | disable default behavior to treat any subdomain (*.X.X) in HTTP host header as a named CashWeb directory request\n"\
 	"-f <ARG> | specify path for temporarily stored directory indexes (default is "TMP_DIRFILE_PATH_DEFAULT")\n"\
 	"-t <ARG> | specify timeout for a temporarily stored directory index to be destroyed (default is "TMP_DIRFILE_TIMEOUT_DEFAULT"s); set 0 for disabling temporary storage\n"
@@ -22,6 +23,7 @@
 
 #define MONGODB_LOCAL_ADDR "mongodb://localhost:27017"
 #define CS_PORT_DEFAULT "80"
+#define URI_QUERY_PREFIX_DEFAULT "/q"
 #define DIR_BY_SUBDOMAIN_DEFAULT true
 #define TMP_DIRFILE_PATH_DEFAULT "/tmp/"
 #define TMP_DIRFILE_TIMEOUT_DEFAULT "20"
@@ -41,6 +43,8 @@ typedef char CS_CW_STATUS;
 #define DOT_COUNT(h,c) for (c=0; h[c]; h[c]=='.' ? c++ : *h++);
 
 static struct CWG_params genGetParams;
+static const char *defaultGetId;
+static const char *uriQueryPrefix;
 static bool dirBySubdomain;
 static const char *tmpDirfilePath;
 static unsigned int tmpDirfileTimeout;
@@ -392,21 +396,31 @@ static CS_CW_STATUS cashRequestHandleBySubdomain(const char *host, const char *u
 		return status;
 }
 
-static inline CS_CW_STATUS cashRequestHandle(struct MHD_Connection *connection, const char *url, const char *clntip, int sockfd) {
+static inline CS_CW_STATUS cashRequestHandle(struct MHD_Connection *connection, const char *url, const char *clntip, int respfd) {
 	const char *host = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, "Host");
-	if (host == NULL) { cashFoundHandler(CS_REQUEST_HOST_NO, NULL, sockfd); return CS_REQUEST_HOST_NO; }
+	if (host == NULL) { cashFoundHandler(CS_REQUEST_HOST_NO, NULL, respfd); return CS_REQUEST_HOST_NO; }
 
 	const char *hostPtr = host;
 	int dotCount;
 	DOT_COUNT(hostPtr, dotCount);	
+	size_t uriQueryPrefixLen = strlen(uriQueryPrefix);
 
 	if (dirBySubdomain && dotCount > 1) {
 		fprintf(stderr, "%s: requested %s%s\n", clntip, host, url);
-		return cashRequestHandleBySubdomain(host, url, clntip, sockfd);
+		return cashRequestHandleBySubdomain(host, url, clntip, respfd);
+	} else if (strncmp(url, uriQueryPrefix, uriQueryPrefixLen) == 0) {
+		fprintf(stderr, "%s: queried %s\n", clntip, url+uriQueryPrefixLen);
+		return cashRequestHandleByUri(url+uriQueryPrefixLen, clntip, respfd);
+	} else if (defaultGetId) {
+		char query[1 + strlen(defaultGetId) + strlen(url) + 1]; query[0] = '/'; query[1] = 0;
+		strcat(query, defaultGetId);
+		strcat(query, url);
+		fprintf(stderr, "%s: home request %s\n", clntip, url);
+		return cashRequestHandleByUri(query, clntip, respfd);
+	} else {
+		cashFoundHandler(CS_REQUEST_CWID_NO, NULL, respfd);
+		return CS_REQUEST_CWID_NO;
 	}
-	
-	fprintf(stderr, "%s: requested %s\n", clntip, url);
-	return cashRequestHandleByUri(url, clntip, sockfd);
 }
 
 static inline ssize_t readPipe(void *cls, uint64_t pos, char *buf, size_t max) {
@@ -486,6 +500,8 @@ int main(int argc, char **argv) {
 	init_CWG_params(&genGetParams, NULL, NULL, NULL);
 	genGetParams.foundHandler = &cashFoundHandler;
 
+	defaultGetId = NULL;
+	uriQueryPrefix = URI_QUERY_PREFIX_DEFAULT;
 	dirBySubdomain = DIR_BY_SUBDOMAIN_DEFAULT;;
 	tmpDirfilePath = TMP_DIRFILE_PATH_DEFAULT;
 	tmpDirfileTimeout = atoi(TMP_DIRFILE_TIMEOUT_DEFAULT);
@@ -495,7 +511,7 @@ int main(int argc, char **argv) {
 
 	bool no = false;
 	int c;
-	while ((c = getopt(argc, argv, ":hp:m:b:d:nsf:t:")) != -1) {
+	while ((c = getopt(argc, argv, ":hp:m:b:d:c:q:nsf:t:")) != -1) {
 		switch (c) {
 			case 'h':
 				fprintf(stderr, HELP_STR, argv[0]);
@@ -512,6 +528,12 @@ int main(int argc, char **argv) {
 				break;
 			case 'd':
 				genGetParams.datadir = optarg;
+				break;
+			case 'c':
+				defaultGetId = optarg;
+				break;
+			case 'q':
+				uriQueryPrefix = optarg;
 				break;
 			case 'n':
 				no = true;
@@ -551,7 +573,7 @@ int main(int argc, char **argv) {
 				  &requestHandler,
 				  NULL,
 				  MHD_OPTION_END)) == NULL) { perror("MHD_start_daemon() failed"); exit(1); }
-	fprintf(stderr, "Starting cashserver on port %u... (source is %s at %s)\n", port, mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : genGetParams.bitdbNode);
+	fprintf(stderr, "Starting cashserver on port %u with home identifier %s... (source is %s at %s)\n", port, defaultGetId ? defaultGetId : "<none>", mongodb ? "MongoDB" : "BitDB HTTP endpoint", mongodb ? mongodb : genGetParams.bitdbNode);
 
 	(void) getc (stdin);
 	fprintf(stderr, "Stopping cashserver...\n");

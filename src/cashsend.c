@@ -1,4 +1,5 @@
 #include <cashsendtools.h>
+#include <unistd.h>
 #include <getopt.h>
 
 #define USAGE_STR "usage: %s [FLAGS] <tosend>\n"

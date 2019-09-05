@@ -1,4 +1,5 @@
 #include <cashgettools.h>
+#include <unistd.h>
 #include <getopt.h>
 
 #define USAGE_STR "usage: %s [FLAGS] <toget>\n"
