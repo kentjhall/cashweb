@@ -15,6 +15,7 @@
 	"-m <ARG> | specify MongoDB URI for querying (default is "MONGODB_LOCAL_ADDR")\n"\
 	"-b <ARG> | specify BitDB HTTP endpoint URL for querying instead of MongoDB\n"\
 	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory)\n"\
+	"-c <ARG> | specify 'home' identifier; when query/subdomain is absent, cashserver will treat as a query for this ID at requested path (so must be a directory)\n"\
 	"-q <ARG> | specify URI prefix to be recognized for making query (default is "URI_QUERY_PREFIX_DEFAULT")\n"\
 	"-ns      | disable default behavior to treat any subdomain (*.X.X) in HTTP host header as a named CashWeb directory request\n"\
 	"-f <ARG> | specify path for temporarily stored directory indexes (default is "TMP_DIRFILE_PATH_DEFAULT")\n"\
