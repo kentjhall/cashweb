@@ -312,18 +312,18 @@ static CS_CW_STATUS cashRequestHandleByUri(const char *url, const char *clntip, 
 	char justId[CW_NAMETAG_ID_MAX_LEN];
 	const char *pathPtr;
 	if (tmpDirfileTimeout > 0 && CW_is_valid_path_id(idQuery, justId, &pathPtr)) {
-		reqPathReplace[0] = 0;
-		if (idQuery[idQueryLen-1] == '/') {
-			strcat(reqPathReplace, pathPtr);
-			strcat(reqPathReplace, TRAILING_BACKSLASH_APPEND);
-		}
-
 		struct cashRequestData dirRd;
 		initCashRequestData(&dirRd, clntip, NULL);
 		dirRd.cwId = justId;
 		dirRd.path = getParams.dirPath = (char *)pathPtr;
-		dirRd.pathReplace = reqPathReplace;
 
+		reqPathReplace[0] = 0;
+		if (idQuery[idQueryLen-1] == '/') {
+			strcat(reqPathReplace, pathPtr);
+			strcat(reqPathReplace, TRAILING_BACKSLASH_APPEND);
+			dirRd.pathReplace = reqPathReplace;
+		}
+	
 		CS_CW_STATUS tmpdirStatus;
 		if ((tmpdirStatus = cashGetDirPathId(&dirRd, &getParams, respfd, &pathId)) == CW_OK) { idQuery = pathId; }
 		else if (tmpdirStatus != CS_SYS_ERR) { cashFoundHandler(tmpdirStatus, &rd, respfd); status = tmpdirStatus; goto cleanup; }
