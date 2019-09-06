@@ -188,14 +188,14 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
  * sends file from stream fp as chain of TXs via RPC and writes resultant txid to resTxid
  * constructs/appends appropriate file metadata with cwType and treeDepth
  */
-static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, CW_TYPE cwType, int treeDepth, char *resTxid);
+static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, struct CWS_params *params, int treeDepth, char *resTxid);
 
 /*
  * sends layer of file tree (i.e. all TXs at same depth) from stream fp via RPC; writes all txids to treeFp
  * if only one TX is sent, determines that this is root and constructs/appends appropriate file metadata with cwType and depth
  * writes number of TXs sent to numTxs
  */
-static CW_STATUS sendFileTreeLayer(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, CW_TYPE cwType, int depth, int *numTxs, FILE *treeFp);
+static CW_STATUS sendFileTreeLayer(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, struct CWS_params *params, int depth, int *numTxs, FILE *treeFp);
 
 /*
  * sends file from stream fp as tree of TXs via RPC and writes resultant txid to resTxid,
@@ -332,11 +332,14 @@ CW_STATUS CWS_send_from_path(const char *path, struct CWS_params *params, double
 	init_CWS_sender_for_path(&sender, path, S_ISDIR(st.st_mode), &rpcPack, params);
 
 	// analyze UTXO requirements in advance; writes to rpcPack
+	size_t saveVal = params->fragUtxos;
 	if (params->fragUtxos == 1) {
-		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
-	} else { rpcPack.txsToSend = params->fragUtxos; }
+		if ((status = countBySender(&sender, &(params->fragUtxos), NULL)) != CW_OK) { goto cleanup; }
+	}
+	rpcPack.txsToSend = params->fragUtxos;
 
 	status = sendBySender(&sender, fundsLost, resTxid);
+	params->fragUtxos = saveVal;
 	
 	cleanup:
 		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costCount; }
@@ -357,11 +360,14 @@ CW_STATUS CWS_estimate_cost_from_path(const char *path, struct CWS_params *param
 	init_CWS_sender_for_path(&sender, path, S_ISDIR(st.st_mode), &rpcPack, params);
 
 	// analyze UTXO requirements in advance; writes to rpcPack
+	size_t saveVal = params->fragUtxos;
 	if (params->fragUtxos == 1) {
-		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
-	} else { rpcPack.txsToSend = params->fragUtxos; }
+		if ((status = countBySender(&sender, &(params->fragUtxos), NULL)) != CW_OK) { goto cleanup; }
+	}
+	rpcPack.txsToSend = params->fragUtxos;
 
 	status = countBySender(&sender, txCount, costEstimate);
+	params->fragUtxos = saveVal;
 
 	cleanup:
 		cleanupRpc(&rpcPack);
@@ -384,12 +390,15 @@ CW_STATUS CWS_send_from_stream(FILE *stream, struct CWS_params *params, double *
 	init_CWS_sender_for_stream(&sender, streamCopy, 0, NULL, &rpcPack, params);
 
 	// analyze UTXO requirements in advance; writes to rpcPack
+	size_t saveVal = params->fragUtxos;
 	if (params->fragUtxos == 1) {
-		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
-	} else { rpcPack.txsToSend = params->fragUtxos; }
-	rewind(streamCopy);
+		if ((status = countBySender(&sender, &(params->fragUtxos), NULL)) != CW_OK) { goto cleanup; }
+		rewind(streamCopy);
+	}
+	rpcPack.txsToSend = params->fragUtxos;
 
 	status = sendBySender(&sender, fundsLost, resTxid);
+	params->fragUtxos = saveVal;
 	
 	cleanup:
 		if (fundsUsed != NULL) { *fundsUsed = rpcPack.costCount; }
@@ -414,12 +423,15 @@ CW_STATUS CWS_estimate_cost_from_stream(FILE *stream, struct CWS_params *params,
 	init_CWS_sender_for_stream(&sender, streamCopy, 0, NULL, &rpcPack, params);
 
 	// analyze UTXO requirements in advance; writes to rpcPack
+	size_t saveVal = params->fragUtxos;
 	if (params->fragUtxos == 1) {
-		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+		if ((status = countBySender(&sender, &(params->fragUtxos), NULL)) != CW_OK) { goto cleanup; }
 		rewind(streamCopy);
-	} else { rpcPack.txsToSend = params->fragUtxos; }
+	}
+	rpcPack.txsToSend = params->fragUtxos;
 
 	status = countBySender(&sender, txCount, costEstimate);
+	params->fragUtxos = saveVal;
 
 	cleanup:
 		if (streamCopy) { fclose(streamCopy); }
@@ -456,12 +468,15 @@ CW_STATUS CWS_send_from_recovery_stream(FILE *recoveryStream, struct CWS_params 
 	init_CWS_sender_for_stream(&sender, streamCopy, depth, NULL, &rpcPack, params);
 
 	// analyze UTXO requirements in advance; writes to rpcPack
+	size_t saveVal = params->fragUtxos;
 	if (params->fragUtxos == 1) {
-		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
-	} else { rpcPack.txsToSend = params->fragUtxos; }
-	rewind(streamCopy);
+		if ((status = countBySender(&sender, &(params->fragUtxos), NULL)) != CW_OK) { goto cleanup; }
+		rewind(streamCopy);
+	}
+	rpcPack.txsToSend = params->fragUtxos;	
 
 	status = sendBySender(&sender, fundsLost, resTxid);
+	params->fragUtxos = saveVal;
 		
 	cleanup:
 		if (ferror(recoveryStream)) { perror("fgets() failed on recovery stream"); status = CW_SYS_ERR; }
@@ -502,12 +517,15 @@ CW_STATUS CWS_estimate_cost_from_recovery_stream(FILE *recoveryStream, struct CW
 	init_CWS_sender_for_stream(&sender, streamCopy, depth, NULL, &rpcPack, params);
 
 	// analyze UTXO requirements in advance; writes to rpcPack
+	size_t saveVal = params->fragUtxos;
 	if (params->fragUtxos == 1) {
-		if ((status = countBySender(&sender, &rpcPack.txsToSend, NULL)) != CW_OK) { goto cleanup; }
+		if ((status = countBySender(&sender, &(params->fragUtxos), NULL)) != CW_OK) { goto cleanup; }
 		rewind(streamCopy);
-	} else { rpcPack.txsToSend = params->fragUtxos; }
+	}
+	rpcPack.txsToSend = params->fragUtxos;	
 
 	status = countBySender(&sender, txCount, costEstimate);
+	params->fragUtxos = saveVal;
 
 	cleanup:
 		if (streamCopy) { fclose(streamCopy); }
@@ -1854,7 +1872,7 @@ static bool saveRecoveryData(FILE *recoveryData, int savedTreeDepth, struct CWS_
 		return !err;
 }
 
-static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, CW_TYPE cwType, int treeDepth, char *resTxid) { 
+static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, struct CWS_params *params, int treeDepth, char *resTxid) { 
 	CW_STATUS status;
 	char hexChunk[CW_TX_DATA_CHARS + 1]; const char *hexChunkPtr = hexChunk;
 	char txid[CW_TXID_CHARS+1]; txid[0] = 0;
@@ -1870,7 +1888,7 @@ static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp
 	int read;
 	bool begin = true; bool end = size+metadataLen <= sizeof(buf);
 	struct CW_file_metadata md;
-	init_CW_file_metadata(&md, cwType);
+	init_CW_file_metadata(&md, params->cwType);
 	md.depth = treeDepth;
 	int loc = 0;
 
@@ -1894,6 +1912,7 @@ static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp
 			}
 		}
 		if ((status = sendTx(&hexChunkPtr, 1, end, rp, txid)) != CW_OK) { return status; }
+		if (rp->txsToSend < 1) { rp->txsToSend = params->fragUtxos; }
 		if (end) { break; }
 		++md.length;
 		if (begin) { toRead -= treeDepth ? CW_TXID_CHARS : CW_TXID_BYTES; begin = false; }
@@ -1909,7 +1928,7 @@ static CW_STATUS sendFileChain(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp
 	return CW_OK;
 }
 
-static CW_STATUS sendFileTreeLayer(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, CW_TYPE cwType, int depth, int *numTxs, FILE *treeFp) {
+static CW_STATUS sendFileTreeLayer(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp, struct CWS_params *params, int depth, int *numTxs, FILE *treeFp) {
 	CW_STATUS status;
 	char hexChunk[CW_TX_DATA_CHARS + 1]; const char *hexChunkPtr = hexChunk;
 	char txid[CW_TXID_CHARS+1]; txid[0] = 0;
@@ -1939,7 +1958,7 @@ static CW_STATUS sendFileTreeLayer(FILE *fp, char *pdHexStr, struct CWS_rpc_pack
 			rootCheck = true;
 			if (n+metadataLen <= dataLen) {
 				struct CW_file_metadata md;
-				init_CW_file_metadata(&md, cwType);
+				init_CW_file_metadata(&md, params->cwType);
 				md.depth = depth;
 				if ((status = hexAppendMetadata(&md, hexChunk)) != CW_OK) { return status; }
 				atMetadata = true;
@@ -1952,6 +1971,7 @@ static CW_STATUS sendFileTreeLayer(FILE *fp, char *pdHexStr, struct CWS_rpc_pack
 		} else {
 			if ((status = sendTx(&hexChunkPtr, 1, atMetadata, rp, txid)) != CW_OK) { return status; }
 		}
+		if (rp->txsToSend < 1) { rp->txsToSend = params->fragUtxos; }
 		++*numTxs;	
 		if (fputs(txid, treeFp) == EOF) { perror("fputs() failed"); return CW_SYS_ERR; }
 	}
@@ -1968,14 +1988,14 @@ static CW_STATUS sendFileTree(FILE *fp, char *pdHexStr, struct CWS_rpc_pack *rp,
 	FILE *tfp = NULL;
 
 	if (params->maxTreeDepth >= 0 && depth >= params->maxTreeDepth) {
-		if ((status = sendFileChain(fp, pdHexStr, rp, params->cwType, depth, resTxid)) != CW_OK) { recover = true; }
+		if ((status = sendFileChain(fp, pdHexStr, rp, params, depth, resTxid)) != CW_OK) { recover = true; }
 		goto cleanup;
 	}
 
 	if ((tfp = tmpfile()) == NULL) { perror("tmpfile() failed"); return CW_SYS_ERR; }
 
 	int numTxs;
-	if ((status = sendFileTreeLayer(fp, pdHexStr, rp, params->cwType, depth, &numTxs, tfp)) != CW_OK) { recover = true; goto cleanup; }
+	if ((status = sendFileTreeLayer(fp, pdHexStr, rp, params, depth, &numTxs, tfp)) != CW_OK) { recover = true; goto cleanup; }
 	rewind(tfp);
 
 	if (numTxs < 2) {

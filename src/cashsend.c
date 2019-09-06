@@ -16,7 +16,7 @@
 	"-d <ARG>       | specify location of valid cashwebtools data directory (default is install directory)\n"\
 	"-t <ARG>       | specify max tree depth (i.e., allows for file to be downloaded progressively in chunks, rather than all at once)\n"\
 	"-nm            | disable default behavior of interpreting/encoding MIME type when sending from path\n"\
-	"-nf            | disable default cashsendtools behavior of fragmenting UTXOs (not recommended)\n"\
+	"-f <ARG>       | specify number of UTXOs to fragment at a time; setting 0 will disable UTXO distribution\n"\
 	"-r             | recover prior failed send\n"\
 	"-e             | estimate cost of send (a rather loose approximation under current implementation)\n"\
 	"-O <ARG>       | when sending from directory path, save index to specified location rather than sending to network\n"\
@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
 	bool recover = false;
 	bool estimate = false;
 	int c;
-	while ((c = getopt(argc, argv, ":hu:p:a:o:d:t:nmfreO:EDN:RBAC:X:P:IT:lL:U")) != -1) {
+	while ((c = getopt(argc, argv, ":hu:p:a:o:d:t:nmf:reO:EDN:RBAC:X:P:IT:lL:U")) != -1) {
 		switch (c) {
 			case 'h':
 				fprintf(stderr, HELP_STR, argv[0]);
@@ -83,20 +83,19 @@ int main(int argc, char **argv) {
 				break;
 			case 'd':
 				params.datadir = optarg;
+				break;	
+			case 't':
+				params.maxTreeDepth = atoi(optarg);
 				break;
 			case 'n':
 				no = true;
-				break;
-			case 't':
-				params.maxTreeDepth = atoi(optarg);
 				break;
 			case 'm':
 				params.cwType = no ? CW_T_FILE : CW_T_MIMESET;
 				no = false;
 				break;
 			case 'f':
-				params.fragUtxos = no ? 0 : params.fragUtxos;
-				no = false;
+				params.fragUtxos = (size_t)atoi(optarg);
 				break;		
 			case 'r':
 				recover = true;
@@ -323,6 +322,7 @@ int main(int argc, char **argv) {
 			if (params.cwType == CW_T_MIMESET) { params.cwType = CW_T_FILE;	}
 			status = CWS_send_from_stream(isDirIndex ? dirIndexStream : stdin, &params, &totalCost, &lostCost, txid);
 		} else {
+			
 			status = CWS_send_from_path(tosend, &params, &totalCost, &lostCost, txid);
 		}
 	}
