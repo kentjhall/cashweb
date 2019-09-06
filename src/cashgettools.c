@@ -337,7 +337,9 @@ CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd) {
 	if ((status = initFetcher(params)) != CW_OK) { return status; } 
 
 	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
-	if ((status = getFileByIdPath(id, params->dirPath, NULL, params, fd)) == CW_CALL_NO) { fprintf(CWG_err_stream, "CWG_get_by_id provided with invalid identifier\n"); }
+	if ((status = getFileByIdPath(id, params->dirPath, NULL, params, fd)) == CW_CALL_NO) {
+		fprintf(CWG_err_stream, "CWG_get_by_id provided with invalid identifier: %s\n", id);
+	}
 	params->foundHandler = savePtr;
 	
 	cleanupFetcher(params);
