@@ -1245,6 +1245,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	json_t *unspents;
 	size_t numUnspents;
 	if (!rp->reservedUtxos || rp->reservedUtxosCount < rp->txsToSend) {
+		fprintf(stderr, "here: %p, %zu, %zu\n", rp->reservedUtxos, rp->reservedUtxosCount, rp->txsToSend);
 		if ((status = rpcCall(rp, useUnconfirmed ? RPC_M_LISTUNSPENT_0 : RPC_M_LISTUNSPENT, NULL, &unspents)) != CW_OK) {
 			if (unspents) { json_decref(unspents); }
 			return status;
@@ -1420,7 +1421,9 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		if (!rp->justCounting) { json_decref(inputParams); return useUnconfirmed ? CWS_FUNDS_NO : CWS_CONFIRMS_NO; }
 		else {
 			// when just counting, will assume an extra input is to be added
-			size += TX_INPUT_SZ; fee = feePerByte*size; changeLost = 0;
+			size += TX_INPUT_SZ;
+			fee = feePerByte*size;
+			changeLost = 0;
 		}
 	}	
 
@@ -1510,7 +1513,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	}
 
 	rp->reservedUtxos = unspents;
-	rp->reservedUtxosCount = numUnspents - inputsCount;	
+	rp->reservedUtxosCount = numUnspents;	
 	
 	if (rp->justCounting) {
 		// skip unnecessary RPC calls when just counting
