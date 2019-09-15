@@ -1,5 +1,5 @@
-#include "cashwebutils.h"
 #include "cashsendtools.h"
+#include "cashwebutils.h"
 #include <errno.h>
 #include <fts.h>
 #include <libbitcoinrpc/bitcoinrpc.h>
@@ -152,7 +152,7 @@ static CW_STATUS setRevisionLock(char *name, struct CWS_utxo *utxo, bool unlock,
 static int txDataSize(int hexDataLen, bool *extraByte);
 
 /*
- * comparator for sorting UTXOs by amount (ascending) via qsort
+ * comparator for sorting UTXOs by confirmations (descending) via qsort
  */
 static inline int utxoComparator(const void *p1, const void *p2);
 
@@ -1218,305 +1218,219 @@ static inline int utxoComparator(const void *p1, const void *p2) {
 	const json_t *u1 = *(const json_t **)p1;
 	const json_t *u2 = *(const json_t **)p2;
 
-	double diff = json_real_value(json_object_get(u1, "amount")) - json_real_value(json_object_get(u2, "amount"));
-	return diff < 0 ? -1 : 1;
+	double diff = json_real_value(json_object_get(u1, "confirmations")) - json_real_value(json_object_get(u2, "confirmations"));
+	return diff > 0 ? -1 : 1;
 }
 
 static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool isLast, struct CWS_rpc_pack *rp, bool useUnconfirmed, bool sameFee, char *resTxid) {
 	CW_STATUS status = CW_OK;
-	json_t *jsonResult = NULL;
-	json_t *params;
-	
-	// get estimated fee per byte and copy to memory; only checks once per program execution, or again on fee error
-	static double feePerByte;
-	if (!feePerByte || !sameFee) {
-		if ((status = rpcCall(rp, RPC_M_ESTIMATEFEE, NULL, &jsonResult)) != CW_OK) {
-			if (jsonResult) { json_decref(jsonResult); }
-			return status;
-		}
-		feePerByte = json_real_value(jsonResult)/1000;
-		json_decref(jsonResult);
-		jsonResult = NULL;
-	}
+        json_t *jsonResult = NULL;
+        json_t *params;
+             
+        // get estimated fee per byte and copy to memory; only checks once per program execution, or again on fee error
+        static double feePerByte;
+        if (!feePerByte || !sameFee) {
+                if ((status = rpcCall(rp, RPC_M_ESTIMATEFEE, NULL, &jsonResult)) != CW_OK) {
+                        if (jsonResult) { json_decref(jsonResult); }
+                        return status;
+                }    
+                feePerByte = json_real_value(jsonResult)/1000;
+                json_decref(jsonResult);
+                jsonResult = NULL;
+        } 		
 
-	// get unspent utxos if reservedUtxos don't already exist in rp;
-	// otherwise, use the already-created utxos
-	if (rp->reservedUtxos && rp->reservedUtxosCount <= 0) { json_decref(rp->reservedUtxos); rp->reservedUtxos = NULL; rp->reservedUtxosCount = 0; }
-	json_t *unspents;
-	size_t numUnspents;
-	if (!rp->reservedUtxos || rp->reservedUtxosCount < rp->txsToSend) {
-		fprintf(stderr, "here: %p, %zu, %zu\n", rp->reservedUtxos, rp->reservedUtxosCount, rp->txsToSend);
-		if ((status = rpcCall(rp, useUnconfirmed ? RPC_M_LISTUNSPENT_0 : RPC_M_LISTUNSPENT, NULL, &unspents)) != CW_OK) {
-			if (unspents) { json_decref(unspents); }
-			return status;
+	// if utxo set hasn't been initialized in rp, get from RPC
+	if (!rp->reservedUtxos) {
+                if ((status = rpcCall(rp, useUnconfirmed ? RPC_M_LISTUNSPENT_0 : RPC_M_LISTUNSPENT, NULL, &rp->reservedUtxos)) != CW_OK) {
+                        return status;
+                }
+
+                if ((rp->reservedUtxosCount = json_array_size(rp->reservedUtxos))) {
+			// sort UTXOs by confirmations
+			json_t *unspentsArr[rp->reservedUtxosCount];
+			for (int i=0; i<rp->reservedUtxosCount; i++) { unspentsArr[i] = json_array_get(rp->reservedUtxos, i); json_incref(unspentsArr[i]); }
+			json_array_clear(rp->reservedUtxos);
+			qsort(unspentsArr, rp->reservedUtxosCount, sizeof(unspentsArr[0]), &utxoComparator);
+			for (int i=0; i<rp->reservedUtxosCount; i++) { json_array_append_new(rp->reservedUtxos, unspentsArr[i]); }
 		}
-		if ((numUnspents = json_array_size(unspents)) == 0 && !rp->justCounting) {
-			json_decref(unspents);
+        }	
+
+	if (!rp->reservedUtxosCount) {
+		if (!rp->justCounting) {
 			return useUnconfirmed ? CWS_FUNDS_NO : CWS_CONFIRMS_NO;
-		}	
-	} else { unspents = rp->reservedUtxos; numUnspents = rp->reservedUtxosCount; }
-	bool usedUnspents[numUnspents > 0 ? numUnspents : 1]; memset(usedUnspents, 0, numUnspents);
-	double inputAmnts[numUnspents > 0 ? numUnspents : 1]; memset(inputAmnts, 0, numUnspents*sizeof(inputAmnts[0]));
-	int inputIndices[numUnspents > 0 ? numUnspents : 1]; memset(inputIndices, 0, numUnspents*sizeof(inputIndices[0]));
-
-	json_t *utxo;
-	json_t *input;
-	json_t *inputParams;
-	json_t *outputParams;
+		}
+	}
 
 	// calculate tx data size and prepare datas if more than one pushdata
-	int txDataSz = 0;
-	char txHexData[CW_TX_RAW_DATA_CHARS+1]; txHexData[0] = 0;
-	int hexLen; int dataSz; bool extraByte; uint8_t szByte[1]; char szHex[2];
-	for (int i=0; i<hexDatasC; i++) {
-		txDataSz += txDataSize((hexLen = strlen(hexDatas[i])), &extraByte);
-		if (hexDatasC > 1) {
-			if ((dataSz = hexLen/2) > 255) {
-				fprintf(CWS_err_stream, "sendTxAttempt() doesn't support data >255 bytes; cashsendtools may need revision if this standard has changed\n");
-				
-				if (!rp->reservedUtxos) { json_decref(unspents); }	
-				return CW_SYS_ERR;
-			}
-			else if (extraByte) { strcat(txHexData, TX_OP_PUSHDATA1); }
-			*szByte = (uint8_t)dataSz;
-			byteArrToHexStr((const char *)szByte, 1, szHex);
-			strcat(txHexData, szHex);
-			strcat(txHexData, hexDatas[i]);
-		}
-	}		
+        int txDataSz = 0; 
+        char txHexData[CW_TX_RAW_DATA_CHARS+1]; txHexData[0] = 0; 
+        int hexLen; int dataSz; bool extraByte; uint8_t szByte[1]; char szHex[2];
+        for (int i=0; i<hexDatasC; i++) {
+                txDataSz += txDataSize((hexLen = strlen(hexDatas[i])), &extraByte);
+                if (hexDatasC > 1) { 
+                        if ((dataSz = hexLen/2) > 255) {
+                                fprintf(CWS_err_stream, "sendTxAttempt() doesn't support data >255 bytes; cashsendtools may need revision if this standard has changed\n");
+                                return CW_SYS_ERR;
+                        }    
+                        else if (extraByte) { strcat(txHexData, TX_OP_PUSHDATA1); }
+                        *szByte = (uint8_t)dataSz;
+                        byteArrToHexStr((const char *)szByte, 1, szHex);
+                        strcat(txHexData, szHex);
+                        strcat(txHexData, hexDatas[i]);
+                }    
+        }
 
-	size_t reuseChangeOutCount;
-	double reuseChangeAmnt;
-	bool tinyChange = isLast && rp->forceTinyChangeLast;
-	bool distributed = false;
-	if (unspents != rp->reservedUtxos && rp->txsToSend > numUnspents && rp->txsToSend >= TX_MAX_0CONF_CHAIN) {
-		if (useUnconfirmed && sameFee && !rp->justCounting) { fprintf(CWS_log_stream, "Distributing UTXOs..."); }
-		distributed = true;
-		reuseChangeOutCount = (rp->txsToSend - 1) - (numUnspents - 1);
-		reuseChangeAmnt = feePerByte*(TX_BASE_SZ+TX_INPUT_SZ+TX_OUTPUT_SZ+TX_DATA_BASE_SZ+CW_TX_RAW_DATA_BYTES) + TX_TINYCHANGE_AMNT;
+	// for tracking inputs used
+	bool usedUnspents[rp->reservedUtxosCount ? rp->reservedUtxosCount : 1]; memset(usedUnspents, 0, rp->reservedUtxosCount);
 
-		// sort UTXOs by amount when to be used for distributing
-		json_t *unspentsArr[numUnspents];	
-		for (int i=0; i<numUnspents; i++) { unspentsArr[i] = json_array_get(unspents, i); json_incref(unspentsArr[i]); }
-		json_array_clear(unspents);
-		qsort(unspentsArr, numUnspents, sizeof(json_t *), &utxoComparator);
-		for (int i=0; i<numUnspents; i++) { json_array_append_new(unspents, unspentsArr[i]); }
-	} else {	
-		reuseChangeOutCount = 0;
-		reuseChangeAmnt = 0;
-	}
-	size_t changeOutCount = 1 + reuseChangeOutCount;
-	double totalExtraChange = reuseChangeAmnt*reuseChangeOutCount;
-	if (tinyChange) { ++changeOutCount; totalExtraChange += TX_TINYCHANGE_AMNT; }
+        json_t *utxo;
+        json_t *input;
+        json_t *inputParams;
+        json_t *outputParams;
 
-	size_t size = TX_BASE_SZ + (TX_OUTPUT_SZ*changeOutCount) + TX_DATA_BASE_SZ + txDataSz;
-	double totalAmnt = 0;
-	double fee = TX_AMNT_SMALLEST; // arbitrary
-	double changeAmnt = 0;	
-	double changeLost = 0;	
-	size_t inputsCount = 0;
+	// initialize TX variables
+	size_t size = TX_BASE_SZ + TX_OUTPUT_SZ + TX_DATA_BASE_SZ + txDataSz;
+        double totalAmnt = 0;
+        double fee = TX_AMNT_SMALLEST; // arbitrary
+        double changeAmnt = 0;
+        double changeLost = 0;
+        size_t inputsCount = 0;
 
-	char txid[CW_TXID_CHARS+1];
-	int vout;
-	if ((inputParams = json_array()) == NULL) {
-		perror("json_array() failed");
-		if (unspents != rp->reservedUtxos) { json_decref(unspents); }	
-		return CW_SYS_ERR;
-	}	
+        char txid[CW_TXID_CHARS+1];
+        int vout;
+        if ((inputParams = json_array()) == NULL) {
+                perror("json_array() failed");
+                return CW_SYS_ERR;
+        }  		
 
+	// add forced input to inputParams first (on TX isLast)
 	if (isLast && rp->forceInputUtxoLast) {
-		// add forced input to inputParams first
-		char *forceTxid = rp->forceInputUtxoLast->txid;
-		int forceVout = rp->forceInputUtxoLast->vout;
+                char *forceTxid = rp->forceInputUtxoLast->txid;
+                int forceVout = rp->forceInputUtxoLast->vout;
 
-		bool matched = false;
-		json_t *utxo;
-		const char *iTxid;
-		int iVout;
-		for (int i=numUnspents-1; i>=0; i--) {
-			utxo = json_array_get(unspents, i);
-			iTxid = json_string_value(json_object_get(utxo, "txid"));
-			iVout = json_integer_value(json_object_get(utxo, "vout"));
-			if (strcmp(iTxid, forceTxid) == 0 && iVout == forceVout) {
-				txid[0] = 0;
-				strncat(txid, iTxid, CW_TXID_CHARS);
-				vout = iVout;
-				if ((input = json_object()) == NULL) {
-					perror("json_object() failed");
-					json_decref(inputParams);
-					return CW_SYS_ERR;
-				}
-				json_object_set_new(input, "txid", json_string(txid));
-				json_object_set_new(input, "vout", json_integer(vout));
+                bool matched = false;
+                const char *iTxid;
+                int iVout;
+                for (int i=0; i < rp->reservedUtxosCount; i++) {
+                        utxo = json_array_get(rp->reservedUtxos, i);
+                        iTxid = json_string_value(json_object_get(utxo, "txid"));
+                        iVout = json_integer_value(json_object_get(utxo, "vout"));
+                        if (strcmp(iTxid, forceTxid) == 0 && iVout == forceVout) {
+                                txid[0] = 0;
+                                strncat(txid, iTxid, CW_TXID_CHARS);
+                                vout = iVout;
+                                if ((input = json_object()) == NULL) {
+                                        perror("json_object() failed");
+                                        json_decref(inputParams);
+                                        return CW_SYS_ERR;
+                                }
+                                json_object_set_new(input, "txid", json_string(txid));
+                                json_object_set_new(input, "vout", json_integer(vout)); 
+                                json_array_append(inputParams, input);
+                                json_decref(input);
+
+                                totalAmnt += json_real_value(json_object_get(utxo, "amount"));
 				usedUnspents[i] = true;
-				inputIndices[inputsCount] = i;
-				json_array_append(inputParams, input);
-				json_decref(input);
-				totalAmnt += (inputAmnts[inputsCount] = json_real_value(json_object_get(utxo, "amount")));
-				size += TX_INPUT_SZ; 
-				fee = feePerByte * size;
-				++inputsCount;
+                                ++inputsCount;
 
-				matched = true;
-				break;
-			}
-		}
+                                size += TX_INPUT_SZ;
+                                fee = feePerByte * size;
 
-		if (!matched) {
-			if (unspents != rp->reservedUtxos) { json_decref(unspents); }	
-			return CWS_INPUTS_NO;
-		}
-	}
+                                matched = true;
+                                break;
+                        }
+                }
+
+                if (!matched) { return CWS_INPUTS_NO; }
+        }
 
 	// iterate through unspent utxos
-	for (int i=numUnspents-1; i>=0; i--) {
-		// pull utxo data
-		utxo = json_array_get(unspents, i);
+        for (int i=0; i < rp->reservedUtxosCount; i++) {
+                // pull utxo data
+                utxo = json_array_get(rp->reservedUtxos, i);
 
-		// copy txid from utxo data to memory
-		txid[0] = 0;
-		strncat(txid, json_string_value(json_object_get(utxo, "txid")), CW_TXID_CHARS);
+                // copy txid from utxo data to memory
+                txid[0] = 0; 
+                strncat(txid, json_string_value(json_object_get(utxo, "txid")), CW_TXID_CHARS);
 
-		// copy vout from utxo data to memory
-		vout = json_integer_value(json_object_get(utxo, "vout"));
+                // copy vout from utxo data to memory
+                vout = json_integer_value(json_object_get(utxo, "vout"));
 
-		// skip if saving for last tx
-		if (rp->forceInputUtxoLast && strcmp(txid, rp->forceInputUtxoLast->txid) == 0 && vout == rp->forceInputUtxoLast->vout) { continue; }
+                // skip if saving for last tx
+                if (rp->forceInputUtxoLast && strcmp(txid, rp->forceInputUtxoLast->txid) == 0 && vout == rp->forceInputUtxoLast->vout) { continue; }
 
-		// construct input from txid and vout
-		if ((input = json_object()) == NULL) {
-			perror("json_object() failed");
-			json_decref(inputParams);
-			return CW_SYS_ERR;
-		}
-		json_object_set_new(input, "txid", json_string(txid));
-		json_object_set_new(input, "vout", json_integer(vout));
+                // construct input from txid and vout
+                if ((input = json_object()) == NULL) {
+                        perror("json_object() failed");
+                        json_decref(inputParams);
+                        return CW_SYS_ERR;
+                }    
+                json_object_set_new(input, "txid", json_string(txid));
+                json_object_set_new(input, "vout", json_integer(vout));
 
-		// set used unspent to be removed from stored array
-		usedUnspents[i] = true;
-		inputIndices[inputsCount] = i;
+                // set used unspent to be removed from stored array
+                usedUnspents[i] = true;
 
-		// add input to input parameters
-		json_array_append(inputParams, input);
-		json_decref(input);
-	
-		// add amount from utxo data to total amount
-		totalAmnt += (inputAmnts[inputsCount] = json_real_value(json_object_get(utxo, "amount")));
+                // add input to input parameters
+                json_array_append(inputParams, input);
+                json_decref(input);
+     
+                // add amount from utxo data to total amount
+                totalAmnt += json_real_value(json_object_get(utxo, "amount"));
 
-		// calculate size, fee, and change amount
-		size += TX_INPUT_SZ; 
-		fee = feePerByte * size;
-		changeAmnt = totalAmnt - (totalExtraChange + fee);
-		changeAmnt = changeAmnt > 0 ? changeAmnt : 0;
-		// drop the change if less than cost of adding an additional input
-		if (changeAmnt < feePerByte*(TX_INPUT_SZ)) { fee = feePerByte*(size-TX_OUTPUT_SZ); changeLost = changeAmnt; changeAmnt = 0; }
+                // calculate size, fee, and change amount
+                size += TX_INPUT_SZ; 
+                fee = feePerByte * size;
+                if ((changeAmnt = totalAmnt - fee) < 0) { changeAmnt = 0; }
+                // drop the change if less than cost of adding an additional input
+                if (changeAmnt < feePerByte*(TX_INPUT_SZ)) { fee = feePerByte*(size-TX_OUTPUT_SZ); changeLost = changeAmnt; changeAmnt = 0; } 
 
-		++inputsCount;
+                ++inputsCount;
 
-		if (totalAmnt >= totalExtraChange + fee && (changeAmnt > TX_DUST_AMNT || changeAmnt == 0)) { break; }
-	}		
+                if (totalAmnt >= fee && (changeAmnt > TX_DUST_AMNT || changeAmnt == 0)) { break; }
+        }
 
 	// give up if insufficient funds
-	if (totalAmnt < fee + totalExtraChange) {
-		if (!rp->justCounting) { json_decref(inputParams); return useUnconfirmed ? CWS_FUNDS_NO : CWS_CONFIRMS_NO; }
-		else {
-			// when just counting, will assume an extra input is to be added
-			size += TX_INPUT_SZ;
-			fee = feePerByte*size;
-			changeLost = 0;
-		}
-	}	
+        if (totalAmnt < fee) {
+                if (!rp->justCounting) { json_decref(inputParams); return useUnconfirmed ? CWS_FUNDS_NO : CWS_CONFIRMS_NO; }
+                else {
+                        // when just counting, will assume an extra input is to be added
+                        size += TX_INPUT_SZ;
+                        fee = feePerByte*size;
+                        changeLost = 0;
+                }
+        }
 
-	if (distributed) {
-		// need to add to extra change outputs if there were too many inputs used
-		// adds extra inputs as needed given additional outputs
-		bool adjust = false;
-		size_t inputsCountI;
-		json_t *utxo;
-		for (; reuseChangeOutCount <= (rp->txsToSend-1) - (numUnspents-inputsCount); ++reuseChangeOutCount) {
-			adjust = true;
+	double reuseChangeAmnt = feePerByte*(TX_BASE_SZ+TX_INPUT_SZ+TX_OUTPUT_SZ+TX_DATA_BASE_SZ+CW_TX_RAW_DATA_BYTES) + TX_TINYCHANGE_AMNT;
+	size_t reuseChangeOutCount = 0;
+	double totalExtraChange = 0;
+
+	if (rp->txsToSend >= TX_MAX_0CONF_CHAIN) {
+		// add change outputs for reuse up until the point additional inputs are required, or size is too big
+		bool done;
+		while (reuseChangeOutCount <= (rp->txsToSend-1) - (rp->reservedUtxosCount-inputsCount)) {
 			totalExtraChange += reuseChangeAmnt;
+			++reuseChangeOutCount;
 
 			size += TX_OUTPUT_SZ;
 			fee = feePerByte * size;
 
-			inputsCountI = inputsCount;
-			for (int i=numUnspents-1-inputsCountI; i >= 0; i--) {
-				if (totalAmnt >= totalExtraChange + fee) { break; }
-				
-				// this is all basically duplicate code from the above loop; super lazy
-				utxo = json_array_get(unspents, i);	
-				txid[0] = 0;
-				strncat(txid, json_string_value(json_object_get(utxo, "txid")), CW_TXID_CHARS);
-				vout = json_integer_value(json_object_get(utxo, "vout"));
-				if ((input = json_object()) == NULL) {
-					perror("json_object() failed");
-					json_decref(inputParams);
-					return CW_SYS_ERR;
-				}
-				json_object_set_new(input, "txid", json_string(txid));
-				json_object_set_new(input, "vout", json_integer(vout));
-				usedUnspents[i] = true;
-				json_array_append(inputParams, input);
-				json_decref(input);
-				totalAmnt += (inputAmnts[inputsCount] = json_real_value(json_object_get(utxo, "amount")));
-				size += TX_INPUT_SZ; 
+			if (totalAmnt < totalExtraChange + fee || size >= TX_SZ_CAP) {
+				--reuseChangeOutCount;
+				totalExtraChange -= reuseChangeAmnt;
+				size -= TX_OUTPUT_SZ;
 				fee = feePerByte * size;
-				++inputsCount;
+				done = true;
 			}
 
 			changeAmnt = totalAmnt - (totalExtraChange + fee); changeAmnt = changeAmnt > 0 ? changeAmnt : 0;
 			if (changeAmnt < feePerByte*(TX_INPUT_SZ)) { fee = feePerByte*(size-TX_OUTPUT_SZ); changeLost = changeAmnt; changeAmnt = 0; }
-		}
-		if (adjust) { --reuseChangeOutCount; }
-	}	
-	
-	if (reuseChangeOutCount) {
-		// reduce number of extra change outputs if/while the size hits TX_SZ_CAP
-		// also removes unnecessary inputs given reduced outputs
-		bool removedIns = false;
-		while (size >= TX_SZ_CAP && reuseChangeOutCount) {
-			totalExtraChange -= reuseChangeAmnt;
-			--reuseChangeOutCount;
-			
-			size -= TX_OUTPUT_SZ;
-			fee = feePerByte * size;	
-
-			size_t i;
-			json_t *input;
-			json_array_foreach(inputParams, i, input) {
-				// skip removal of first input if forced input set
-				if (isLast && rp->forceInputUtxoLast && i==0) { continue; }
-
-				if (totalAmnt - inputAmnts[i] >= totalExtraChange + fee) {
-					json_array_set_new(inputParams, i, json_null());
-					removedIns = true;
-
-					totalAmnt -= inputAmnts[i];
-					inputAmnts[i] = 0;
-					usedUnspents[inputIndices[i]] = false;
-					size -= TX_INPUT_SZ;
-					fee = feePerByte * size;
-				}
-			}
-
-			changeAmnt = totalAmnt - (totalExtraChange + fee); changeAmnt = changeAmnt > 0 ? changeAmnt : 0;
-			if (changeAmnt < feePerByte*(TX_INPUT_SZ)) { fee = feePerByte*(size-TX_OUTPUT_SZ); changeLost = changeAmnt; changeAmnt = 0; }
-		}
-		if (removedIns) {
-			json_t *input;
-			size_t i;
-			json_array_foreach(inputParams, i, input) {
-				if (json_is_null(input)) { json_array_remove(inputParams, i--); --inputsCount; }
-			}
+			if (done) { break; }
 		}
 	}
 
-	rp->reservedUtxos = unspents;
-	rp->reservedUtxosCount = numUnspents;	
-	
+	// skip unnecessary RPC calls when just counting
 	if (rp->justCounting) {
-		// skip unnecessary RPC calls when just counting
 		json_decref(inputParams);
 		if (changeAmnt <= TX_DUST_AMNT && changeLost == 0) { changeLost = changeAmnt; }
 		goto nosend;
@@ -1531,7 +1445,9 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	// construct output for data 
 	json_object_set_new(outputParams, "data", json_string(hexDatasC > 1 ? txHexData : *hexDatas));
 
-	if (tinyChange) {
+	// construct output for tiny change output if specified
+ 	bool tinyChange;
+	if ((tinyChange = isLast && rp->forceTinyChangeLast)) {
 		char tinyChangeAmntStr[B_AMNT_STR_BUF];
 		if (snprintf(tinyChangeAmntStr, B_AMNT_STR_BUF, "%.8f", TX_TINYCHANGE_AMNT) >= B_AMNT_STR_BUF) {
 			fprintf(CWS_err_stream, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");
@@ -1603,6 +1519,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 
 		json_object_set_new(outputParams, json_string_value(jsonResult), json_string(changeAmntStr));
 
+		changeLost = 0;
 		if (jsonResult) { json_decref(jsonResult); jsonResult = NULL; }
 	} else if (changeLost == 0) { changeLost = changeAmnt; }
 
@@ -1727,49 +1644,40 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	jsonResult = NULL;
 
 	nosend:
-	if (rp->justCounting) { rp->costCount += fee + changeLost; memset(resTxid, 'F', CW_TXID_CHARS); resTxid[CW_TXID_CHARS] = 0; }
-	if (rp->reservedUtxos == unspents && (status == CW_OK || status == CWS_INPUTS_NO)) {
+	// remove used input(s) from stored utxo array on success or bad input error
+	if (status == CW_OK || status == CWS_INPUTS_NO) {
 		for (int i=0; i<rp->reservedUtxosCount; i++) {
-			if (usedUnspents[i]) { json_array_set_new(rp->reservedUtxos, i, json_null()); }	
-		}	
-		json_t *utxo;
-		size_t i;
-		json_array_foreach(rp->reservedUtxos, i, utxo) {
-			if (json_is_null(utxo)) { json_array_remove(rp->reservedUtxos, i--); --rp->reservedUtxosCount; }
-		}
+                        if (usedUnspents[i]) { json_array_set_new(rp->reservedUtxos, i, json_null()); }
+                }
+                json_t *utxo;
+                size_t i;
+                json_array_foreach(rp->reservedUtxos, i, utxo) {
+                        if (json_is_null(utxo)) { json_array_remove(rp->reservedUtxos, i--); --rp->reservedUtxosCount; }
+                }
 	}
-	if (status == CW_OK) {
-		if (rp->txsToSend > 0) { --rp->txsToSend; }
 
+	if (status != CW_OK) { return status; }
+
+	if (rp->justCounting) { rp->costCount += fee + changeLost; memset(resTxid, 'F', CW_TXID_CHARS); resTxid[CW_TXID_CHARS] = 0; }
+
+	// calculate number of change outputs made
+	size_t changeOutCount = reuseChangeOutCount + tinyChange + (changeAmnt > TX_DUST_AMNT);
+	if (changeOutCount) {
+		double changeAmnts[changeOutCount];
+		for (size_t i=0; i<changeOutCount; i++) { changeAmnts[i] = reuseChangeAmnt; }
+		if (tinyChange) { changeAmnts[0] = TX_TINYCHANGE_AMNT; }
+		if (changeAmnt > TX_DUST_AMNT) { changeAmnts[changeOutCount-1] = changeAmnt; }
+
+		// add change outputs to stored utxo array
 		json_t *reuseUtxo;
-		for (int i=0; i<reuseChangeOutCount; i++) {
+		for (int i=0; i<changeOutCount; i++) {
 			if ((reuseUtxo = json_object()) == NULL) { perror("json_object() failed"); return CW_SYS_ERR; }
 			json_object_set_new(reuseUtxo, "txid", json_string(resTxid));
 			json_object_set_new(reuseUtxo, "vout", json_integer(i+1));
-			json_object_set_new(reuseUtxo, "amount", json_real(reuseChangeAmnt));
+			json_object_set_new(reuseUtxo, "amount", json_real(changeAmnts[i]));
 			json_array_append(rp->reservedUtxos, reuseUtxo);
 			json_decref(reuseUtxo);
 			++rp->reservedUtxosCount;
-		}
-
-		if (distributed && rp->reservedUtxosCount >= rp->txsToSend && rp->txsToSend >= TX_MAX_0CONF_CHAIN && !rp->justCounting) {
-			fprintf(CWS_log_stream, "Waiting on 1-conf...");
-			int confs;
-			json_t *params;
-			if ((params = json_array()) == NULL) { perror("json_array() failed"); return CW_SYS_ERR; }
-			json_array_append_new(params, json_string(resTxid));
-			json_array_append_new(params, json_boolean(true));
-			do {
-				if ((status = rpcCall(rp, RPC_M_GETRAWTRANSACTION, params, &jsonResult)) != CW_OK) {
-					if (jsonResult) { json_decref(jsonResult); }
-					json_decref(params);
-					return status;
-				}
-				confs = json_integer_value(json_object_get(jsonResult, "confirmations"));
-				json_decref(jsonResult);
-				jsonResult = NULL;
-			} while (confs < 1);
-			json_decref(params);
 		}
 	}
 
@@ -1801,8 +1709,9 @@ static CW_STATUS sendTx(const char **hexDatas, size_t hexDatasC, bool isLast, st
 				break;
 			case CWS_CONFIRMS_NO:
 				while ((status = sendTxAttempt(hexDatas, hexDatasC, isLast, rp, false, true, resTxid)) == CWS_CONFIRMS_NO) {
-					if (!printed) { fprintf(CWS_log_stream, "Waiting on confirmations..."); printed = true; }
+					if (!printed) { fprintf(CWS_log_stream, "Waiting on confirmation..."); printed = true; }
 					sleep(ERR_WAIT_CYCLE);
+					if (rp->reservedUtxos) { json_decref(rp->reservedUtxos); rp->reservedUtxos = NULL; rp->reservedUtxosCount = 0; }
 				}
 				break;
 			case CWS_FEE_NO:

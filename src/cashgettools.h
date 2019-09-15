@@ -194,15 +194,14 @@ CW_STATUS CWG_dirindex_path_to_identifier(FILE *indexFp, const char *path, char 
 CW_STATUS CWG_dirindex_raw_to_json(FILE *indexFp, FILE *indexJsonFp);
 
 /*
- * initializes MongoDB environment and client pool for multi-threaded scenarios
- * will set params->mongodbCliPool on success
- * must call CWG_cleanup_mongo_pool later on
+ * initializes MongoDB pool (used for thread-safety) if project is configured to support MongoDB;
+   otherwise, will return CW_CALL_NO
  */
 CW_STATUS CWG_init_mongo_pool(const char *mongodbAddr, struct CWG_params *params);
 
 /*
- * cleans up MongoDB client pool (stored in params) and environment;
- * params->mongodbCliPool will be set NULL
+ * cleans up MongoDB pool (used for thread-safety) if project is configured to support MongoDB;
+   otherwise, does nothing
  */
 void CWG_cleanup_mongo_pool(struct CWG_params *params);
 

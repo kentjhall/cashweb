@@ -20,9 +20,14 @@ libmylist_sources = mylist/mylist.c
 libb64encode_sources = b64/encode.c
 libbitcoinrpc_sources = libbitcoinrpc/bitcoinrpc_err.c libbitcoinrpc/bitcoinrpc_cl.c libbitcoinrpc/bitcoinrpc.c libbitcoinrpc/bitcoinrpc_method.c libbitcoinrpc/bitcoinrpc_global.c libbitcoinrpc/bitcoinrpc_resp.c
 
-EXTRA_DIST = cashwebutils.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h
+EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchutils_bitdb.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h
 
 libcashgettools_a_SOURCES = cashgettools.c cashwebutils.c $(libmylist_sources) $(libb64encode_sources)
+if WITH_MONGODB
+libcashgettools_a_SOURCES += cashfetchutils.c
+else
+libcashgettools_a_SOURCES += cashfetchutils_nomongo.c
+endif
 libcashsendtools_a_SOURCES = cashsendtools.c cashwebutils.c $(libbitcoinrpc_sources)
 
 cashget_SOURCES = cashget.c

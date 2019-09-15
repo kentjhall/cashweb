@@ -8,6 +8,10 @@ AM_INIT_AUTOMAKE([subdir-objects])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIRS([m4])
 
+AC_ARG_WITH([mongodb],
+	[AS_HELP_STRING([--with-mongodb], [specify whether or not to build cashgettools with direct MongoDB support, default=yes] @@)],
+	[],
+	[with_mongodb=yes])
 AC_ARG_WITH([cashserver],
 	[AS_HELP_STRING([--with-cashserver], [specify whether or not to build cashserver binary, default=yes] @@)],
 	[],
@@ -35,30 +39,36 @@ dnl Defined in the file ac_define_dir.m4 (needs to be listed in acinclude.m4)
 AC_DEFINE_DIR([DATADIR], [datadir], [Directory for data files.])
 
 # Checks for libraries/corresponding header files.
-
-CFLAGS="$(pkg-config --cflags libmongoc-1.0) ${CFLAGS}"
-LDFLAGS="$(pkg-config --libs libmongoc-1.0) ${LDFLAGS}"
-
-AC_SEARCH_LIBS([mongoc_init], [mongoc-1.0], [], [
-  AC_MSG_ERROR([unable to find mongoc; please install this library with your package manager, and try again])
-])
-AC_SEARCH_LIBS([bson_destroy], [bson-1.0], [], [
-  AC_MSG_ERROR([unable to find bson; please install this library with your package manager (should come included with mongoc), and try again])
-])
-AC_CHECK_HEADER([mongoc.h], [], [
-  AC_MSG_ERROR([unable to find header mongoc.h, please verify mongoc library installation and try again])
-])
-AC_SEARCH_LIBS([curl_easy_init], [curl], [], [
-  AC_MSG_ERROR([unable to find curl; please install this library with your package manager, and try again])
-])
-AC_CHECK_HEADER([curl/curl.h], [], [
-  AC_MSG_ERROR([unable to find header curl/curl.h, please verify curl library installation and try again])
-])
 AC_SEARCH_LIBS([json_object], [jansson], [], [
   AC_MSG_ERROR([unable to find jansson, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend])
 ])
 AC_CHECK_HEADER([jansson.h], [], [
   AC_MSG_ERROR([unable to find header jansson.h; please verify jansson library installation and try again])
+])
+
+AS_IF([test "x$with_mongodb" != xno],
+	[
+	CFLAGS="$(pkg-config --cflags libmongoc-1.0) ${CFLAGS}"
+	LDFLAGS="$(pkg-config --libs libmongoc-1.0) ${LDFLAGS}"
+	AC_SEARCH_LIBS([mongoc_init], [mongoc-1.0], [], [
+	  AC_MSG_ERROR([unable to find mongoc; please install this library with your package manager, and try again])
+	])
+	AC_SEARCH_LIBS([bson_destroy], [bson-1.0], [], [
+	  AC_MSG_ERROR([unable to find bson; please install this library with your package manager (should come included with mongoc), and try again])
+	])
+	AC_CHECK_HEADER([mongoc.h], [], [
+	  AC_MSG_ERROR([unable to find header mongoc.h, please verify mongoc library installation and try again])
+	])
+	AM_CONDITIONAL(WITH_MONGODB, true)
+	], [
+	AM_CONDITIONAL(WITH_MONGODB, false)
+	])
+	
+AC_SEARCH_LIBS([curl_easy_init], [curl], [], [
+  AC_MSG_ERROR([unable to find curl; please install this library with your package manager, and try again])
+])
+AC_CHECK_HEADER([curl/curl.h], [], [
+  AC_MSG_ERROR([unable to find header curl/curl.h, please verify curl library installation and try again])
 ])
 
 AS_IF([test "x$with_cashserver" != xno],
