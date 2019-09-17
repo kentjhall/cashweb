@@ -208,6 +208,6 @@ void CWG_cleanup_mongo_pool(struct CWG_params *params);
 /*
  * returns generic error message by error code
  */
-const char *CWG_errno_to_msg(int errNo);
+const char *CWG_errno_to_msg(CW_STATUS errNo);
 
 #endif

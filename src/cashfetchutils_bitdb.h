@@ -3,7 +3,6 @@
 
 #include "cashwebutils.h"
 #include <b64/b64.h>
-#include <curl/curl.h>
 
 /* BitDB HTTP constants */
 #define BITDB_API_VER 3
@@ -17,12 +16,73 @@
 #define BITDB_QUERY_DATA_TAG "d"
 #define BITDB_REQUEST_TIMEOUT 20L
 
+static CW_STATUS httpRequest(const char *url, bool reqLimit, FILE *respFp);
+
 /*
- * for writing curl response to specified file stream
+ * for writing HTTP response to specified file stream
+ * returns number of bytes written
  */
 static size_t writeResponseToStream(void *data, size_t size, size_t nmemb, FILE *respStream) {
 	return fwrite(data, size, nmemb, respStream)*size;
 }
+
+#ifndef __EMSCRIPTEN__
+#include <curl/curl.h>
+static CW_STATUS httpRequest(const char *url, bool reqLimit, FILE *respFp) {
+	CURL *curl;
+	CURLcode res;
+	if (!(curl = curl_easy_init())) { fprintf(CWG_err_stream, "curl_easy_init() failed\n"); return CW_SYS_ERR; }	
+
+	struct curl_slist *headers = NULL;
+	if (reqLimit) { // this bit is to trick a server's request limit, although won't necessarily work with every server
+		char buf[BITDB_HEADER_BUF_SZ];
+		snprintf(buf, sizeof(buf), "X-Forwarded-For: %d.%d.%d.%d",
+			rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1);
+		headers = curl_slist_append(headers, buf);
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+	}
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeResponseToStream);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, respFp);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, BITDB_REQUEST_TIMEOUT);
+	res = curl_easy_perform(curl);
+
+	if (headers) { curl_slist_free_all(headers); }
+	curl_easy_cleanup(curl);
+	if (res != CURLE_OK) {
+		fprintf(CWG_err_stream, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+		return CWG_FETCH_ERR;
+	}
+
+	return CW_OK;
+}
+#else
+#include <emscripten.h>
+static CW_STATUS httpRequest(const char *url, bool reqLimit, FILE *respFp) {
+	void *buffer = NULL;
+	int sz;
+	int err;
+	emscripten_wget_data(url, &buffer, &sz, &err);
+	if (!err) {
+		if (fwrite(buffer, sz, 1, respFp) < 1) { perror("fwrite() failed"); free(buffer); return CW_SYS_ERR; }
+	} else if (err != 1) {
+		fprintf(CWG_err_stream, "emscripten_wget_data() failed; unhandled error code %d\n", err);
+		if (buffer) { free(buffer); }
+		return CWG_FETCH_ERR;
+	}
+	free(buffer);
+	return CW_OK;
+}
+
+#define CURL_GLOBAL_DEFAULT
+static void curl_global_init() { /* dummy */ }
+static void curl_global_cleanup() { /* dummy */ }
+
+#endif
+
+static size_t querySizeExceed;
+
+static inline CW_STATUS fetchSplitHexDataBitDBNode(const char **ids, size_t count, FETCH_TYPE type, const char *bitdbNode, bool bitdbRequestLimit, char **txids, char *hexDataAll);
 
 /*
  * fetches hex data (from BitDB HTTP endpoint) at specified ids and copies (in order) to specified location in memory 
@@ -36,11 +96,7 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 
 	size_t nth = 1;
 	// fetching by nametag does not permit querying for more than one at a time, so count is used for if any occurrences should be skipped
-	if (type == BY_NAMETAG) { nth = count; count = 1; } 
-
-	CURL *curl;
-	CURLcode res;
-	if (!(curl = curl_easy_init())) { fprintf(CWG_err_stream, "curl_easy_init() failed\n"); return CWG_FETCH_ERR; }
+	if (type == BY_NAMETAG) { nth = count; count = 1; } 	
 
 	int printed = 0;
 	// construct query
@@ -57,7 +113,6 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 				if (strlen(ids[i])-strlen(CW_NAMETAG_PREFIX) > CW_NAME_MAX_LEN) {
 					fprintf(CWG_err_stream, "cashgettools: nametag queried is too long\n");
 					free(idQuery);
-					curl_easy_cleanup(curl);
 					return CW_CALL_NO;
 				}
 				printed = snprintf(idQuery+strlen(idQuery), BITDB_ID_QUERY_BUF_SZ, "{\"out.s2\":\"%s\"},", ids[i]);
@@ -65,13 +120,11 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 			default:
 				fprintf(CWG_err_stream, "invalid FETCH_TYPE; problem with cashgettools\n");
 				free(idQuery);
-				curl_easy_cleanup(curl);
 				return CW_SYS_ERR;
 		}
 		if (printed >= BITDB_ID_QUERY_BUF_SZ) {
 			fprintf(CWG_err_stream, "BITDB_ID_QUERY_BUF_SZ set too small; problem with cashgettools\n");
 			free(idQuery);
-			curl_easy_cleanup(curl);
 			return CW_SYS_ERR;
 		}
 	}
@@ -92,13 +145,11 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 		default:
 			fprintf(CWG_err_stream, "invalid FETCH_TYPE; problem with cashgettools\n");
 			free(idQuery);
-			curl_easy_cleanup(curl);
 			return CW_SYS_ERR;
 	}
 	if (printed >= sizeof(respHandler)) {
 		fprintf(CWG_err_stream, "BITDB_RESPHANDLE_QUERY_BUF_SZ set too small; problem with cashgettools\n");
 		free(idQuery);
-		curl_easy_cleanup(curl);
 		return CW_SYS_ERR;
 	}
 
@@ -113,13 +164,13 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 	free(idQuery);
 	if (printed >= sizeof(query)) {
 		fprintf(CWG_err_stream, "BITDB_QUERY_BUF_SZ set too small; problem with cashgettools\n");
-		curl_easy_cleanup(curl);
 		return CW_SYS_ERR;
 	}
+	size_t queryLen = strlen(query);
+	if (querySizeExceed && queryLen >= querySizeExceed) { return fetchSplitHexDataBitDBNode(ids, count, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll); }
 
 	char *queryB64;
-	if ((queryB64 = b64_encode((const unsigned char *)query, strlen(query))) == NULL) { perror("b64 encode failed");
-											    curl_easy_cleanup(curl); return CW_SYS_ERR; }
+	if ((queryB64 = b64_encode((const unsigned char *)query, queryLen)) == NULL) { perror("b64 encode failed"); return CW_SYS_ERR; }
 	char url[strlen(bitdbNode) + strlen(queryB64) + 1 + 1];
 
 	// construct url from query
@@ -132,45 +183,29 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 	const char *hexDataPtrs[count];
 	bool added[count];
 
-	// send curl request
-	FILE *respFp = tmpfile();
-	if (respFp == NULL) { perror("tmpfile() failed"); curl_easy_cleanup(curl); return CW_SYS_ERR; }
-	struct curl_slist *headers = NULL;
-	if (bitdbRequestLimit) { // this bit is to trick a server's request limit, although won't necessarily work with every server
-		char buf[BITDB_HEADER_BUF_SZ];
-		snprintf(buf, sizeof(buf), "X-Forwarded-For: %d.%d.%d.%d",
-			rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1, rand()%1000 + 1);
-		headers = curl_slist_append(headers, buf);
-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-	}
-	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeResponseToStream);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, respFp);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, BITDB_REQUEST_TIMEOUT);
-	res = curl_easy_perform(curl);
-	if (headers) { curl_slist_free_all(headers); }
-	curl_easy_cleanup(curl);
-	if (res != CURLE_OK) {
-		fprintf(CWG_err_stream, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-		fclose(respFp);
-		return CWG_FETCH_ERR;
-	} 
-	rewind(respFp);
+	CW_STATUS status;
 
-	CW_STATUS status = CW_OK;	
+	// send request
+	FILE *respFp;
+	if ((respFp = tmpfile()) == NULL) { perror("tmpfile() failed"); return CW_SYS_ERR; }
+	if ((status = httpRequest(url, bitdbRequestLimit, respFp)) != CW_OK) {
+		fclose(respFp);
+		return status;
+	}
+	rewind(respFp);
 	
 	// load response json from file and handle potential errors
 	json_error_t jsonError;
 	json_t *respJson = json_loadf(respFp, 0, &jsonError);
 	if (respJson == NULL) {
-		long respSz = fileSize(fileno(respFp));
+		fseek(respFp, 0, SEEK_END);
+		long respSz = ftell(respFp);
+		fseek(respFp, 0, SEEK_SET);
 		char respMsg[respSz+1];
-		respMsg[fread(respMsg, 1, respSz, respFp)] = 0;
-		if ((strlen(respMsg) < 1 && count > 1) || (strstr(respMsg, "URI") && strstr(respMsg, "414"))) { // catch for Request-URI Too Large or empty response body
-			int firstCount = count/2;
-			CW_STATUS status1 = fetchHexDataBitDBNode(ids, firstCount, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll);
-			CW_STATUS status2 = fetchHexDataBitDBNode(ids+firstCount, count-firstCount, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll+strlen(hexDataAll));
-			status = status1 > status2 ? status1 : status2;
+		respMsg[respSz > 0 ? fread(respMsg, 1, respSz, respFp) : 0] = 0;
+		if (count > 1 && (strlen(respMsg) < 1 || (strstr(respMsg, "URI") && strstr(respMsg, "414")))) { // catch for Request-URI Too Large or empty response body
+			querySizeExceed = queryLen;
+			status = fetchSplitHexDataBitDBNode(ids, count, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll);
 			goto cleanup;
 		}
 		else if (strstr(respMsg, "html")) {
@@ -179,8 +214,17 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 			goto cleanup;
 		}
 		else {
-			fprintf(CWG_err_stream, "jansson error in parsing response from BitDB node: %s\nResponse:\n%s\n", jsonError.text, respMsg);
-			status = CW_SYS_ERR;
+			fprintf(CWG_err_stream, "jansson failed to parse response from BitDB node: %s\nResponse:\n%s\n", jsonError.text, respMsg);
+			status = CWG_FETCH_ERR;
+			goto cleanup;
+		}
+	}
+
+	const char *errMsg;
+	if ((errMsg = json_string_value(json_object_get(respJson, "error")))) {
+		if (strstr(errMsg, "requests")) {
+			sleep(1);
+			status = fetchHexDataBitDBNode(ids, count, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll);
 			goto cleanup;
 		}
 	}
@@ -245,8 +289,15 @@ static CW_STATUS fetchHexDataBitDBNode(const char **ids, size_t count, FETCH_TYP
 
 	cleanup:
 		json_decref(respJson);	
-		fclose(respFp);
+		if (respFp) { fclose(respFp); }
 		return status;
+}
+
+static inline CW_STATUS fetchSplitHexDataBitDBNode(const char **ids, size_t count, FETCH_TYPE type, const char *bitdbNode, bool bitdbRequestLimit, char **txids, char *hexDataAll) {
+	size_t firstCount = count/2;
+	CW_STATUS status1 = fetchHexDataBitDBNode(ids, firstCount, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll);
+	CW_STATUS status2 = fetchHexDataBitDBNode(ids+firstCount, count-firstCount, type, bitdbNode, bitdbRequestLimit, txids, hexDataAll+strlen(hexDataAll));
+	return status1 > status2 ? status1 : status2;
 }
 
 #endif

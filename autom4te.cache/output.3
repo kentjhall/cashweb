@@ -629,16 +629,20 @@ ac_includes_default="\
 # include <unistd.h>
 #endif"
 
+enable_option_checking=no
 ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIB@&t@OBJS
+WITH_EMSCRIPTEN_FALSE
+WITH_EMSCRIPTEN_TRUE
 WITH_CASHSEND_FALSE
 WITH_CASHSEND_TRUE
 WITH_CASHSERVER_FALSE
 WITH_CASHSERVER_TRUE
 WITH_MONGODB_FALSE
 WITH_MONGODB_TRUE
+subdirs
 LIBADD_DL
 LT_DLPREOPEN
 LIBADD_DLD_LINK
@@ -770,6 +774,7 @@ ac_subst_files=''
 ac_user_opts='
 enable_option_checking
 enable_silent_rules
+enable_emscripten
 with_mongodb
 with_cashserver
 with_cashsend
@@ -797,7 +802,7 @@ CFLAGS
 LT_SYS_LIBRARY_PATH
 CPP
 CXXCPP'
-
+ac_subdirs_all='src/jansson'
 
 # Initialize some variables set by options.
 ac_init_help=
@@ -1417,6 +1422,7 @@ Optional Features:
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --enable-silent-rules   less verbose build output (undo: "make V=1")
   --disable-silent-rules  verbose build output (undo: "make V=0")
+  --enable-emscripten     Build for web with emscripten
   --enable-dependency-tracking 
                           do not reject slow dependency extractors
   --disable-dependency-tracking 
@@ -3126,6 +3132,13 @@ fi
 ac_config_headers="$ac_config_headers config.h"
 
 
+
+@%:@ Check whether --enable-emscripten was given.
+if test "${enable_emscripten+set}" = set; then :
+  enableval=$enable_emscripten; 
+else
+  enable_emscripten=no
+fi
 
 
 @%:@ Check whether --with-mongodb was given.
@@ -17337,83 +17350,19 @@ _ACEOF
 
 
 
-# Checks for libraries/corresponding header files.
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing json_object" >&5
-$as_echo_n "checking for library containing json_object... " >&6; }
-if ${ac_cv_search_json_object+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
+# jansson nested package
 
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char json_object ();
-int
-main ()
-{
-return json_object ();
-  ;
-  return 0;
-}
-_ACEOF
-for ac_lib in '' jansson; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_json_object=$ac_res
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if ${ac_cv_search_json_object+:} false; then :
-  break
-fi
-done
-if ${ac_cv_search_json_object+:} false; then :
+
+subdirs="$subdirs src/jansson"
+
+
+if test "x$enable_emscripten" != xyes && test "x$EMSCRIPTEN" != xyes; then :
   
-else
-  ac_cv_search_json_object=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_json_object" >&5
-$as_echo "$ac_cv_search_json_object" >&6; }
-ac_res=$ac_cv_search_json_object
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+	if test "x$with_mongodb" != xno; then :
   
-else
-  
-  as_fn_error $? "unable to find jansson, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend" "$LINENO" 5
-
-fi
-
-ac_fn_c_check_header_mongrel "$LINENO" "jansson.h" "ac_cv_header_jansson_h" "$ac_includes_default"
-if test "x$ac_cv_header_jansson_h" = xyes; then :
-  
-else
-  
-  as_fn_error $? "unable to find header jansson.h; please verify jansson library installation and try again" "$LINENO" 5
-
-fi
-
-
-
-if test "x$with_mongodb" != xno; then :
-  
-	CFLAGS="$(pkg-config --cflags libmongoc-1.0) ${CFLAGS}"
-	LDFLAGS="$(pkg-config --libs libmongoc-1.0) ${LDFLAGS}"
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing mongoc_init" >&5
+		CFLAGS="$(pkg-config --cflags libmongoc-1.0) ${CFLAGS}"
+		LDFLAGS="$(pkg-config --libs libmongoc-1.0) ${LDFLAGS}"
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing mongoc_init" >&5
 $as_echo_n "checking for library containing mongoc_init... " >&6; }
 if ${ac_cv_search_mongoc_init+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -17469,11 +17418,11 @@ if test "$ac_res" != no; then :
   
 else
   
-	  as_fn_error $? "unable to find mongoc; please install this library with your package manager, and try again" "$LINENO" 5
-	
+		  as_fn_error $? "unable to find mongoc; please install this library with your package manager and try again, or if MongoDB support not needed, try again with flag --without-mongodb" "$LINENO" 5
+		
 fi
 
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing bson_destroy" >&5
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing bson_destroy" >&5
 $as_echo_n "checking for library containing bson_destroy... " >&6; }
 if ${ac_cv_search_bson_destroy+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -17529,21 +17478,21 @@ if test "$ac_res" != no; then :
   
 else
   
-	  as_fn_error $? "unable to find bson; please install this library with your package manager (should come included with mongoc), and try again" "$LINENO" 5
-	
+		  as_fn_error $? "unable to find bson; please install this library with your package manager (should come included with mongoc) and try again, or if MongoDB support not needed, try again with flag --without-mongodb" "$LINENO" 5
+		
 fi
 
-	ac_fn_c_check_header_mongrel "$LINENO" "mongoc.h" "ac_cv_header_mongoc_h" "$ac_includes_default"
+		ac_fn_c_check_header_mongrel "$LINENO" "mongoc.h" "ac_cv_header_mongoc_h" "$ac_includes_default"
 if test "x$ac_cv_header_mongoc_h" = xyes; then :
   
 else
   
-	  as_fn_error $? "unable to find header mongoc.h, please verify mongoc library installation and try again" "$LINENO" 5
-	
+		  as_fn_error $? "unable to find header mongoc.h, please verify mongoc library installation and try again" "$LINENO" 5
+		
 fi
 
 
-	 if true; then
+		 if true; then
   WITH_MONGODB_TRUE=
   WITH_MONGODB_FALSE='#'
 else
@@ -17551,10 +17500,10 @@ else
   WITH_MONGODB_FALSE=
 fi
 
-	
+		
 else
   
-	 if false; then
+		 if false; then
   WITH_MONGODB_TRUE=
   WITH_MONGODB_FALSE='#'
 else
@@ -17562,10 +17511,10 @@ else
   WITH_MONGODB_FALSE=
 fi
 
-	
+		
 fi
-	
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing curl_easy_init" >&5
+		
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing curl_easy_init" >&5
 $as_echo_n "checking for library containing curl_easy_init... " >&6; }
 if ${ac_cv_search_curl_easy_init+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -17621,24 +17570,24 @@ if test "$ac_res" != no; then :
   
 else
   
-  as_fn_error $? "unable to find curl; please install this library with your package manager, and try again" "$LINENO" 5
-
+	  as_fn_error $? "unable to find curl; please install this library with your package manager, and try again" "$LINENO" 5
+	
 fi
 
-ac_fn_c_check_header_mongrel "$LINENO" "curl/curl.h" "ac_cv_header_curl_curl_h" "$ac_includes_default"
+	ac_fn_c_check_header_mongrel "$LINENO" "curl/curl.h" "ac_cv_header_curl_curl_h" "$ac_includes_default"
 if test "x$ac_cv_header_curl_curl_h" = xyes; then :
   
 else
   
-  as_fn_error $? "unable to find header curl/curl.h, please verify curl library installation and try again" "$LINENO" 5
-
+	  as_fn_error $? "unable to find header curl/curl.h, please verify curl library installation and try again" "$LINENO" 5
+	
 fi
 
 
 
-if test "x$with_cashserver" != xno; then :
+	if test "x$with_cashserver" != xno; then :
   
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing MHD_start_daemon" >&5
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing MHD_start_daemon" >&5
 $as_echo_n "checking for library containing MHD_start_daemon... " >&6; }
 if ${ac_cv_search_MHD_start_daemon+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -17694,21 +17643,21 @@ if test "$ac_res" != no; then :
   
 else
   
-	  as_fn_error $? "unable to find libmicrohttpd, which is necessary for cashserver; please install this library with your package manager and try again, or if cashserver is not needed, try again with flag --without-cashserver" "$LINENO" 5
-	
+		  as_fn_error $? "unable to find libmicrohttpd, which is necessary for cashserver; please install this library with your package manager and try again, or if cashserver is not needed, try again with flag --without-cashserver" "$LINENO" 5
+		
 fi
 
-	ac_fn_c_check_header_mongrel "$LINENO" "microhttpd.h" "ac_cv_header_microhttpd_h" "$ac_includes_default"
+		ac_fn_c_check_header_mongrel "$LINENO" "microhttpd.h" "ac_cv_header_microhttpd_h" "$ac_includes_default"
 if test "x$ac_cv_header_microhttpd_h" = xyes; then :
   
 else
   
-	  as_fn_error $? "unable to find header microhttpd.h; please verify libmicrohttpd library installation and try again" "$LINENO" 5
-	
+		  as_fn_error $? "unable to find header microhttpd.h; please verify libmicrohttpd library installation and try again" "$LINENO" 5
+		
 fi
 
 
-	 if true; then
+		 if true; then
   WITH_CASHSERVER_TRUE=
   WITH_CASHSERVER_FALSE='#'
 else
@@ -17716,10 +17665,10 @@ else
   WITH_CASHSERVER_FALSE=
 fi
 
-	
+		
 else
   
-	 if false; then
+		 if false; then
   WITH_CASHSERVER_TRUE=
   WITH_CASHSERVER_FALSE='#'
 else
@@ -17727,12 +17676,12 @@ else
   WITH_CASHSERVER_FALSE=
 fi
 
-	
+		
 fi
-
-if test "x$with_cashsend" != xno; then :
+	
+	if test "x$with_cashsend" != xno; then :
   	
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing uuid_generate_random" >&5
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing uuid_generate_random" >&5
 $as_echo_n "checking for library containing uuid_generate_random... " >&6; }
 if ${ac_cv_search_uuid_generate_random+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -17788,21 +17737,21 @@ if test "$ac_res" != no; then :
   
 else
   
-	  as_fn_error $? "unable to find uuid, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend" "$LINENO" 5
-	
+		  as_fn_error $? "unable to find uuid, which is necessary for cashsend; please install library with your package manager and try again, or if cashsend is not needed, try again with flag --without-cashsend" "$LINENO" 5
+		
 fi
 
-	ac_fn_c_check_header_mongrel "$LINENO" "uuid/uuid.h" "ac_cv_header_uuid_uuid_h" "$ac_includes_default"
+		ac_fn_c_check_header_mongrel "$LINENO" "uuid/uuid.h" "ac_cv_header_uuid_uuid_h" "$ac_includes_default"
 if test "x$ac_cv_header_uuid_uuid_h" = xyes; then :
   
 else
   
-	  as_fn_error $? "unable to find header jansson.h; please verify jansson library installation and try again" "$LINENO" 5
-	
+		  as_fn_error $? "unable to find header jansson.h; please verify jansson library installation and try again" "$LINENO" 5
+		
 fi
 
 
-	 if true; then
+		 if true; then
   WITH_CASHSEND_TRUE=
   WITH_CASHSEND_FALSE='#'
 else
@@ -17810,9 +17759,128 @@ else
   WITH_CASHSEND_FALSE=
 fi
 
-	
+		
 else
   
+		 if false; then
+  WITH_CASHSEND_TRUE=
+  WITH_CASHSEND_FALSE='#'
+else
+  WITH_CASHSEND_TRUE='#'
+  WITH_CASHSEND_FALSE=
+fi
+
+		
+fi
+	
+	 if false; then
+  WITH_EMSCRIPTEN_TRUE=
+  WITH_EMSCRIPTEN_FALSE='#'
+else
+  WITH_EMSCRIPTEN_TRUE='#'
+  WITH_EMSCRIPTEN_FALSE=
+fi
+
+
+else
+  
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing emscripten_fetch" >&5
+$as_echo_n "checking for library containing emscripten_fetch... " >&6; }
+if ${ac_cv_search_emscripten_fetch+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char emscripten_fetch ();
+int
+main ()
+{
+return emscripten_fetch ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' emscripten; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_emscripten_fetch=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_emscripten_fetch+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_emscripten_fetch+:} false; then :
+  
+else
+  ac_cv_search_emscripten_fetch=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_emscripten_fetch" >&5
+$as_echo "$ac_cv_search_emscripten_fetch" >&6; }
+ac_res=$ac_cv_search_emscripten_fetch
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+  
+else
+  
+	  as_fn_error $? "unable to find emscripten; please install this library with your package manager, and try again" "$LINENO" 5
+	
+fi
+
+	ac_fn_c_check_header_mongrel "$LINENO" "emscripten/fetch.h" "ac_cv_header_emscripten_fetch_h" "$ac_includes_default"
+if test "x$ac_cv_header_emscripten_fetch_h" = xyes; then :
+  
+else
+  
+	  as_fn_error $? "unable to find header emscripten/fetch.h, please verify emscripten library installation and try again" "$LINENO" 5
+	
+fi
+
+
+	ac_fn_c_check_header_mongrel "$LINENO" "emscripten.h" "ac_cv_header_emscripten_h" "$ac_includes_default"
+if test "x$ac_cv_header_emscripten_h" = xyes; then :
+  
+else
+  
+	  as_fn_error $? "unable to find header emscripten/fetch.h, please verify emscripten library installation and try again" "$LINENO" 5
+	
+fi
+
+
+
+	 if false; then
+  WITH_MONGODB_TRUE=
+  WITH_MONGODB_FALSE='#'
+else
+  WITH_MONGODB_TRUE='#'
+  WITH_MONGODB_FALSE=
+fi
+
+	 if false; then
+  WITH_CASHSERVER_TRUE=
+  WITH_CASHSERVER_FALSE='#'
+else
+  WITH_CASHSERVER_TRUE='#'
+  WITH_CASHSERVER_FALSE=
+fi
+
 	 if false; then
   WITH_CASHSEND_TRUE=
   WITH_CASHSEND_FALSE='#'
@@ -17821,7 +17889,15 @@ else
   WITH_CASHSEND_FALSE=
 fi
 
-	
+	 if true; then
+  WITH_EMSCRIPTEN_TRUE=
+  WITH_EMSCRIPTEN_FALSE='#'
+else
+  WITH_EMSCRIPTEN_TRUE='#'
+  WITH_EMSCRIPTEN_FALSE=
+fi
+
+
 fi
 
 # Checks for header files.
@@ -18334,6 +18410,26 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${WITH_CASHSEND_TRUE}" && test -z "${WITH_CASHSEND_FALSE}"; then
   as_fn_error $? "conditional \"WITH_CASHSEND\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_EMSCRIPTEN_TRUE}" && test -z "${WITH_EMSCRIPTEN_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_EMSCRIPTEN\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_MONGODB_TRUE}" && test -z "${WITH_MONGODB_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_MONGODB\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_CASHSERVER_TRUE}" && test -z "${WITH_CASHSERVER_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_CASHSERVER\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_CASHSEND_TRUE}" && test -z "${WITH_CASHSEND_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_CASHSEND\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_EMSCRIPTEN_TRUE}" && test -z "${WITH_EMSCRIPTEN_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_EMSCRIPTEN\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 
@@ -20746,6 +20842,151 @@ if test "$no_create" != yes; then
   # Use ||, not &&, to avoid exiting from the if with $? = 1, which
   # would make configure fail if this is the last instruction.
   $ac_cs_success || as_fn_exit 1
+fi
+
+#
+# CONFIG_SUBDIRS section.
+#
+if test "$no_recursion" != yes; then
+
+  # Remove --cache-file, --srcdir, and --disable-option-checking arguments
+  # so they do not pile up.
+  ac_sub_configure_args=
+  ac_prev=
+  eval "set x $ac_configure_args"
+  shift
+  for ac_arg
+  do
+    if test -n "$ac_prev"; then
+      ac_prev=
+      continue
+    fi
+    case $ac_arg in
+    -cache-file | --cache-file | --cache-fil | --cache-fi \
+    | --cache-f | --cache- | --cache | --cach | --cac | --ca | --c)
+      ac_prev=cache_file ;;
+    -cache-file=* | --cache-file=* | --cache-fil=* | --cache-fi=* \
+    | --cache-f=* | --cache-=* | --cache=* | --cach=* | --cac=* | --ca=* \
+    | --c=*)
+      ;;
+    --config-cache | -C)
+      ;;
+    -srcdir | --srcdir | --srcdi | --srcd | --src | --sr)
+      ac_prev=srcdir ;;
+    -srcdir=* | --srcdir=* | --srcdi=* | --srcd=* | --src=* | --sr=*)
+      ;;
+    -prefix | --prefix | --prefi | --pref | --pre | --pr | --p)
+      ac_prev=prefix ;;
+    -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=*)
+      ;;
+    --disable-option-checking)
+      ;;
+    *)
+      case $ac_arg in
+      *\'*) ac_arg=`$as_echo "$ac_arg" | sed "s/'/'\\\\\\\\''/g"` ;;
+      esac
+      as_fn_append ac_sub_configure_args " '$ac_arg'" ;;
+    esac
+  done
+
+  # Always prepend --prefix to ensure using the same prefix
+  # in subdir configurations.
+  ac_arg="--prefix=$prefix"
+  case $ac_arg in
+  *\'*) ac_arg=`$as_echo "$ac_arg" | sed "s/'/'\\\\\\\\''/g"` ;;
+  esac
+  ac_sub_configure_args="'$ac_arg' $ac_sub_configure_args"
+
+  # Pass --silent
+  if test "$silent" = yes; then
+    ac_sub_configure_args="--silent $ac_sub_configure_args"
+  fi
+
+  # Always prepend --disable-option-checking to silence warnings, since
+  # different subdirs can have different --enable and --with options.
+  ac_sub_configure_args="--disable-option-checking $ac_sub_configure_args"
+
+  ac_popdir=`pwd`
+  for ac_dir in : $subdirs; do test "x$ac_dir" = x: && continue
+
+    # Do not complain, so a configure script can configure whichever
+    # parts of a large source tree are present.
+    test -d "$srcdir/$ac_dir" || continue
+
+    ac_msg="=== configuring in $ac_dir (`pwd`/$ac_dir)"
+    $as_echo "$as_me:${as_lineno-$LINENO}: $ac_msg" >&5
+    $as_echo "$ac_msg" >&6
+    as_dir="$ac_dir"; as_fn_mkdir_p
+    ac_builddir=.
+
+case "$ac_dir" in
+.) ac_dir_suffix= ac_top_builddir_sub=. ac_top_build_prefix= ;;
+*)
+  ac_dir_suffix=/`$as_echo "$ac_dir" | sed 's|^\.[\\/]||'`
+  # A ".." for each directory in $ac_dir_suffix.
+  ac_top_builddir_sub=`$as_echo "$ac_dir_suffix" | sed 's|/[^\\/]*|/..|g;s|/||'`
+  case $ac_top_builddir_sub in
+  "") ac_top_builddir_sub=. ac_top_build_prefix= ;;
+  *)  ac_top_build_prefix=$ac_top_builddir_sub/ ;;
+  esac ;;
+esac
+ac_abs_top_builddir=$ac_pwd
+ac_abs_builddir=$ac_pwd$ac_dir_suffix
+# for backward compatibility:
+ac_top_builddir=$ac_top_build_prefix
+
+case $srcdir in
+  .)  # We are building in place.
+    ac_srcdir=.
+    ac_top_srcdir=$ac_top_builddir_sub
+    ac_abs_top_srcdir=$ac_pwd ;;
+  [\\/]* | ?:[\\/]* )  # Absolute name.
+    ac_srcdir=$srcdir$ac_dir_suffix;
+    ac_top_srcdir=$srcdir
+    ac_abs_top_srcdir=$srcdir ;;
+  *) # Relative name.
+    ac_srcdir=$ac_top_build_prefix$srcdir$ac_dir_suffix
+    ac_top_srcdir=$ac_top_build_prefix$srcdir
+    ac_abs_top_srcdir=$ac_pwd/$srcdir ;;
+esac
+ac_abs_srcdir=$ac_abs_top_srcdir$ac_dir_suffix
+
+
+    cd "$ac_dir"
+
+    # Check for guested configure; otherwise get Cygnus style configure.
+    if test -f "$ac_srcdir/configure.gnu"; then
+      ac_sub_configure=$ac_srcdir/configure.gnu
+    elif test -f "$ac_srcdir/configure"; then
+      ac_sub_configure=$ac_srcdir/configure
+    elif test -f "$ac_srcdir/configure.in"; then
+      # This should be Cygnus configure.
+      ac_sub_configure=$ac_aux_dir/configure
+    else
+      { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: no configuration information is in $ac_dir" >&5
+$as_echo "$as_me: WARNING: no configuration information is in $ac_dir" >&2;}
+      ac_sub_configure=
+    fi
+
+    # The recursion is here.
+    if test -n "$ac_sub_configure"; then
+      # Make the cache file name correct relative to the subdirectory.
+      case $cache_file in
+      [\\/]* | ?:[\\/]* ) ac_sub_cache_file=$cache_file ;;
+      *) # Relative name.
+	ac_sub_cache_file=$ac_top_build_prefix$cache_file ;;
+      esac
+
+      { $as_echo "$as_me:${as_lineno-$LINENO}: running $SHELL $ac_sub_configure $ac_sub_configure_args --cache-file=$ac_sub_cache_file --srcdir=$ac_srcdir" >&5
+$as_echo "$as_me: running $SHELL $ac_sub_configure $ac_sub_configure_args --cache-file=$ac_sub_cache_file --srcdir=$ac_srcdir" >&6;}
+      # The eval makes quoting arguments work.
+      eval "\$SHELL \"\$ac_sub_configure\" $ac_sub_configure_args \
+	   --cache-file=\"\$ac_sub_cache_file\" --srcdir=\"\$ac_srcdir\"" ||
+	as_fn_error $? "$ac_sub_configure failed for $ac_dir" "$LINENO" 5
+    fi
+
+    cd "$ac_popdir"
+  done
 fi
 if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
   { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: unrecognized options: $ac_unrecognized_opts" >&5

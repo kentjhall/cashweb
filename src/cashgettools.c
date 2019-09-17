@@ -509,7 +509,7 @@ void CWG_cleanup_mongo_pool(struct CWG_params *params) {
 	return cleanupMongoPool(params);	
 }
 
-const char *CWG_errno_to_msg(int errNo) {
+const char *CWG_errno_to_msg(CW_STATUS errNo) {
 	switch (errNo) {
 		case CW_DATADIR_NO:
 			return "Unable to find proper cashwebtools data directory";
@@ -1499,7 +1499,6 @@ static CW_STATUS getFileByTxid(const char *txid, List *fetchedNames, struct CWG_
 
 	char hexDataStart[CW_TX_DATA_CHARS+1];
 	struct CW_file_metadata md;
-
 
 	if ((status = fetchHexData((const char **)&txid, 1, BY_TXID, params, NULL, hexDataStart)) != CW_OK) { goto foundhandler; }
 	if ((status = hexResolveMetadata(hexDataStart, &md)) != CW_OK) { goto foundhandler; }

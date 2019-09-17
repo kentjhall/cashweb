@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+	<head>
+	<meta charset="utf-8"/>
+	<script src="../src/cashgettools.js"></script>
+	<script>	
+		async function cashQuery(id, bitdb) {
+			const CWG = {
+				get_by_id: Module.cwrap('CWG_WA_get_by_id', 'number', ['number', 'number', 'number', 'number'], {async: true}),
+				errno_print_msg: Module.cwrap('CWG_WA_errno_print_msg', 'number', ['number', 'number'])
+			};
+
+			const idPtr = _malloc(id.length+1); stringToUTF8(id, idPtr, id.length+1);
+			const bitdbPtr = _malloc(bitdb.length+1); stringToUTF8(bitdb, bitdbPtr, bitdb.length+1);
+
+			const mimeStrPtr = _malloc(256);
+			var stream = FS.open(id, 'w');
+			var errno = await CWG.get_by_id(idPtr, bitdbPtr, mimeStrPtr, stream.fd);	
+			FS.close(stream);
+			const mimeStr = UTF8ToString(mimeStrPtr);
+			_free(mimeStrPtr);
+
+			_free(bitdbPtr);
+			_free(idPtr);
+
+			if (errno != 0) {
+				const msgPtr = CWG.errno_print_msg(errno);
+				console.log(UTF8ToString(msgPtr) + ".\n");
+			} else {
+				const blob = new Blob([FS.readFile(id)], {type: mimeStr});	
+				window.location.href = URL.createObjectURL(blob);
+			}				
+			FS.unlink(id);
+		}
+	</script>
+	</head>
+	<body>
+		<form onsubmit="return false;">
+			<input type="text" id="id-text"><br>
+			<input type="text" id="bitdb-text" value="https://bitdb.bitcoin.com/q"><br>
+			<input type="submit" onclick="cashQuery(document.getElementById('id-text').value, document.getElementById('bitdb-text').value);">
+		</form>
+	</body>
+</html>

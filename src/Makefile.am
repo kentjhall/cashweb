@@ -1,9 +1,21 @@
-CC = gcc
-AM_CFLAGS = -g -Wall -O0 -fPIC
-AM_LDFLAGS = -g
+CC = 
+AM_CFLAGS = -I$(srcdir)/jansson -I$(srcdir)/jansson/src
+if !WITH_EMSCRIPTEN
+CC += gcc
+AM_CFLAGS += -g -Wall -O0 -fPIC 
+else
+CC += emcc
+AM_CFLAGS += --preload-file $(srcdir)/../data/CW_mimetypes@/data/CW_mimetypes -s WASM=1 -s FETCH=1 -s EMTERPRETIFY=1 -s EMTERPRETIFY_ASYNC=1 -s ASSERTIONS=1 -s EXTRA_EXPORTED_RUNTIME_METHODS='["cwrap"]' -I$(srcdir)/jansson -I$(srcdir)/jansson/src
+endif
+AM_LDFLAGS = -g \
+	-no-undefined \
+	-export-symbols-regex '^json_'
+
+include_HEADERS = cashwebuni.h cashgettools.h
+
+if !WITH_EMSCRIPTEN
 
 lib_LIBRARIES = libcashgettools.a
-include_HEADERS = cashwebuni.h cashgettools.h
 bin_PROGRAMS = cashget
 
 if WITH_CASHSERVER
@@ -16,19 +28,39 @@ include_HEADERS += cashsendtools.h
 bin_PROGRAMS += cashsend
 endif
 
+else
+
+bin_PROGRAMS = cashgettools.js
+cashgettools_js_SOURCES = cashgettools_wasm.c
+CLEANFILES = *.a *.wasm *.wast *.js *.data
+
+endif
+
 libmylist_sources = mylist/mylist.c
 libb64encode_sources = b64/encode.c
 libbitcoinrpc_sources = libbitcoinrpc/bitcoinrpc_err.c libbitcoinrpc/bitcoinrpc_cl.c libbitcoinrpc/bitcoinrpc.c libbitcoinrpc/bitcoinrpc_method.c libbitcoinrpc/bitcoinrpc_global.c libbitcoinrpc/bitcoinrpc_resp.c
+libjansson_sources = \
+	jansson/src/dump.c \
+	jansson/src/error.c \
+	jansson/src/hashtable.c \
+	jansson/src/hashtable_seed.c \
+	jansson/src/load.c \
+	jansson/src/memory.c \
+	jansson/src/pack_unpack.c \
+	jansson/src/strbuffer.c \
+	jansson/src/strconv.c \
+	jansson/src/utf.c \
+	jansson/src/value.c
 
-EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchutils_bitdb.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h
+EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchutils_bitdb.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h jansson/src/*.h
 
-libcashgettools_a_SOURCES = cashgettools.c cashwebutils.c $(libmylist_sources) $(libb64encode_sources)
+libcashgettools_a_SOURCES = cashgettools.c cashwebutils.c $(libmylist_sources) $(libb64encode_sources) $(libjansson_sources)
 if WITH_MONGODB
 libcashgettools_a_SOURCES += cashfetchutils.c
 else
 libcashgettools_a_SOURCES += cashfetchutils_nomongo.c
 endif
-libcashsendtools_a_SOURCES = cashsendtools.c cashwebutils.c $(libbitcoinrpc_sources)
+libcashsendtools_a_SOURCES = cashsendtools.c cashwebutils.c $(libbitcoinrpc_sources) $(libjansson_sources)
 
 cashget_SOURCES = cashget.c
 cashserver_SOURCES = cashserver.c

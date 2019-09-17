@@ -90,13 +90,19 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-bin_PROGRAMS = cashget$(EXEEXT) $(am__EXEEXT_1) $(am__EXEEXT_2)
-@WITH_CASHSERVER_TRUE@am__append_1 = cashserver
-@WITH_CASHSEND_TRUE@am__append_2 = libcashsendtools.a
-@WITH_CASHSEND_TRUE@am__append_3 = cashsendtools.h
-@WITH_CASHSEND_TRUE@am__append_4 = cashsend
-@WITH_MONGODB_TRUE@am__append_5 = cashfetchutils.c
-@WITH_MONGODB_FALSE@am__append_6 = cashfetchutils_nomongo.c
+@WITH_EMSCRIPTEN_FALSE@am__append_1 = gcc
+@WITH_EMSCRIPTEN_FALSE@am__append_2 = -g -Wall -O0 -fPIC 
+@WITH_EMSCRIPTEN_TRUE@am__append_3 = emcc
+@WITH_EMSCRIPTEN_TRUE@am__append_4 = --preload-file $(srcdir)/../data/CW_mimetypes@/data/CW_mimetypes -s WASM=1 -s FETCH=1 -s EMTERPRETIFY=1 -s EMTERPRETIFY_ASYNC=1 -s ASSERTIONS=1 -s EXTRA_EXPORTED_RUNTIME_METHODS='["cwrap"]' -I$(srcdir)/jansson -I$(srcdir)/jansson/src
+@WITH_EMSCRIPTEN_FALSE@bin_PROGRAMS = cashget$(EXEEXT) $(am__EXEEXT_1) \
+@WITH_EMSCRIPTEN_FALSE@	$(am__EXEEXT_2)
+@WITH_EMSCRIPTEN_TRUE@bin_PROGRAMS = cashgettools.js$(EXEEXT)
+@WITH_CASHSERVER_TRUE@@WITH_EMSCRIPTEN_FALSE@am__append_5 = cashserver
+@WITH_CASHSEND_TRUE@@WITH_EMSCRIPTEN_FALSE@am__append_6 = libcashsendtools.a
+@WITH_CASHSEND_TRUE@@WITH_EMSCRIPTEN_FALSE@am__append_7 = cashsendtools.h
+@WITH_CASHSEND_TRUE@@WITH_EMSCRIPTEN_FALSE@am__append_8 = cashsend
+@WITH_MONGODB_TRUE@am__append_9 = cashfetchutils.c
+@WITH_MONGODB_FALSE@am__append_10 = cashfetchutils_nomongo.c
 subdir = src
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -112,8 +118,9 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
-@WITH_CASHSERVER_TRUE@am__EXEEXT_1 = cashserver$(EXEEXT)
-@WITH_CASHSEND_TRUE@am__EXEEXT_2 = cashsend$(EXEEXT)
+@WITH_CASHSERVER_TRUE@@WITH_EMSCRIPTEN_FALSE@am__EXEEXT_1 = cashserver$(EXEEXT)
+@WITH_CASHSEND_TRUE@@WITH_EMSCRIPTEN_FALSE@am__EXEEXT_2 =  \
+@WITH_CASHSEND_TRUE@@WITH_EMSCRIPTEN_FALSE@	cashsend$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(libdir)" \
 	"$(DESTDIR)$(includedir)"
 PROGRAMS = $(bin_PROGRAMS)
@@ -153,27 +160,39 @@ am__v_AR_1 =
 libcashgettools_a_AR = $(AR) $(ARFLAGS)
 libcashgettools_a_LIBADD =
 am__libcashgettools_a_SOURCES_DIST = cashgettools.c cashwebutils.c \
-	mylist/mylist.c b64/encode.c cashfetchutils.c \
+	mylist/mylist.c b64/encode.c jansson/src/dump.c \
+	jansson/src/error.c jansson/src/hashtable.c \
+	jansson/src/hashtable_seed.c jansson/src/load.c \
+	jansson/src/memory.c jansson/src/pack_unpack.c \
+	jansson/src/strbuffer.c jansson/src/strconv.c \
+	jansson/src/utf.c jansson/src/value.c cashfetchutils.c \
 	cashfetchutils_nomongo.c
 am__dirstamp = $(am__leading_dot)dirstamp
 am__objects_1 = mylist/mylist.$(OBJEXT)
 am__objects_2 = b64/encode.$(OBJEXT)
-@WITH_MONGODB_TRUE@am__objects_3 = cashfetchutils.$(OBJEXT)
-@WITH_MONGODB_FALSE@am__objects_4 = cashfetchutils_nomongo.$(OBJEXT)
+am__objects_3 = jansson/src/dump.$(OBJEXT) jansson/src/error.$(OBJEXT) \
+	jansson/src/hashtable.$(OBJEXT) \
+	jansson/src/hashtable_seed.$(OBJEXT) \
+	jansson/src/load.$(OBJEXT) jansson/src/memory.$(OBJEXT) \
+	jansson/src/pack_unpack.$(OBJEXT) \
+	jansson/src/strbuffer.$(OBJEXT) jansson/src/strconv.$(OBJEXT) \
+	jansson/src/utf.$(OBJEXT) jansson/src/value.$(OBJEXT)
+@WITH_MONGODB_TRUE@am__objects_4 = cashfetchutils.$(OBJEXT)
+@WITH_MONGODB_FALSE@am__objects_5 = cashfetchutils_nomongo.$(OBJEXT)
 am_libcashgettools_a_OBJECTS = cashgettools.$(OBJEXT) \
 	cashwebutils.$(OBJEXT) $(am__objects_1) $(am__objects_2) \
-	$(am__objects_3) $(am__objects_4)
+	$(am__objects_3) $(am__objects_4) $(am__objects_5)
 libcashgettools_a_OBJECTS = $(am_libcashgettools_a_OBJECTS)
 libcashsendtools_a_AR = $(AR) $(ARFLAGS)
 libcashsendtools_a_LIBADD =
-am__objects_5 = libbitcoinrpc/bitcoinrpc_err.$(OBJEXT) \
+am__objects_6 = libbitcoinrpc/bitcoinrpc_err.$(OBJEXT) \
 	libbitcoinrpc/bitcoinrpc_cl.$(OBJEXT) \
 	libbitcoinrpc/bitcoinrpc.$(OBJEXT) \
 	libbitcoinrpc/bitcoinrpc_method.$(OBJEXT) \
 	libbitcoinrpc/bitcoinrpc_global.$(OBJEXT) \
 	libbitcoinrpc/bitcoinrpc_resp.$(OBJEXT)
 am_libcashsendtools_a_OBJECTS = cashsendtools.$(OBJEXT) \
-	cashwebutils.$(OBJEXT) $(am__objects_5)
+	cashwebutils.$(OBJEXT) $(am__objects_6) $(am__objects_3)
 libcashsendtools_a_OBJECTS = $(am_libcashsendtools_a_OBJECTS)
 am_cashget_OBJECTS = cashget.$(OBJEXT)
 cashget_OBJECTS = $(am_cashget_OBJECTS)
@@ -183,6 +202,12 @@ AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
+am__cashgettools_js_SOURCES_DIST = cashgettools_wasm.c
+@WITH_EMSCRIPTEN_TRUE@am_cashgettools_js_OBJECTS =  \
+@WITH_EMSCRIPTEN_TRUE@	cashgettools_wasm.$(OBJEXT)
+cashgettools_js_OBJECTS = $(am_cashgettools_js_OBJECTS)
+cashgettools_js_LDADD = $(LDADD)
+cashgettools_js_DEPENDENCIES = libcashgettools.a
 am_cashsend_OBJECTS = cashsend.$(OBJEXT)
 cashsend_OBJECTS = $(am_cashsend_OBJECTS)
 cashsend_DEPENDENCIES = libcashsendtools.a
@@ -207,9 +232,18 @@ depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = ./$(DEPDIR)/cashfetchutils.Po \
 	./$(DEPDIR)/cashfetchutils_nomongo.Po ./$(DEPDIR)/cashget.Po \
-	./$(DEPDIR)/cashgettools.Po ./$(DEPDIR)/cashsend.Po \
-	./$(DEPDIR)/cashsendtools.Po ./$(DEPDIR)/cashserver.Po \
-	./$(DEPDIR)/cashwebutils.Po b64/$(DEPDIR)/encode.Po \
+	./$(DEPDIR)/cashgettools.Po ./$(DEPDIR)/cashgettools_wasm.Po \
+	./$(DEPDIR)/cashsend.Po ./$(DEPDIR)/cashsendtools.Po \
+	./$(DEPDIR)/cashserver.Po ./$(DEPDIR)/cashwebutils.Po \
+	b64/$(DEPDIR)/encode.Po jansson/src/$(DEPDIR)/dump.Po \
+	jansson/src/$(DEPDIR)/error.Po \
+	jansson/src/$(DEPDIR)/hashtable.Po \
+	jansson/src/$(DEPDIR)/hashtable_seed.Po \
+	jansson/src/$(DEPDIR)/load.Po jansson/src/$(DEPDIR)/memory.Po \
+	jansson/src/$(DEPDIR)/pack_unpack.Po \
+	jansson/src/$(DEPDIR)/strbuffer.Po \
+	jansson/src/$(DEPDIR)/strconv.Po jansson/src/$(DEPDIR)/utf.Po \
+	jansson/src/$(DEPDIR)/value.Po \
 	libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po \
 	libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po \
 	libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po \
@@ -237,10 +271,12 @@ am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(libcashgettools_a_SOURCES) $(libcashsendtools_a_SOURCES) \
-	$(cashget_SOURCES) $(cashsend_SOURCES) $(cashserver_SOURCES)
+	$(cashget_SOURCES) $(cashgettools_js_SOURCES) \
+	$(cashsend_SOURCES) $(cashserver_SOURCES)
 DIST_SOURCES = $(am__libcashgettools_a_SOURCES_DIST) \
 	$(libcashsendtools_a_SOURCES) $(cashget_SOURCES) \
-	$(cashsend_SOURCES) $(cashserver_SOURCES)
+	$(am__cashgettools_js_SOURCES_DIST) $(cashsend_SOURCES) \
+	$(cashserver_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -277,7 +313,7 @@ AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
-CC = gcc
+CC = $(am__append_1) $(am__append_3)
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
 CPP = @CPP@
@@ -391,23 +427,44 @@ psdir = @psdir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
+subdirs = @subdirs@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-AM_CFLAGS = -g -Wall -O0 -fPIC
-AM_LDFLAGS = -g
-lib_LIBRARIES = libcashgettools.a $(am__append_2)
-include_HEADERS = cashwebuni.h cashgettools.h $(am__append_3)
+AM_CFLAGS = -I$(srcdir)/jansson -I$(srcdir)/jansson/src \
+	$(am__append_2) $(am__append_4)
+AM_LDFLAGS = -g \
+	-no-undefined \
+	-export-symbols-regex '^json_'
+
+include_HEADERS = cashwebuni.h cashgettools.h $(am__append_7)
+@WITH_EMSCRIPTEN_FALSE@lib_LIBRARIES = libcashgettools.a \
+@WITH_EMSCRIPTEN_FALSE@	$(am__append_6)
+@WITH_EMSCRIPTEN_TRUE@cashgettools_js_SOURCES = cashgettools_wasm.c
+@WITH_EMSCRIPTEN_TRUE@CLEANFILES = *.a *.wasm *.wast *.js *.data
 libmylist_sources = mylist/mylist.c
 libb64encode_sources = b64/encode.c
 libbitcoinrpc_sources = libbitcoinrpc/bitcoinrpc_err.c libbitcoinrpc/bitcoinrpc_cl.c libbitcoinrpc/bitcoinrpc.c libbitcoinrpc/bitcoinrpc_method.c libbitcoinrpc/bitcoinrpc_global.c libbitcoinrpc/bitcoinrpc_resp.c
-EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchutils_bitdb.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h
+libjansson_sources = \
+	jansson/src/dump.c \
+	jansson/src/error.c \
+	jansson/src/hashtable.c \
+	jansson/src/hashtable_seed.c \
+	jansson/src/load.c \
+	jansson/src/memory.c \
+	jansson/src/pack_unpack.c \
+	jansson/src/strbuffer.c \
+	jansson/src/strconv.c \
+	jansson/src/utf.c \
+	jansson/src/value.c
+
+EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchutils_bitdb.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h jansson/src/*.h
 libcashgettools_a_SOURCES = cashgettools.c cashwebutils.c \
-	$(libmylist_sources) $(libb64encode_sources) $(am__append_5) \
-	$(am__append_6)
-libcashsendtools_a_SOURCES = cashsendtools.c cashwebutils.c $(libbitcoinrpc_sources)
+	$(libmylist_sources) $(libb64encode_sources) \
+	$(libjansson_sources) $(am__append_9) $(am__append_10)
+libcashsendtools_a_SOURCES = cashsendtools.c cashwebutils.c $(libbitcoinrpc_sources) $(libjansson_sources)
 cashget_SOURCES = cashget.c
 cashserver_SOURCES = cashserver.c
 cashsend_SOURCES = cashsend.c
@@ -426,9 +483,9 @@ $(srcdir)/Makefile.in:  $(srcdir)/Makefile.am  $(am__configure_deps)
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu src/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign src/Makefile'; \
 	$(am__cd) $(top_srcdir) && \
-	  $(AUTOMAKE) --gnu src/Makefile
+	  $(AUTOMAKE) --foreign src/Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \
 	  *config.status*) \
@@ -542,6 +599,34 @@ b64/$(DEPDIR)/$(am__dirstamp):
 	@: > b64/$(DEPDIR)/$(am__dirstamp)
 b64/encode.$(OBJEXT): b64/$(am__dirstamp) \
 	b64/$(DEPDIR)/$(am__dirstamp)
+jansson/src/$(am__dirstamp):
+	@$(MKDIR_P) jansson/src
+	@: > jansson/src/$(am__dirstamp)
+jansson/src/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) jansson/src/$(DEPDIR)
+	@: > jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/dump.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/error.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/hashtable.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/hashtable_seed.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/load.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/memory.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/pack_unpack.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/strbuffer.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/strconv.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/utf.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
+jansson/src/value.$(OBJEXT): jansson/src/$(am__dirstamp) \
+	jansson/src/$(DEPDIR)/$(am__dirstamp)
 
 libcashgettools.a: $(libcashgettools_a_OBJECTS) $(libcashgettools_a_DEPENDENCIES) $(EXTRA_libcashgettools_a_DEPENDENCIES) 
 	$(AM_V_at)-rm -f libcashgettools.a
@@ -578,6 +663,10 @@ cashget$(EXEEXT): $(cashget_OBJECTS) $(cashget_DEPENDENCIES) $(EXTRA_cashget_DEP
 	@rm -f cashget$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(cashget_OBJECTS) $(cashget_LDADD) $(LIBS)
 
+cashgettools.js$(EXEEXT): $(cashgettools_js_OBJECTS) $(cashgettools_js_DEPENDENCIES) $(EXTRA_cashgettools_js_DEPENDENCIES) 
+	@rm -f cashgettools.js$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(cashgettools_js_OBJECTS) $(cashgettools_js_LDADD) $(LIBS)
+
 cashsend$(EXEEXT): $(cashsend_OBJECTS) $(cashsend_DEPENDENCIES) $(EXTRA_cashsend_DEPENDENCIES) 
 	@rm -f cashsend$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(cashsend_OBJECTS) $(cashsend_LDADD) $(LIBS)
@@ -589,6 +678,7 @@ cashserver$(EXEEXT): $(cashserver_OBJECTS) $(cashserver_DEPENDENCIES) $(EXTRA_ca
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 	-rm -f b64/*.$(OBJEXT)
+	-rm -f jansson/src/*.$(OBJEXT)
 	-rm -f libbitcoinrpc/*.$(OBJEXT)
 	-rm -f mylist/*.$(OBJEXT)
 
@@ -599,11 +689,23 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashfetchutils_nomongo.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashget.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashgettools.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashgettools_wasm.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashsend.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashsendtools.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashserver.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cashwebutils.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@b64/$(DEPDIR)/encode.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/dump.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/error.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/hashtable.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/hashtable_seed.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/load.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/memory.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/pack_unpack.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/strbuffer.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/strconv.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/utf.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@jansson/src/$(DEPDIR)/value.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po@am__quote@ # am--include-marker
@@ -783,12 +885,15 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
+	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
 	-test . = "$(srcdir)" || test -z "$(CONFIG_CLEAN_VPATH_FILES)" || rm -f $(CONFIG_CLEAN_VPATH_FILES)
 	-rm -f b64/$(DEPDIR)/$(am__dirstamp)
 	-rm -f b64/$(am__dirstamp)
+	-rm -f jansson/src/$(DEPDIR)/$(am__dirstamp)
+	-rm -f jansson/src/$(am__dirstamp)
 	-rm -f libbitcoinrpc/$(DEPDIR)/$(am__dirstamp)
 	-rm -f libbitcoinrpc/$(am__dirstamp)
 	-rm -f mylist/$(DEPDIR)/$(am__dirstamp)
@@ -807,11 +912,23 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/cashfetchutils_nomongo.Po
 	-rm -f ./$(DEPDIR)/cashget.Po
 	-rm -f ./$(DEPDIR)/cashgettools.Po
+	-rm -f ./$(DEPDIR)/cashgettools_wasm.Po
 	-rm -f ./$(DEPDIR)/cashsend.Po
 	-rm -f ./$(DEPDIR)/cashsendtools.Po
 	-rm -f ./$(DEPDIR)/cashserver.Po
 	-rm -f ./$(DEPDIR)/cashwebutils.Po
 	-rm -f b64/$(DEPDIR)/encode.Po
+	-rm -f jansson/src/$(DEPDIR)/dump.Po
+	-rm -f jansson/src/$(DEPDIR)/error.Po
+	-rm -f jansson/src/$(DEPDIR)/hashtable.Po
+	-rm -f jansson/src/$(DEPDIR)/hashtable_seed.Po
+	-rm -f jansson/src/$(DEPDIR)/load.Po
+	-rm -f jansson/src/$(DEPDIR)/memory.Po
+	-rm -f jansson/src/$(DEPDIR)/pack_unpack.Po
+	-rm -f jansson/src/$(DEPDIR)/strbuffer.Po
+	-rm -f jansson/src/$(DEPDIR)/strconv.Po
+	-rm -f jansson/src/$(DEPDIR)/utf.Po
+	-rm -f jansson/src/$(DEPDIR)/value.Po
 	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po
 	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po
 	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po
@@ -868,11 +985,23 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/cashfetchutils_nomongo.Po
 	-rm -f ./$(DEPDIR)/cashget.Po
 	-rm -f ./$(DEPDIR)/cashgettools.Po
+	-rm -f ./$(DEPDIR)/cashgettools_wasm.Po
 	-rm -f ./$(DEPDIR)/cashsend.Po
 	-rm -f ./$(DEPDIR)/cashsendtools.Po
 	-rm -f ./$(DEPDIR)/cashserver.Po
 	-rm -f ./$(DEPDIR)/cashwebutils.Po
 	-rm -f b64/$(DEPDIR)/encode.Po
+	-rm -f jansson/src/$(DEPDIR)/dump.Po
+	-rm -f jansson/src/$(DEPDIR)/error.Po
+	-rm -f jansson/src/$(DEPDIR)/hashtable.Po
+	-rm -f jansson/src/$(DEPDIR)/hashtable_seed.Po
+	-rm -f jansson/src/$(DEPDIR)/load.Po
+	-rm -f jansson/src/$(DEPDIR)/memory.Po
+	-rm -f jansson/src/$(DEPDIR)/pack_unpack.Po
+	-rm -f jansson/src/$(DEPDIR)/strbuffer.Po
+	-rm -f jansson/src/$(DEPDIR)/strconv.Po
+	-rm -f jansson/src/$(DEPDIR)/utf.Po
+	-rm -f jansson/src/$(DEPDIR)/value.Po
 	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc.Po
 	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_cl.Po
 	-rm -f libbitcoinrpc/$(DEPDIR)/bitcoinrpc_err.Po
