@@ -1,3 +1,5 @@
+# TODO: bunch of stuff to update now with regard to restructuring and WebAssembly porting
+
 # CashWeb: libraries + executables
 
 C libraries and useful executables for sending/getting from the Bitcoin Cash blockchain under the CashWeb protocol.
