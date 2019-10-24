@@ -1,8 +1,17 @@
-#include "cashsendtools.h"
-#include "cashwebutils.h"
 #include <errno.h>
 #include <fts.h>
 #include <libbitcoinrpc/bitcoinrpc.h>
+#include "cashsendtools.h"
+#include "cashwebutils.h"
+
+/* stream for logging errors; defaults to stderr */
+FILE *CWS_err_stream = NULL;
+#define CWS_err_stream (CWS_err_stream ? CWS_err_stream : stderr)
+#define perror(str) fprintf(CWS_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
+
+/* stream for logging progress/details; defaults to stderr */
+FILE *CWS_log_stream = NULL;
+#define CWS_log_stream (CWS_log_stream ? CWS_log_stream : stderr)
 
 /* general constants */
 #define LINE_BUF 150
@@ -27,15 +36,6 @@
 #define TX_OUTPUT_SZ 34
 #define TX_DATA_BASE_SZ 10
 #define TX_SZ_CAP 100000
-
-/* stream for logging errors; defaults to stderr */
-FILE *CWS_err_stream = NULL;
-#define CWS_err_stream (CWS_err_stream ? CWS_err_stream : stderr)
-#define perror(str) fprintf(CWS_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
-
-/* stream for logging progress/details; defaults to stderr */
-FILE *CWS_log_stream = NULL;
-#define CWS_log_stream (CWS_log_stream ? CWS_log_stream : stderr)
 
 /* rpc method identifiers */
 typedef enum RpcMethod {

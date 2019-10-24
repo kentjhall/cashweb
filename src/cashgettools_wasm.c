@@ -12,7 +12,7 @@ EMSCRIPTEN_KEEPALIVE
 CW_STATUS CWG_WA_get_by_id(const char *id, const char *bitdbNode, char *mimeStr, int fd) {
 	struct CWG_params params;
 	char mimeBuf[CWG_MIMESTR_BUF]; mimeBuf[0] = 0;
-	init_CWG_params(&params, NULL, bitdbNode, &mimeBuf);	
+	init_CWG_params(&params, NULL, bitdbNode, NULL, &mimeBuf);	
 	params.datadir = "/data";
 	CWG_err_stream = stderr;
 

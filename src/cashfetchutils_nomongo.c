@@ -1,5 +1,5 @@
 #include "cashfetchutils.h"
-#include "cashfetchutils_bitdb.h"
+#include "cashfetchhttputils.h"
 #include "cashwebutils.h"
 
 /*
@@ -7,7 +7,8 @@
  * writes txids (in order) to provided pointer (if not NULL), and writes all hex data (in order) to hexDataAll
  */
 CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE type, struct CWG_params *params, char **txids, char *hexDataAll) {
-	if (params->bitdbNode) { return fetchHexDataBitDBNode(ids, count, type, params->bitdbNode, params->bitdbRequestLimit, txids, hexDataAll); }
+	if (params->bitdbNode) { return fetchHexDataBitDBNode(ids, count, type, params->bitdbNode, params->requestLimit, txids, hexDataAll); }
+	else if (params->restEndpoint) { return fetchHexDataREST(ids, count, type, params->restEndpoint, params->requestLimit, txids, hexDataAll); }
 	else {
 		fprintf(CWG_err_stream, "ERROR: BitDB HTTP endpoint address is set in cashgettools implementation\n");
 		return CW_CALL_NO;
@@ -19,12 +20,12 @@ CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE type, struct C
  * should only be called from public functions that will get
  */
 CW_STATUS initFetcher(struct CWG_params *params) {
-	if (params->bitdbNode) {
+	if (params->bitdbNode || params->restEndpoint) {
 		curl_global_init(CURL_GLOBAL_DEFAULT);
-		if (params->bitdbRequestLimit) { srandom(time(NULL)); }
+		if (params->requestLimit) { srandom(time(NULL)); }
 	}	
 	else {
-		fprintf(CWG_err_stream, "ERROR: cashgettools requires a BitDB Node address to be specified\n");
+		fprintf(CWG_err_stream, "ERROR: cashgettools requires an HTTP endpoint to be specified (either BitDB or REST)\n");
 		return CW_CALL_NO;
 	}
 

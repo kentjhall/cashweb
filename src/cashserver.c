@@ -498,7 +498,7 @@ static int requestHandler(void *cls,
 }
 
 int main(int argc, char **argv) {
-	init_CWG_params(&genGetParams, NULL, NULL, NULL);
+	init_CWG_params(&genGetParams, NULL, NULL, NULL, NULL);
 	genGetParams.foundHandler = &cashFoundHandler;
 
 	defaultGetId = NULL;
@@ -512,7 +512,7 @@ int main(int argc, char **argv) {
 
 	bool no = false;
 	int c;
-	while ((c = getopt(argc, argv, ":hp:m:b:d:c:q:nsf:t:")) != -1) {
+	while ((c = getopt(argc, argv, ":hp:m:b:r:d:c:q:nsf:t:")) != -1) {
 		switch (c) {
 			case 'h':
 				fprintf(stderr, HELP_STR, argv[0]);
@@ -525,6 +525,10 @@ int main(int argc, char **argv) {
 				break;
 			case 'b':
 				genGetParams.bitdbNode = optarg;
+				mongodb = NULL;
+				break;
+			case 'r':
+				genGetParams.restEndpoint = optarg;
 				mongodb = NULL;
 				break;
 			case 'd':

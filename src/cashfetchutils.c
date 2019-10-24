@@ -1,9 +1,8 @@
 #include "cashfetchutils.h"
-#include "cashfetchutils_bitdb.h"
+#include "cashfetchhttputils.h"
 #include <mongoc.h>
 
 /* MongoDB constants */
-#define MONGODB_STR_HEX_PREFIX "OP_RETURN "
 #define MONGODB_APPNAME "cashgettools"
 
 /*
@@ -57,7 +56,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 	const char *txid;
 	const char *inTxid;
 	int vout;
-	size_t hexPrefixLen = strlen(MONGODB_STR_HEX_PREFIX);
+	size_t hexPrefixLen = strlen(DATA_STR_PREFIX);
 	bool matched;
 	for (int i=0; i<count; i++) { 
 		matched = false;
@@ -109,7 +108,7 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
 					status = CWG_FETCH_ERR;
 					break;
 				} 
-				if (strncmp(str, MONGODB_STR_HEX_PREFIX, hexPrefixLen) != 0) { status = CWG_FILE_ERR; json_decref(resJson); break; }
+				if (strncmp(str, DATA_STR_PREFIX, hexPrefixLen) != 0) { status = CWG_FILE_ERR; json_decref(resJson); break; }
 
 				hexData[0] = 0; strncat(hexData, str+hexPrefixLen, CW_TX_DATA_CHARS);
 				if ((token = strchr(hexData, ' '))) { *token = 0; }
@@ -155,7 +154,8 @@ static CW_STATUS fetchHexDataMongoDB(const char **ids, size_t count, FETCH_TYPE 
  */
 CW_STATUS fetchHexData(const char **ids, size_t count, FETCH_TYPE type, struct CWG_params *params, char **txids, char *hexDataAll) {
 	if (params->mongodbCli) { return fetchHexDataMongoDB(ids, count, type, (mongoc_client_t *)params->mongodbCli, txids, hexDataAll); }
-	else if (params->bitdbNode) { return fetchHexDataBitDBNode(ids, count, type, params->bitdbNode, params->bitdbRequestLimit, txids, hexDataAll); }
+	else if (params->bitdbNode) { return fetchHexDataBitDBNode(ids, count, type, params->bitdbNode, params->requestLimit, txids, hexDataAll); }
+	else if (params->restEndpoint) { return fetchHexDataREST(ids, count, type, params->restEndpoint, params->requestLimit, txids, hexDataAll); }
 	else {
 		fprintf(CWG_err_stream, "ERROR: neither MongoDB nor BitDB HTTP endpoint address is set in cashgettools implementation\n");
 		return CW_CALL_NO;
@@ -191,9 +191,9 @@ CW_STATUS initFetcher(struct CWG_params *params) {
 			mongoc_client_set_appname((mongoc_client_t *)params->mongodbCli, MONGODB_APPNAME);
 		}	
 	} 
-	else if (params->bitdbNode) {
+	else if (params->bitdbNode || params->restEndpoint) {
 		curl_global_init(CURL_GLOBAL_DEFAULT);
-		if (params->bitdbRequestLimit) { srandom(time(NULL)); }
+		if (params->requestLimit) { srandom(time(NULL)); }
 	}	
 	else {
 		fprintf(CWG_err_stream, "ERROR: cashgettools requires either MongoDB or BitDB Node address to be specified\n");

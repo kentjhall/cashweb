@@ -1,18 +1,16 @@
-#include "cashgettools.h"
-#include "cashwebutils.h"
-#include "cashfetchutils.h"
 #include <pthread.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <mylist/mylist.h>
-
-/* general constants */
-#define LINE_BUF 150
+#include "cashgettools.h"
+#include "cashwebutils.h"
 
 /* stream for logging errors; defaults to stderr */
 FILE *CWG_err_stream = NULL;
-#define CWG_err_stream (CWG_err_stream ? CWG_err_stream : stderr)
-#define perror(str) fprintf(CWG_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
+
+#include "cashfetchutils.h"
+
+/* general constants */
+#define LINE_BUF 150
 
 /*
  * struct for information to carry around during script execution
@@ -239,12 +237,13 @@ static CW_STATUS getByGetterPath(struct CWG_getter *getter, const char *path, in
 
 /* ------------------------------------- PUBLIC ------------------------------------- */
 
-void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, char (*saveMimeStr)[CWG_MIMESTR_BUF]) {
+void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, const char *restEndpoint, char (*saveMimeStr)[CWG_MIMESTR_BUF]) {
 	cgp->mongodb = mongodb;
 	cgp->mongodbCli = NULL;
 	cgp->mongodbCliPool = NULL;
 	cgp->bitdbNode = bitdbNode;
-	cgp->bitdbRequestLimit = true;
+	cgp->restEndpoint = restEndpoint;
+	cgp->requestLimit = true;
 	cgp->dirPath = NULL;
 	cgp->forceDir = false;
 	cgp->saveMimeStr = saveMimeStr;
@@ -260,6 +259,8 @@ void copy_CWG_params(struct CWG_params *dest, struct CWG_params *source) {
 	dest->mongodbCli = source->mongodbCli;
 	dest->mongodbCliPool = source->mongodbCliPool;
 	dest->bitdbNode = source->bitdbNode;
+	dest->restEndpoint = source->restEndpoint;
+	dest->requestLimit = source->requestLimit;
 	dest->dirPath = source->dirPath;
 	dest->forceDir = source->forceDir;
 	dest->saveMimeStr = source->saveMimeStr;

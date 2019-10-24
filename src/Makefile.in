@@ -91,9 +91,9 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 @WITH_EMSCRIPTEN_FALSE@am__append_1 = gcc
-@WITH_EMSCRIPTEN_FALSE@am__append_2 = -g -Wall -O0 -fPIC 
+@WITH_EMSCRIPTEN_FALSE@am__append_2 = -g -Wall -O3 -fPIC 
 @WITH_EMSCRIPTEN_TRUE@am__append_3 = emcc
-@WITH_EMSCRIPTEN_TRUE@am__append_4 = --preload-file $(srcdir)/../data/CW_mimetypes@/data/CW_mimetypes -s WASM=1 -s FETCH=1 -s EMTERPRETIFY=1 -s EMTERPRETIFY_ASYNC=1 -s ASSERTIONS=1 -s EXTRA_EXPORTED_RUNTIME_METHODS='["cwrap"]' -I$(srcdir)/jansson -I$(srcdir)/jansson/src
+@WITH_EMSCRIPTEN_TRUE@am__append_4 = --preload-file $(srcdir)/../data/CW_mimetypes@/data/CW_mimetypes -s WASM=1 -s FETCH=1 -s ASYNCIFY -s 'ASYNCIFY_IMPORTS=["jsFetch"]' -s ASSERTIONS=1 -s EXTRA_EXPORTED_RUNTIME_METHODS='["cwrap"]' -I$(srcdir)/jansson -I$(srcdir)/jansson/src
 @WITH_EMSCRIPTEN_FALSE@bin_PROGRAMS = cashget$(EXEEXT) $(am__EXEEXT_1) \
 @WITH_EMSCRIPTEN_FALSE@	$(am__EXEEXT_2)
 @WITH_EMSCRIPTEN_TRUE@bin_PROGRAMS = cashgettools.js$(EXEEXT)
@@ -460,7 +460,7 @@ libjansson_sources = \
 	jansson/src/utf.c \
 	jansson/src/value.c
 
-EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchutils_bitdb.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h jansson/src/*.h
+EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchhttputils.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h jansson/src/*.h
 libcashgettools_a_SOURCES = cashgettools.c cashwebutils.c \
 	$(libmylist_sources) $(libb64encode_sources) \
 	$(libjansson_sources) $(am__append_9) $(am__append_10)

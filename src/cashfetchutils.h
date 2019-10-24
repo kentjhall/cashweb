@@ -1,7 +1,11 @@
 #ifndef __CASHFETCHUTILS_H__
 #define __CASHFETCHUTILS_H__
 
+#include <errno.h>
 #include "cashgettools.h"
+
+#define CWG_err_stream (CWG_err_stream ? CWG_err_stream : stderr)
+#define perror(str) fprintf(CWG_err_stream, str": %s\n", errno ? strerror(errno) : "No errno")
 
 /* Fetch typing */
 typedef enum FetchType {

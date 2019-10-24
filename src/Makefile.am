@@ -2,10 +2,10 @@ CC =
 AM_CFLAGS = -I$(srcdir)/jansson -I$(srcdir)/jansson/src
 if !WITH_EMSCRIPTEN
 CC += gcc
-AM_CFLAGS += -g -Wall -O0 -fPIC 
+AM_CFLAGS += -g -Wall -O3 -fPIC 
 else
 CC += emcc
-AM_CFLAGS += --preload-file $(srcdir)/../data/CW_mimetypes@/data/CW_mimetypes -s WASM=1 -s FETCH=1 -s EMTERPRETIFY=1 -s EMTERPRETIFY_ASYNC=1 -s ASSERTIONS=1 -s EXTRA_EXPORTED_RUNTIME_METHODS='["cwrap"]' -I$(srcdir)/jansson -I$(srcdir)/jansson/src
+AM_CFLAGS += --preload-file $(srcdir)/../data/CW_mimetypes@/data/CW_mimetypes -s WASM=1 -s FETCH=1 -s ASYNCIFY -s 'ASYNCIFY_IMPORTS=["jsFetch"]' -s ASSERTIONS=1 -s EXTRA_EXPORTED_RUNTIME_METHODS='["cwrap"]' -I$(srcdir)/jansson -I$(srcdir)/jansson/src
 endif
 AM_LDFLAGS = -g \
 	-no-undefined \
@@ -52,7 +52,7 @@ libjansson_sources = \
 	jansson/src/utf.c \
 	jansson/src/value.c
 
-EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchutils_bitdb.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h jansson/src/*.h
+EXTRA_DIST = cashwebutils.h cashfetchutils.h cashfetchhttputils.h mylist/mylist.h b64/b64.h libbitcoinrpc/*.h jansson/src/*.h
 
 libcashgettools_a_SOURCES = cashgettools.c cashwebutils.c $(libmylist_sources) $(libb64encode_sources) $(libjansson_sources)
 if WITH_MONGODB

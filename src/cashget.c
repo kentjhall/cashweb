@@ -22,20 +22,24 @@
 
 int main(int argc, char **argv) {
 	struct CWG_params params;
-	init_CWG_params(&params, NULL, BITDB_DEFAULT, NULL);
+	init_CWG_params(&params, NULL, BITDB_DEFAULT, NULL, NULL);
 
 	bool getInfo = false;
 	bool getDirIndex = false;
 	bool getDirIndexLocal = false;
 
 	int c;
-	while ((c = getopt(argc, argv, ":hb:m:ldJDi")) != -1) {
+	while ((c = getopt(argc, argv, ":hb:r:m:ldJDi")) != -1) {
 		switch (c) {			
 			case 'h':
 				fprintf(stderr, HELP_STR, argv[0]);
 				exit(0);
 			case 'b':
 				params.bitdbNode = optarg;
+				break;
+			case 'r':
+				params.bitdbNode = NULL;
+				params.restEndpoint = optarg;
 				break;
 			case 'm':
 				params.mongodb = optarg;

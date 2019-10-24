@@ -94,7 +94,7 @@ static inline void destroy_CWG_nametag_info(struct CWG_nametag_info *cni) {
 		   must be cast from type mongoc_client_pool_t * (as such, MongoC library must be included/linked in user project if user-managed);
  * 		   may utilize CWG_init_mongo_pool and CWG_cleanup_mongo_pool when not user-managed (recommended)
  * bitdbNode: BitDB Node HTTP endpoint address; only specify if not using the former
- * bitdbRequestLimit: Specify whether or not BitDB Node has request limit 
+ * requestLimit: Specify whether or not http endpoint has request limit 
  * dirPath: Forces requested file to be treated as directory index (checked for validity) and gets at path dirPath;
  	    May be useful if getting by means other than cashweb path ID
  * forceDir: Forces requested file to be treated as directory index;
@@ -114,7 +114,8 @@ struct CWG_params {
 	void *mongodbCli;
 	void *mongodbCliPool;
 	const char *bitdbNode;
-	bool bitdbRequestLimit;
+	const char *restEndpoint;
+	bool requestLimit;
 	char *dirPath;
 	bool forceDir;
 	char (*saveMimeStr)[CWG_MIMESTR_BUF];
@@ -130,7 +131,7 @@ struct CWG_params {
  * if both specified, will default to MongoDB within cashgettools
  * if saving mime type string is desired, pointer must be passed here for array initialization; otherwise, can be set NULL
  */ 
-void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, char (*saveMimeStr)[CWG_MIMESTR_BUF]);
+void init_CWG_params(struct CWG_params *cgp, const char *mongodb, const char *bitdbNode, const char *restEndpoint, char (*saveMimeStr)[CWG_MIMESTR_BUF]);
 
 /*
  * copies struct CWG_params from source to dest
