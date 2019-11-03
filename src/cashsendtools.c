@@ -1429,6 +1429,8 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 		}
 	}
 
+ 	bool tinyChange = isLast && rp->forceTinyChangeLast;
+
 	// skip unnecessary RPC calls when just counting
 	if (rp->justCounting) {
 		json_decref(inputParams);
@@ -1446,8 +1448,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	json_object_set_new(outputParams, "data", json_string(hexDatasC > 1 ? txHexData : *hexDatas));
 
 	// construct output for tiny change output if specified
- 	bool tinyChange;
-	if ((tinyChange = isLast && rp->forceTinyChangeLast)) {
+	if (tinyChange) {
 		char tinyChangeAmntStr[B_AMNT_STR_BUF];
 		if (snprintf(tinyChangeAmntStr, B_AMNT_STR_BUF, "%.8f", TX_TINYCHANGE_AMNT) >= B_AMNT_STR_BUF) {
 			fprintf(CWS_err_stream, "B_AMNT_STR_BUF not set high enough; problem with cashsendtools\n");

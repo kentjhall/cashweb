@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <getopt.h>
+#include <sys/wait.h>
 
 #define USAGE_STR "usage: %s [FLAGS]\n"
 #define HELP_STR \
