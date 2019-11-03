@@ -30,8 +30,8 @@ endif
 
 else
 
-bin_PROGRAMS = cashgettools.js
-cashgettools_js_SOURCES = cashgettools_wasm.c
+bin_PROGRAMS = cashgettools_wasm.js
+cashgettools_wasm_js_SOURCES = cashgettools_wasm.c
 CLEANFILES = *.a *.wasm *.wast *.js *.data
 
 endif

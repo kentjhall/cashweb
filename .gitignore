@@ -2,6 +2,7 @@
 testing
 *.js
 *.wasm
+a.out
 /autom4te.cache/
 /config/
 Makefile

@@ -287,6 +287,8 @@ static CS_CW_STATUS cashGetDirPathId(struct cashRequestData *dirReq, struct CWG_
 			return CS_SYS_ERR;
 		}	
 
+		fprintf(stderr, "[pid=%d] unlinker child process created\n", (int)pid);
+
 		return cashGetDirPathId(dirReq, params, respfd, pathId);
 	}
 
@@ -477,6 +479,11 @@ static int requestHandler(void *cls,
 		return MHD_NO;
 	}
 	close(pipefd[1]);
+	printf("[pid=%d] request handler child process created\n", (int)pid);
+
+	while ((pid = waitpid((pid_t) -1, NULL, WNOHANG)) > 0) {
+        	printf("[pid=%d] child process terminated\n", (int)pid);
+        }	
 
 	int *fdstore = malloc(sizeof(int));
 	if (!fdstore) { perror("malloc failed"); return MHD_NO; }

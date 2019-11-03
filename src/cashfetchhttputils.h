@@ -83,17 +83,27 @@ static CW_STATUS httpRequest(const char *url, const char *postData, bool reqLimi
  */
 EM_JS(void, jsFetch, (const char *url, bool isPost, const char *postData, bool reqLimit, const char *fTmpNam), {
 	const urlStr = UTF8ToString(url);	
-	const postDataStr = isPost ? UTF8ToString(postData) : "";
-	const tmpNamStr = UTF8ToString(fTmpNam);
+	const tmpNamStr = UTF8ToString(fTmpNam);	
+
+	const headersJ = reqLimit ? {
+				"X-Forwarded-For": Math.floor(Math.random() * 1000).toString(10) + "." + Math.floor(Math.random() * 1000) + "." + Math.floor(Math.random() * 1000) + "." + Math.floor(Math.random() * 100),
+				"Accept": 'application/json',
+				"Content-Type": 'application/json'
+        		} : {
+				"Accept": 'application/json',
+				"Content-Type": 'application/json'
+			};
 
 	Asyncify.handleSleep(function(wakeUp) {
-		fetch(urlStr, {
-			method: (!isPost ? "GET" : "POST"),
-			body: postDataStr,
+		fetch(urlStr, !isPost ? {
+			method: "GET",
 			credentials: "omit",
-			headers: (reqLimit ? {
-				"X-Forwarded-For": Math.floor(Math.random() * 1000).toString(10) + "." + Math.floor(Math.random() * 1000) + "." + Math.floor(Math.random() * 1000) + "." + Math.floor(Math.random() * 100)
-        		} : {})
+			headers: headersJ
+		} : {
+			method: "POST",
+			body: UTF8ToString(postData),
+			credentials: "omit",
+			headers: headersJ
 		}).then(response => response.text()).then(text => {
 			FS.writeFile(tmpNamStr, text);
 			wakeUp();
