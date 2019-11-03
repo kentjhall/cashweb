@@ -480,10 +480,10 @@ static int requestHandler(void *cls,
 		return MHD_NO;
 	}
 	close(pipefd[1]);
-	printf("[pid=%d] request handler child process created\n", (int)pid);
+	fprintf(stderr, "[pid=%d] request handler child process created\n", (int)pid);
 
 	while ((pid = waitpid((pid_t) -1, NULL, WNOHANG)) > 0) {
-        	printf("[pid=%d] child process terminated\n", (int)pid);
+        	fprintf(stderr, "[pid=%d] child process terminated\n", (int)pid);
         }	
 
 	int *fdstore = malloc(sizeof(int));
