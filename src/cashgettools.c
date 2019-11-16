@@ -277,6 +277,7 @@ CW_STATUS CWG_get_by_id(const char *id, struct CWG_params *params, int fd) {
 	void (*savePtr) (CW_STATUS, void *, int) = params->foundHandler;
 	if ((status = getFileByIdPath(id, params->dirPath, NULL, params, fd)) == CW_CALL_NO) {
 		fprintf(CWG_err_stream, "CWG_get_by_id provided with invalid identifier: %s\n", id);
+		status = CWG_CALL_ID_NO;
 	}
 	params->foundHandler = savePtr;
 	
@@ -518,6 +519,8 @@ const char *CWG_errno_to_msg(CW_STATUS errNo) {
 			return "Bad call to cashgettools function; may be bad implementation";
 		case CW_SYS_ERR:
 			return "There was an unexpected system error. This may be problem with cashgettools";	
+		case CWG_CALL_ID_NO:
+			return "Invalid identifier queried";
 		case CWG_IN_DIR_NO:
 			return "Requested file doesn't exist in specified directory";
 		case CWG_IS_DIR_NO:
