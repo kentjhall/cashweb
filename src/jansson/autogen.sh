@@ -2,5 +2,4 @@
 
 aclocal \
 && automake --add-missing \
-&& autoconf \
-&& cd src/jansson && ./autogen.sh
+&& autoconf

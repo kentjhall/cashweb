@@ -34,3 +34,5 @@ stamp-h1
 *.lo
 *.gcno
 *.gcda
+src/jansson/autom4te.cache/requests
+src/jansson/jansson_private_config.h
