@@ -3,8 +3,8 @@ testing
 *.js
 *.wasm
 a.out
-/autom4te.cache/
-/config/
+autom4te.cache/
+config/
 Makefile
 Makefile.in
 aclocal.m4
