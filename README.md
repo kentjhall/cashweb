@@ -34,11 +34,11 @@ Required if optionally building cashserver:
 
 To install all build dependencies on Ubuntu:
 
-    sudo apt-get install autoconf automake libtool libmongoc-dev libcurl4-openssl-dev libjansson-dev uuid-dev libmicrohttpd-dev
+    sudo apt-get install autoconf automake libtool libcurl4-openssl-dev libjansson-dev uuid-dev libmicrohttpd-dev libmongoc-dev
 
 And on macOS (with Homebrew):
 
-    brew install autoconf automake libtool curl jansson mongo-c-driver ossp-uuid libmicrohttpd
+    brew install autoconf automake libtool curl jansson ossp-uuid libmicrohttpd mongo-c-driver
 
 
 ## Build/Install
