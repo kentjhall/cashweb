@@ -11,7 +11,7 @@ These project dependencies are required:
 
  Library     | Purpose                      | Description
  ------------|------------------------------|----------------------------------------------------------------------------------------
-  curl       | querying BitDB HTTP endpoint | tested with libcurl4-openssl-dev-7.58.0-2ubuntu3.7 on Ubuntu; curl-7.65.3 on macOS
+  curl       | querying HTTP endpoint       | tested with libcurl4-openssl-dev-7.58.0-2ubuntu3.7 on Ubuntu; curl-7.65.3 on macOS
   jansson    | JSON parsing/creation        | tested with libjansson-dev-2.11-1 on Ubuntu; jansson-2.12 on macOS
 
 Required if optionally building cashgettools to query local BitDB-populated MongoDB (and cashget/cashserver by extension):
@@ -42,6 +42,8 @@ And on macOS (with Homebrew):
 
 
 ## Build/Install
+
+First clone this repository
 
 Please make sure that you have all the required dependencies installed.<br/>
 Then configure with the following commands:
