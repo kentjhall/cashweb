@@ -43,9 +43,12 @@ And on macOS (with Homebrew):
 
 ## Build/Install
 
-First clone this repository
+First, clone the repository and enter the directory:
 
-Please make sure that you have all the required dependencies installed.<br/>
+    git clone https://github.com/kentjhall/cashweb
+    cd cashweb
+
+Please ensure that you have all the required dependencies installed.<br/>
 Then configure with the following commands:
 
     ./autogen.sh
