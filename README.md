@@ -1,11 +1,151 @@
-# TODO: bunch of stuff to update now with regard to restructuring and WebAssembly porting
-
-# CashWeb: libraries + executables
+# CashWeb: libraries + executables (+ WebAssembly JS!)
 
 C libraries and useful executables for sending/getting from the Bitcoin Cash blockchain under the CashWeb protocol.
 
 
-## Protocol overview
+## Build dependencies
+
+Autotools (`autoconf`, `automake`, and `libtool`) are required for building.
+
+These project dependencies are required:
+
+ Library     | Purpose                      | Description
+ ------------|------------------------------|----------------------------------------------------------------------------------------
+  curl       | querying BitDB HTTP endpoint | tested with libcurl4-openssl-dev-7.58.0-2ubuntu3.7 on Ubuntu; curl-7.65.3 on macOS
+  jansson    | JSON parsing/creation        | tested with libjansson-dev-2.11-1 on Ubuntu; jansson-2.12 on macOS
+
+Required if optionally building cashgettools to query local BitDB-populated MongoDB (and cashget/cashserver by extension):
+
+ Library     | Purpose                      | Description
+ ------------|------------------------------|----------------------------------------------------------------------------------------
+  mongoc     | querying MongoDB directly    | tested with libmongoc-dev-1.9.2+dfsg-1build1 on Ubuntu; mongo-c-driver-1.14.0 on macOS
+
+Required if optionally building cashsendtools (and cashsend by extension):
+
+ Library     | Purpose                      | Description
+ ------------|------------------------------|----------------------------------------------------------------------------------------
+  uuid       | generate UUIDs               | tested with uuid-dev-2.31.1-0.4ubuntu3.3 on Ubuntu; ossp-uuid-1.6.2 on macOS
+
+Required if optionally building cashserver:
+
+ Library     | Purpose                      | Description
+ ------------|------------------------------|----------------------------------------------------------------------------------------
+  microhttpd | basic HTTP server functions  | tested with libmicrohttpd-dev-0.9.59-1 on Ubuntu; libmicrohttpd-0.9.63 on macOS
+
+To install all build dependencies on Ubuntu:
+
+    sudo apt-get install autoconf automake libtool libmongoc-dev libcurl4-openssl-dev libjansson-dev uuid-dev libmicrohttpd-dev
+
+And on macOS (with Homebrew):
+
+    brew install autoconf automake libtool curl jansson mongo-c-driver ossp-uuid libmicrohttpd
+
+
+## Build/Install
+
+Please make sure that you have all the required dependencies installed.<br/>
+Then configure with the following commands:
+
+    ./autogen.sh
+    ./configure
+
+**NOTE:** append configure flag `--without-mongodb` to omit cashgettools MongoDB querying functionality, `--without-cashsend` to omit the cashsendtools library + cashsend executable, and/or `--without-cashserver` to omit the cashserver executable.
+
+And then make:
+	
+    make && make install
+
+**NOTE:** `make install` may require sudo privileges.<br/>
+This will build the libraries + executables and install to your system.
+
+To uninstall at any time:
+
+    make uninstall
+
+To clean up compiled files and start from scratch:
+
+    make distclean
+
+
+## Usage
+
+Available executables for experimentation with getting, sending, and serving (respectively):
+
+    cashget [FLAGS] <toget>
+
+    cashsend [FLAGS] <tosend>
+
+    cashserver [FLAGS]
+
+**NOTE:** use flag `-h` for usage details
+
+To use a library, it is enough to include the header file:
+
+    #include <cashgettools.h>
+
+and/or
+
+    #include <cashsendtools.h>
+
+in your source code and provide the following linker flag(s) during compilation:
+
+    -lcashgettools
+
+and/or
+
+    -lcashsendtools
+
+along with
+
+    -ljansson -lcurl
+
+and if using MongoDB querying, followed by
+
+    $(pkg-config --libs libmongoc-1.0)
+
+For further information, see the header file(s): [`src/cashgettools.h`](./src/cashgettools.h), [`src/cashsendtools.h`](./src/cashsendtools.h).<br/>
+Dedicated documentation is not yet available.
+
+**NOTE:** cashsendtools/cashsend works over RPC in current implementation, so full-node software is required for testing; however, all necessary RPC calls should function with pruning enabled, so that is an option if storage is a concern.
+
+*Please notice that this project is in a very early stage of development; highly experimental.*
+
+
+## Build to Javascript (WebAssembly)
+
+This probably isn't necessary to do yourself; the latest build should always be available at [the Browser Buddy repo](https://github.com/kentjhall/cashweb-bb) in the form of `cashgettools_wasm.js`, `cashgettools_wasm.wasm`, and `cashgettools_wasm.data`. (Notice that only cashgettools is available for now; I do plan to work on cashsendtools, but this will be much less straightforward.) I don't believe that building on your own system would offer much benefit (given that we're compiling to Javascript), but if you would like to tinker around with it, the process is relatively straightforward.
+
+Install the Emscripten SDK as per [these instructions](https://emscripten.org/docs/getting_started/downloads.html) with the *upstream* backend (should be the default now).<br>
+Then configure as follows:
+
+    ./autogen.sh
+    emconfigure ./configure --enable-emscripten
+
+And make normally:
+
+    make
+
+This will build `cashgettools_wasm.js`, `cashgettools_wasm.wasm`, and `cashgettools_wasm.data` in the `src` directory; they can be copied into a Javascript project from there. For an implementation example, see the browser extension repository referenced above.
+
+
+## Addendum
+
+Proceed with caution, particularly when using cashsendtools/cashsend–**I do not recommend risking any significant BCH on this for the time being**. Again, this is all highly experimental.
+
+cashgettools/cashget/cashserver seem to be running valgrind-clean for now, but this requires much more testing.
+
+cashsendtools/cashsend are currently untested valgrind-wise; TODO.
+
+
+## Protocol Details
+
+
+### Disclaimer
+
+While I will speak definitively on the protocol itself, there is bound to be unexpected behavior in making use of the libraries/executables detailed below–this software is criminally undertested, so please let me know if you find a query/result doesn't behave as described below.
+
+
+### Overview
 
 A CashWeb file is composed of any number of transactions on the blockchain that reference each other in their OP\_RETURN data.
 These references may be structured as a chain, a tree, or some combination of the two. However the TXs are structured,
@@ -112,112 +252,6 @@ It can also be noted that querying for path "/" should have the default behavior
 in this case, however, a query for this path would be equivalent to a query for path "/hello", which in turn queries for CashWeb ID *~appendtest*.
 
 So how do we query a path in a directory? This can be done with the fourth and final type of CashWeb ID–the Path ID. A Path ID may begin with any of the three previously mentioned ID types–TXID, Nametag ID, or Nametag Version ID–and is followed by a '/'-prefixed path. An example of this can already be seen in the above directory index, with the ID *~saffron/saffron.html*; in this way, it is perfectly legal for a directory to reference a file in another directory as its own. No distinction is made between a path that points to a full path stored within a directory index versus one that goes through a subdirectory; for example, if this directory were referenced under the identifier *~dirdir* (currently, it is) and you queried the Path ID *~dirdir/saffron/images/saffron.jpg*, there would be no way of knowing whether "/saffron/" is a separate subdirectory referenced from *~dirdir*, or if "/saffron/images/" is, or if "/images/" is a subdirectory of subdirectory "/saffron/", or if there are no subdirectories involved whatsoever and "/saffron/images/saffron.jpg" is simply a full path stored within *~dirdir*. Of course, this can always be checked by analyzing the directory index, but no distinction is made within the ID itself.
-
-
-### Disclaimer
-
-While I speak definitively on the protocol itself, there is bound to be unexpected behavior in making use of the libraries/executables detailed below–this software is criminally undertested, so please let me know when a query/result doesn't behave as described above.
-
-
-## Build dependencies
-
-These dependencies are required:
-
- Library     | Purpose                      | Description
- ------------|------------------------------|----------------------------------------------------------------------------------------
-  mongoc     | querying MongoDB directly    | tested with libmongoc-dev-1.9.2+dfsg-1build1 on Ubuntu; mongo-c-driver-1.14.0 on macOS
-  curl       | querying BitDB HTTP endpoint | tested with libcurl4-openssl-dev-7.58.0-2ubuntu3.7 on Ubuntu; curl-7.65.3 on macOS
-  jansson    | JSON parsing/creation        | tested with libjansson-dev-2.11-1 on Ubuntu; jansson-2.12 on macOS
-
-Required for cashsendtools/cashsend:
-
- Library     | Purpose                      | Description
- ------------|------------------------------|----------------------------------------------------------------------------------------
-  uuid       | generate UUIDs               | tested with uuid-dev-2.31.1-0.4ubuntu3.3 on Ubuntu; ossp-uuid-1.6.2 on macOS
-
-Required for cashserver:
-
- Library     | Purpose                      | Description
- ------------|------------------------------|----------------------------------------------------------------------------------------
-  microhttpd | basic HTTP server functions  | tested with libmicrohttpd-dev-0.9.59-1 on Ubuntu; libmicrohttpd-0.9.63 on macOS
-
-To install the build dependencies on Ubuntu, enter the following command:
-
-    sudo apt-get install libmongoc-dev libcurl4-openssl-dev libjansson-dev uuid-dev libmicrohttpd-dev
-
-
-## Build/Install
-
-Please make sure that you have all the required dependencies installed.<br/>
-Then type in the project folder:
-
-    ./autogen.sh && ./configure
-
-**NOTE:** append flag `--without-cashsend` to omit the cashsendtools library + cashsend executable, and/or `--without-cashserver` to omit the cashserver executable
-
-Then type in:
-	
-    make && make install
-
-**NOTE:** `make install` may require sudo privileges<br/>
-This will build the libraries + executables and install to your system.
-
-To uninstall at any time:
-
-    make uninstall
-
-To clean up compiled files and start from scratch:
-
-    make distclean
-
-
-## Usage
-
-Available executables for experimentation with getting, sending, and serving (respectively):
-
-    cashget [FLAGS] <toget>
-
-    cashsend [FLAGS] <tosend>
-
-    cashserver [FLAGS]
-
-**NOTE:** use flag *-h* for usage details
-
-To use a library, it is enough to include the header file:
-
-    #include <cashgettools.h>
-
-and/or
-
-    #include <cashsendtools.h>
-
-in your source code and provide the following linker flag(s) during compilation:
-
-    -lcashgettools
-
-and/or
-
-    -lcashsendtools
-
-along with
-
-    -ljansson -lcurl $(pkg-config --libs libmongoc-1.0)
-
-For further information, see the header file(s): [`src/cashgettools.h`](./src/cashgettools.h), [`src/cashsendtools.h`](./src/cashsendtools.h).<br/>
-Dedicated documentation is not yet available.
-
-**NOTE:** *cashsendtools*/*cashsend* works over RPC in its current implementation, so full-node software is required for testing; however, all necessary RPC calls should function with pruning enabled, so that is an option if storage is a concern.
-
-*Please notice that the code is in a very early stage of development; highly experimental.*
-
-
-## Addendum
-
-Proceed with caution, particularly when using *cashsendtools*/*cashsend*–**I do not recommend risking any significant BCH on this for the time being**. Again, this is all highly experimental.
-
-*cashgettools*/*cashget* seem to be running valgrind-clean for now, but this requires much more testing.
-
-*cashsendtools*/*cashsend* are currently untested valgrind-wise; TODO.
 
 
 ## License
