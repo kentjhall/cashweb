@@ -265,4 +265,4 @@ The source code is released under the terms of the MIT license.  Please, see
 [LICENSE](./LICENSE) for more information.
 
 
-*last updated: 2019-09-01*
+*last updated: 2019-11-22*
