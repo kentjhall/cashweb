@@ -98,9 +98,6 @@ AS_IF([test "x$enable_emscripten" != xyes && test "x$EMSCRIPTEN" != xyes], [
 	
 	AM_CONDITIONAL(WITH_EMSCRIPTEN, false)
 ], [
-	AC_SEARCH_LIBS([emscripten_fetch], [emscripten], [], [
-	  AC_MSG_ERROR([unable to find emscripten; please install this library with your package manager, and try again])
-	])
 	AC_CHECK_HEADER([emscripten/fetch.h], [], [
 	  AC_MSG_ERROR([unable to find header emscripten/fetch.h, please verify emscripten library installation and try again])
 	])

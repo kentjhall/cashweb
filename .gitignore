@@ -22,6 +22,7 @@ libtool
 missing
 stamp-h1
 *~
+*.swp
 *.html
 *.log
 *.o
@@ -34,5 +35,6 @@ stamp-h1
 *.lo
 *.gcno
 *.gcda
+a.out.js.mem
 src/jansson/autom4te.cache/requests
 src/jansson/jansson_private_config.h
