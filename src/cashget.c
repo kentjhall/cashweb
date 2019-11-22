@@ -10,6 +10,7 @@
 	"---------|-------------------------------------------------------------------------------------------------------------------------\n"\
 	"[none]   | get file at valid CashWeb ID <toget> and write to stdout\n"\
 	"-b <ARG> | specify BitDB HTTP endpoint URL for querying (default is "BITDB_DEFAULT")\n"\
+	"-r <ARG> | specify REST HTTP endpoint URL for querying\n"\
 	"-m <ARG> | specify MongoDB URI for querying\n"\
 	"-l       | query MongoDB running locally (equivalent to -m "MONGODB_LOCAL_ADDR")\n"\
 	"-d <ARG> | specify location of valid cashwebtools data directory (default is install directory)\n"\
