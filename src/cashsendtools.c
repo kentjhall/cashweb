@@ -1407,7 +1407,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 
 	if (rp->txsToSend >= TX_MAX_0CONF_CHAIN) {
 		// add change outputs for reuse up until the point additional inputs are required, or size is too big
-		bool done;
+		bool done = false;
 		while (reuseChangeOutCount <= (rp->txsToSend-1) - (rp->reservedUtxosCount-inputsCount)) {
 			totalExtraChange += reuseChangeAmnt;
 			++reuseChangeOutCount;
@@ -1602,8 +1602,7 @@ static CW_STATUS sendTxAttempt(const char *hexDatas[], size_t hexDatasC, bool is
 	json_decref(params);
 	if (status == CWS_RPC_NO) {
 		json_decref(jsonResult);
-		fprintf(CWS_err_stream, "error occurred in signing raw transaction; problem with cashsendtools\n\nraw tx:\n%s\n\n",
-			rawTx);
+		fprintf(CWS_err_stream, "error occurred in signing raw transaction; problem with cashsendtools\n\nraw tx:\n%s\n\n", rawTx);
 		free(rawTx);
 		return status;
 	} else if (status != CW_OK) {

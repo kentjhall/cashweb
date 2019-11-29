@@ -3,6 +3,7 @@ testing
 *.js
 *.wasm
 a.out
+.dirstamp
 autom4te.cache/
 config/
 Makefile
